@@ -122,7 +122,7 @@ detect_available_drives() {
         | grep -v 'loop\|rom\|sr0' || echo "")
 
     # Partitions with filesystem info
-    DETECTED_PARTITIONS=$(lsblk -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null \
+    DETECTED_PARTITIONS=$(lsblk -l -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null \
         | grep 'part' \
         | grep -v 'loop\|rom' || echo "")
 

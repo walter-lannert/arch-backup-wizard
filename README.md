@@ -55,6 +55,7 @@ sudo ./wizard.sh [OPTIONS]
 
 Options:
   --help, -h       Show help message
+  --dry-run, -d    Simulate wizard actions without making system changes
   --verbose, -v    Enable verbose logging
   --uninstall      Remove all wizard-created configurations
 ```

@@ -20,12 +20,14 @@ source "$WIZARD_DIR/lib/packages.sh"
 
 VERBOSE=false
 UNINSTALL=false
+DRY_RUN=false
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --uninstall)  UNINSTALL=true;  shift ;;
-            --verbose|-v) VERBOSE=true;    shift ;;
+            --uninstall)   UNINSTALL=true; shift ;;
+            --dry-run|-d)  DRY_RUN=true;   shift ;;
+            --verbose|-v)  VERBOSE=true;   shift ;;
             --help|-h)
                 cat <<EOF
 Arch Backup Wizard v${WIZARD_VERSION}
@@ -36,6 +38,7 @@ Usage:  sudo $0 [OPTIONS]
 
 Options:
   --help, -h       Show this help message
+  --dry-run, -d    Simulate wizard actions without making system changes
   --verbose, -v    Enable verbose output to terminal
   --uninstall      Remove all wizard-created configurations
 
@@ -61,8 +64,15 @@ EOF
 # ── Welcome screen ────────────────────────────────────────────────────────────
 
 show_welcome() {
-    ui_msgbox "Arch Backup Wizard v${WIZARD_VERSION}" \
-"Welcome to the Arch Backup Wizard!
+    local title="Arch Backup Wizard v${WIZARD_VERSION}"
+    local notice=""
+    if $DRY_RUN; then
+        title+=" [DRY RUN]"
+        notice="[DRY RUN MODE — No changes will be applied to your system]\n\n"
+    fi
+
+    ui_msgbox "$title" \
+"${notice}Welcome to the Arch Backup Wizard!
 
 This wizard will guide you through setting up a
 production-grade 5-layer backup architecture:
@@ -278,6 +288,17 @@ Continue?"; then
 _format_backup_drive() {
     local dev="$BACKUP_DEV"
 
+    if $DRY_RUN; then
+        log_info "[DRY RUN] Would partition and format $dev as BTRFS"
+        ui_msgbox "Format Drive [DRY RUN]" \
+"[DRY RUN] Simulating drive formatting:
+  Device: $dev
+  Filesystem: BTRFS (compress=zstd)
+
+No partitions or data were modified."
+        return 0
+    fi
+
     # If it's a whole disk (not a partition), partition it first
     if [[ "$dev" =~ ^/dev/[a-z]+$ ]] || [[ "$dev" =~ ^/dev/nvme[0-9]+n[0-9]+$ ]]; then
         log_info "Partitioning whole disk: $dev"
@@ -302,6 +323,11 @@ _format_backup_drive() {
 }
 
 _ensure_backup_mounted() {
+    if $DRY_RUN; then
+        log_info "[DRY RUN] Would add $BACKUP_UUID to /etc/fstab and mount at $BACKUP_MOUNT"
+        return 0
+    fi
+
     mkdir -p "$BACKUP_MOUNT"
 
     # Add to fstab if not already present
@@ -323,6 +349,115 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT/Deep Storage"
 
     log_info "Backup mount ready at $BACKUP_MOUNT"
+}
+
+# ── Dry-run simulation ────────────────────────────────────────────────────────
+
+run_dry_run_simulation() {
+    log_info "══════ Running Wizard Simulation (Dry Run) ══════"
+
+    local preview_dir="${DETECTED_HOME:-$HOME}/arch-backup-wizard-preview"
+    mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
+
+    # 1. Collect packages
+    local pkg_info=""
+    for l in "${SELECTED_LAYERS[@]}"; do
+        local pkgs
+        pkgs=$(get_layer_packages "$l")
+        [[ -n "$pkgs" ]] && pkg_info+="  Layer $l: $pkgs\n"
+    done
+
+    # 2. Collect actions per layer
+    local actions=""
+    if layer_selected "1"; then
+        actions+="• Layer 1 (Snapper):\n"
+        actions+="  - Configure /etc/snapper/configs/root\n"
+        actions+="  - Enable snapper-cleanup.timer\n"
+        case "$DETECTED_BOOTLOADER" in
+            grub) actions+="  - Enable grub-btrfsd.service\n" ;;
+            limine) actions+="  - limine-snapper-sync boot integration\n" ;;
+            systemd-boot) actions+="  - Manual snapshot swap rollback\n" ;;
+        esac
+    fi
+
+    if layer_selected "2"; then
+        actions+="• Layer 2 (btrbk):\n"
+        actions+="  - Configure /etc/btrbk/btrbk.conf\n"
+        actions+="  - Target: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/OS_Backup\n"
+        actions+="  - Create systemd override (Nice=19, Idle I/O)\n"
+        actions+="  - Enable btrbk.timer (daily clones)\n"
+    fi
+
+    if layer_selected "3"; then
+        actions+="• Layer 3 (Pika Backup):\n"
+        actions+="  - Borg repo: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Personal/backup-${DETECTED_HOSTNAME}-${DETECTED_USER}\n"
+        actions+="  - Guided GUI setup (hourly schedule, retention)\n"
+    fi
+
+    if layer_selected "4"; then
+        actions+="• Layer 4 (Cloud Offsite):\n"
+        actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh\n"
+        actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh\n"
+        actions+="  - User systemd timer: pika-cloud-sync.timer\n"
+        actions+="  - Shell startup nag integration: ${DETECTED_SHELL}\n"
+    fi
+
+    if layer_selected "5"; then
+        actions+="• Layer 5 (Deep Storage):\n"
+        actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage\n"
+    fi
+
+    # 3. Generate preview runbooks into preview sandbox
+    local orig_mount="$BACKUP_MOUNT"
+    BACKUP_MOUNT="$preview_dir/runbooks"
+    source "$WIZARD_DIR/lib/runbooks.sh"
+
+    # Temporarily silence UI dialogs during preview generation
+    local _saved_ui_msgbox
+    _saved_ui_msgbox=$(declare -f ui_msgbox)
+    ui_msgbox() { true; }
+    generate_runbooks >/dev/null 2>&1 || true
+    eval "$_saved_ui_msgbox"
+    BACKUP_MOUNT="$orig_mount"
+
+    # Also render scripts into preview dir
+    template_render "$WIZARD_DIR/templates/os-cloud-backup.sh" "$preview_dir/scripts/os-cloud-backup.sh" 2>/dev/null || true
+    template_render "$WIZARD_DIR/templates/os-clone-nag.sh" "$preview_dir/scripts/os-clone-nag.sh" 2>/dev/null || true
+    template_render "$WIZARD_DIR/templates/pika-cloud-sync.service" "$preview_dir/systemd/pika-cloud-sync.service" 2>/dev/null || true
+    template_render "$WIZARD_DIR/templates/pika-cloud-sync.timer" "$preview_dir/systemd/pika-cloud-sync.timer" 2>/dev/null || true
+
+    local rb_count
+    rb_count=$(find "$preview_dir/runbooks" -maxdepth 1 -name "*Runbook*.txt" 2>/dev/null | wc -l)
+
+    ui_msgbox "Simulation Complete [DRY RUN]" \
+"The wizard simulated all configuration steps!
+
+PACKAGES TO INSTALL:
+$pkg_info
+PLANNED ACTIONS:
+$actions
+PREVIEW RUNBOOKS GENERATED:
+  $rb_count recovery runbooks generated in:
+  $preview_dir/runbooks/
+
+NO SYSTEM FILES, DRIVES, OR PACKAGES WERE MODIFIED."
+
+    # Offer to preview a generated runbook
+    local first_rb
+    first_rb=$(find "$preview_dir/runbooks" -maxdepth 1 -name "*Runbook*.txt" 2>/dev/null | head -n 1)
+    if [[ -n "$first_rb" && -f "$first_rb" ]]; then
+        if ui_yesno "Preview Runbook" \
+"Would you like to view one of the generated runbooks?
+($(basename "$first_rb"))"; then
+            ui_textbox "Runbook Preview" "$first_rb"
+        fi
+    fi
+
+    # Run validation in read-only mode to show current system status
+    source "$WIZARD_DIR/lib/validate.sh"
+    run_validation || true
+
+    log_info "══════ Dry run simulation finished cleanly ══════"
 }
 
 # ── Main flow ─────────────────────────────────────────────────────────────────
@@ -369,6 +504,12 @@ main() {
     # Backup drive (if any layer needs it)
     if $NEEDS_BACKUP_DRIVE; then
         select_backup_drive
+    fi
+
+    # If in dry-run mode, simulate and exit
+    if $DRY_RUN; then
+        run_dry_run_simulation
+        exit 0
     fi
 
     # ── Run layer setup modules ──────────────────────────────────────────
