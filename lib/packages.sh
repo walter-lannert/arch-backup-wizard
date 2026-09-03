@@ -130,8 +130,15 @@ install_layer_packages() {
         fi
     done
 
-    [[ ${#pacman_pkgs[@]} -gt 0 ]] && pkg_install "${pacman_pkgs[@]}"
-    [[ ${#aur_pkgs[@]}    -gt 0 ]] && aur_install  "${aur_pkgs[@]}"
+    if [[ ${#pacman_pkgs[@]} -gt 0 ]]; then
+        pkg_install "${pacman_pkgs[@]}" || return 1
+    fi
+
+    if [[ ${#aur_pkgs[@]} -gt 0 ]]; then
+        aur_install "${aur_pkgs[@]}" || return 1
+    fi
+
+    return 0
 }
 
 # ── Ensure dialog itself is present ──────────────────────────────────────────

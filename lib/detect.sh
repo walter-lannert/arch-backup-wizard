@@ -157,7 +157,7 @@ detect_user_info() {
     DETECTED_USER=$(get_real_user)
     DETECTED_HOME=$(get_real_home)
     DETECTED_SHELL=$(getent passwd "$DETECTED_USER" | cut -d: -f7)
-    DETECTED_HOSTNAME=$(hostname)
+    DETECTED_HOSTNAME=$(cat /etc/hostname 2>/dev/null || uname -n || echo "localhost")
     DETECTED_MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
 
     log_info "User=$DETECTED_USER Home=$DETECTED_HOME Shell=$DETECTED_SHELL Host=$DETECTED_HOSTNAME"

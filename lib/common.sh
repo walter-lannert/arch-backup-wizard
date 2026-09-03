@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # arch-backup-wizard/lib/common.sh — Shared utilities, logging, and helpers
 
+[[ -n "${_ARCH_BACKUP_COMMON_LOADED:-}" ]] && return 0
+_ARCH_BACKUP_COMMON_LOADED=1
+
 set -euo pipefail
 
 # ── Colors ────────────────────────────────────────────────────────────────────
