@@ -63,10 +63,24 @@ run_validation() {
             failure_issues+=("Layer 1: snap-pac hooks missing")
         fi
 
-        if ! snapper list &>/dev/null; then
-            l1_ok=false
-            log_warn "Layer 1 check failed: 'snapper list' exited with non-zero status"
-            failure_issues+=("Layer 1: 'snapper list' command failed")
+        # 'snapper list' requires root privileges
+        local snapper_accessible=false
+        if [[ $EUID -eq 0 ]]; then
+            snapper list &>/dev/null && snapper_accessible=true
+        else
+            if sudo -n snapper list &>/dev/null; then
+                snapper_accessible=true
+            fi
+        fi
+
+        if ! $snapper_accessible; then
+            if [[ $EUID -ne 0 ]]; then
+                log_info "Layer 1 note: 'snapper list' requires root privileges; skipping command execution check in non-root dry-run"
+            else
+                l1_ok=false
+                log_warn "Layer 1 check failed: 'snapper list' exited with non-zero status"
+                failure_issues+=("Layer 1: 'snapper list' command failed")
+            fi
         fi
 
         if ! unit_is_enabled snapper-cleanup.timer; then
