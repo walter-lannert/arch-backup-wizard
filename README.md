@@ -55,6 +55,7 @@ sudo ./wizard.sh [OPTIONS]
 
 Options:
   --help, -h       Show help message
+  --validate [L]   Run health checks on backup configuration (all or specified layers: 1,2)
   --dry-run, -d    Simulate wizard actions without making system changes
   --verbose, -v    Enable verbose logging
   --uninstall      Remove all wizard-created configurations
@@ -97,6 +98,26 @@ Layer 4 sets up an intelligent user-space notifier (`~/.os_clone_nag.sh`) that e
 - **Desktop Environment Guards:** Automatically exits if running outside a graphical session (e.g. SSH logins or virtual TTYs).
 - **Concurrency Lock:** Uses process matching to ensure opening multiple terminal tabs simultaneously never spawns duplicate dialogs.
 - **Visual Progress:** Prompts with a non-intrusive `zenity` dialog. If you choose **Run Now**, it launches your native terminal emulator (`ptyxis`, `gnome-terminal`, `kitty`, `alacritty`, `konsole`, etc.) showing real-time `btrfs send` throughput and `zstd` compression speeds via `pv`.
+
+### Optional: Desktop Session Autostart (GNOME / KDE / XFCE)
+
+By default, the reminder triggers when you launch an interactive terminal. If you prefer the prompt to appear automatically once when logging into your desktop session, you can hook it via the standard XDG Autostart specification:
+
+```bash
+mkdir -p ~/.config/autostart
+cat << 'EOF' > ~/.config/autostart/os-clone-nag.desktop
+[Desktop Entry]
+Type=Application
+Name=OS Clone Backup Nag
+Comment=Prompts for bi-weekly OS cloud backup
+Exec=/bin/bash -c "sleep 10 && exec $HOME/.os_clone_nag.sh"
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+EOF
+```
+
+The validation suite (`./wizard.sh --validate`) automatically recognizes either shell rc startup or XDG Autostart as a valid configuration.
 
 ---
 
