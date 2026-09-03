@@ -215,6 +215,22 @@ run_validation() {
             failure_issues+=("Layer 4: pika-cloud-sync.timer missing")
         fi
 
+        # Check nag script hook in shell startup file
+        local shell_bin
+        shell_bin=$(basename "${DETECTED_SHELL:-bash}")
+        local rc_file=""
+        case "$shell_bin" in
+            zsh)    rc_file="${user_home}/.zshrc" ;;
+            fish)   rc_file="${user_home}/.config/fish/config.fish" ;;
+            bash|*) rc_file="${user_home}/.bashrc" ;;
+        esac
+
+        if [[ ! -f "$rc_file" ]] || ! grep -Fq ".os_clone_nag.sh" "$rc_file"; then
+            l4_ok=false
+            log_warn "Layer 4 check failed: nag script not configured in $rc_file"
+            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file")")
+        fi
+
         if $l4_ok; then
             layer4_status="✓ OK"
             log_success "Layer 4 (Cloud Offsite): All checks passed"

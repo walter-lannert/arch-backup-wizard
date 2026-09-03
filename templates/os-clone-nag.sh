@@ -1,5 +1,20 @@
 #!/bin/bash
 
+# Only run if inside a graphical desktop session
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    exit 0
+fi
+
+# Ensure zenity is available
+if ! command -v zenity >/dev/null 2>&1; then
+    exit 0
+fi
+
+# Prevent multiple stacked prompts if multiple terminals are launched simultaneously
+if pgrep -f "zenity.*OS Cloud Backup Due" >/dev/null 2>&1; then
+    exit 0
+fi
+
 YEAR=$(date +%Y)
 MONTH=$(date +%m)
 DAY=$(date +%d)

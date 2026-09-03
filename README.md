@@ -32,7 +32,7 @@ Interactive TUI wizard that sets up a 5-layer backup architecture for Arch Linux
 
 ### Requirements
 - **BTRFS root filesystem** (required for Layers 1 & 2)
-- **Secondary drive** for backup storage (SATA SSD, HDD, or NVMe)
+- **Secondary drive** for backup storage (SATA SSD, HDD, or NVMe). The wizard accepts existing BTRFS partitions or raw unpartitioned drives, offering automated GPT partitioning and BTRFS formatting with double confirmation.
 - **Internet connection** for Layer 4 (cloud offsite sync)
 - **AUR helper** (`paru` or `yay`) for bootloader integration packages
 
@@ -41,7 +41,7 @@ Interactive TUI wizard that sets up a 5-layer backup architecture for Arch Linux
 ## Quick Start
 
 ```bash
-git clone https://github.com/youruser/arch-backup-wizard.git
+git clone https://github.com/walter-lannert/arch-backup-wizard.git
 cd arch-backup-wizard
 sudo ./wizard.sh
 ```
@@ -85,6 +85,31 @@ The wizard creates and manages the following configuration files and systemd uni
 - `~/.os_clone_nag.sh` — Backup health and staleness notifier
 - `~/.config/systemd/user/pika-cloud-sync.{service,timer}` — User systemd timer for background Borg repository cloud syncing
 - **Personalized recovery runbooks** on the backup drive
+
+---
+
+## Bi-Weekly Cloud Backup Reminder (Nag Script)
+
+Layer 4 sets up an intelligent user-space notifier (`~/.os_clone_nag.sh`) that ensures you never fall behind on offsite OS snapshots:
+
+- **Interactive Shell Trigger:** Sourced automatically upon opening an interactive terminal (`.bashrc`, `.zshrc`, or `config.fish`).
+- **Bi-Weekly Calendar Period:** Checks whether a cloud backup has been completed for the current period (`YYYY-MM-P1` for days 1–14, `P2` for days 15+).
+- **Desktop Environment Guards:** Automatically exits if running outside a graphical session (e.g. SSH logins or virtual TTYs).
+- **Concurrency Lock:** Uses process matching to ensure opening multiple terminal tabs simultaneously never spawns duplicate dialogs.
+- **Visual Progress:** Prompts with a non-intrusive `zenity` dialog. If you choose **Run Now**, it launches your native terminal emulator (`ptyxis`, `gnome-terminal`, `kitty`, `alacritty`, `konsole`, etc.) showing real-time `btrfs send` throughput and `zstd` compression speeds via `pv`.
+
+---
+
+## Automated Post-Setup Health Checks
+
+At the end of setup (or when running `--dry-run`), the wizard executes a comprehensive validation suite:
+
+- **Layer 1:** Verifies Snapper configs, ALPM hooks, bootloader integration, and `snapper-cleanup.timer`.
+- **Layer 2:** Verifies `btrbk.conf`, `RequiresMountsFor` unit overrides, gaming priorities (`Nice=19`, `idle`), and `btrbk.timer` active state.
+- **Layer 3:** Verifies Borg repository initialization and Pika configuration.
+- **Layer 4:** Verifies rclone configuration, user sync timers, and shell startup hooks.
+- **Layer 5:** Verifies Deep Storage isolation.
+- **System Integration:** Verifies `/etc/fstab` backup entries and confirms that all 3 disaster recovery runbooks are present.
 
 ---
 
@@ -132,6 +157,21 @@ arch-backup-wizard/
 │   └── uninstall.sh       # Clean removal
 └── templates/             # Config and runbook templates
 ```
+
+---
+
+## Testing & Development
+
+You can test the wizard safely without modifying your primary system:
+
+- **Dry Run Simulation:** Run `sudo ./wizard.sh --dry-run` to simulate system detection, package planning, drive selection, and template rendering without making changes.
+- **Headless QEMU / KVM Sandbox:** Developers can launch an isolated virtual machine running the official Arch Linux cloud image with a virtual secondary drive:
+  ```bash
+  qemu-system-x86_64 -enable-kvm -m 4G -smp 4 -nographic \
+    -drive file=Arch-Linux-x86_64-cloudimg.qcow2,format=qcow2,if=virtio,snapshot=on \
+    -drive file=backup.qcow2,format=qcow2,if=virtio \
+    -net nic,model=virtio -net user -serial mon:stdio
+  ```
 
 ---
 
