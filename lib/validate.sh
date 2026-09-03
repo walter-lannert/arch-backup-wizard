@@ -215,7 +215,8 @@ run_validation() {
             failure_issues+=("Layer 4: pika-cloud-sync.timer missing")
         fi
 
-        # Check nag script hook in shell startup file
+        # Check nag script hook in shell startup file or XDG autostart
+        local hook_found=false
         local shell_bin
         shell_bin=$(basename "${DETECTED_SHELL:-bash}")
         local rc_file=""
@@ -225,10 +226,20 @@ run_validation() {
             bash|*) rc_file="${user_home}/.bashrc" ;;
         esac
 
-        if [[ ! -f "$rc_file" ]] || ! grep -Fq ".os_clone_nag.sh" "$rc_file"; then
+        if [[ -f "$rc_file" ]] && grep -Fq ".os_clone_nag.sh" "$rc_file"; then
+            hook_found=true
+        fi
+
+        # Also check XDG Autostart desktop entry
+        if [[ -f "${user_home}/.config/autostart/os-clone-nag.desktop" ]] || \
+           grep -rFqs ".os_clone_nag.sh" "${user_home}/.config/autostart/" 2>/dev/null; then
+            hook_found=true
+        fi
+
+        if ! $hook_found; then
             l4_ok=false
-            log_warn "Layer 4 check failed: nag script not configured in $rc_file"
-            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file")")
+            log_warn "Layer 4 check failed: nag script hook not found in $rc_file or ~/.config/autostart/"
+            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file") or ~/.config/autostart/")
         fi
 
         if $l4_ok; then
@@ -347,7 +358,10 @@ run_validation() {
         done
     fi
 
-    ui_msgbox "Validation Results" "$dashboard"
+    if [[ -t 1 ]] && command -v "${DIALOG_CMD:-dialog}" &>/dev/null; then
+        ui_msgbox "Validation Results" "$dashboard"
+    fi
+    echo "$dashboard"
 
     if $all_passed; then
         return 0

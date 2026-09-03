@@ -21,11 +21,21 @@ source "$WIZARD_DIR/lib/packages.sh"
 VERBOSE=false
 UNINSTALL=false
 DRY_RUN=false
+VALIDATE=false
+VALIDATE_LAYERS=()
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --uninstall)   UNINSTALL=true; shift ;;
+            --validate)
+                VALIDATE=true
+                shift
+                if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
+                    IFS=',' read -ra VALIDATE_LAYERS <<< "$1"
+                    shift
+                fi
+                ;;
             --dry-run|-d)  DRY_RUN=true;   shift ;;
             --verbose|-v)  VERBOSE=true;   shift ;;
             --help|-h)
@@ -38,6 +48,7 @@ Usage:  sudo $0 [OPTIONS]
 
 Options:
   --help, -h       Show this help message
+  --validate [L]   Run health checks on backup configuration (all or specified layers: 1,2)
   --dry-run, -d    Simulate wizard actions without making system changes
   --verbose, -v    Enable verbose output to terminal
   --uninstall      Remove all wizard-created configurations
@@ -467,7 +478,9 @@ main() {
     require_root
 
     # Set up log file under the real user's home
-    LOG_FILE="$(get_real_home)/arch-backup-wizard.log"
+    local target_home
+    target_home="$(get_real_home 2>/dev/null || echo "$HOME")"
+    LOG_FILE="${target_home}/arch-backup-wizard.log"
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
 
     # Ensure dialog is available before anything else
@@ -479,6 +492,21 @@ main() {
         source "$WIZARD_DIR/lib/uninstall.sh"
         run_uninstall
         exit 0
+    fi
+
+    # Handle --validate mode
+    if $VALIDATE; then
+        run_detection
+        source "$WIZARD_DIR/lib/validate.sh"
+        if [[ ${#VALIDATE_LAYERS[@]} -gt 0 ]]; then
+            SELECTED_LAYERS=("${VALIDATE_LAYERS[@]}")
+        else
+            SELECTED_LAYERS=("1" "2" "3" "4" "5")
+        fi
+        BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
+        BACKUP_UUID="${DETECTED_BACKUP_UUID:-}"
+        run_validation
+        exit $?
     fi
 
     # Welcome

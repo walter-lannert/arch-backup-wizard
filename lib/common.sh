@@ -77,8 +77,8 @@ template_render() {
 # Check we are running as root (or running in dry-run mode)
 require_root() {
     if [[ $EUID -ne 0 ]]; then
-        if ${DRY_RUN:-false}; then
-            log_warn "Running in dry-run mode without root privileges."
+        if ${DRY_RUN:-false} || ${VALIDATE:-false}; then
+            log_warn "Running without root privileges."
             return 0
         fi
         die "This wizard must be run as root. Use: sudo $0"
