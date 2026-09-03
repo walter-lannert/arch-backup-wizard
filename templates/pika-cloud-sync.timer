@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Pika Backup Sync to Cloud Storage
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1w
+Persistent=true
+
+[Install]
+WantedBy=timers.target

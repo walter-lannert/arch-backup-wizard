@@ -1,0 +1,8 @@
+# Local test environments & VMs
+vm-test/
+arch-backup-wizard-preview/
+
+# Logs & backups
+*.log
+arch-backup-wizard.log
+*.bak.*
