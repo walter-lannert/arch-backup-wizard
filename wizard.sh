@@ -339,6 +339,13 @@ main() {
     ensure_dialog
     detect_dialog
 
+    # Handle --uninstall mode
+    if $UNINSTALL; then
+        source "$WIZARD_DIR/lib/uninstall.sh"
+        run_uninstall
+        exit 0
+    fi
+
     # Welcome
     show_welcome
 
@@ -371,6 +378,7 @@ main() {
     source "$WIZARD_DIR/lib/layer4_cloud.sh"
     source "$WIZARD_DIR/lib/layer5_deep_storage.sh"
     source "$WIZARD_DIR/lib/runbooks.sh"
+    source "$WIZARD_DIR/lib/validate.sh"
 
     layer_selected "1" && setup_layer1
     layer_selected "2" && setup_layer2
@@ -381,25 +389,8 @@ main() {
     # ── Runbook generation ────────────────────────────────────────────────
     generate_runbooks
 
-    # ── Validation (Milestone 4) ──────────────────────────────────────────
-    # source "$WIZARD_DIR/lib/validate.sh" && run_validation
-
-    # ── Summary ───────────────────────────────────────────────────────────
-    local layer_list="${SELECTED_LAYERS[*]}"
-    local summary="Layers configured: $layer_list"
-    [[ -n "${BACKUP_MOUNT:-}" ]] && summary+="\nBackup drive: $BACKUP_MOUNT"
-
-    ui_msgbox "Setup Complete" \
-"The following layers have been configured:
-
-  $summary
-
-Recovery runbooks saved to: ${BACKUP_MOUNT:-N/A}
-
-Remaining (Milestone 4):
-  • Post-setup validation checks
-
-Log file: $LOG_FILE"
+    # ── Validation ────────────────────────────────────────────────────────
+    run_validation
 
     log_info "══════ Wizard completed ══════"
 }
