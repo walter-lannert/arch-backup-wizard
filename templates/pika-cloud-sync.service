@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Pika Backup Sync to Cloud Storage
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/bin/rclone sync {{BACKUP_MOUNT}}/Personal {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} -v

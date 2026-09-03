@@ -1,0 +1,339 @@
+================================================================================
+ARCH BACKUP WIZARD — DISASTER RECOVERY RUNBOOK
+LAYER 2: BARE-METAL SYSTEM RESTORATION FROM BACKUP DRIVE
+================================================================================
+
+ORIGINAL SYSTEM CONFIGURATION PROFILE
+--------------------------------------------------------------------------------
+Distribution:              {{DISTRO}}
+Hostname:                  {{HOSTNAME_VAL}}
+Target User:               {{USERNAME}}
+User Home Directory:       {{HOME_DIR}}
+Original Root UUID:        {{ROOT_UUID}}
+Original EFI UUID:         {{EFI_UUID}}
+Active Bootloader:         {{BOOTLOADER}}
+Root Subvolume Name:       {{ROOT_SUBVOL}}
+Detected Subvolume Layout: {{SUBVOL_LAYOUT}}
+Backup Storage Mount:      {{BACKUP_MOUNT}}
+Backup Drive UUID:         {{BACKUP_UUID}}
+================================================================================
+
+OVERVIEW
+--------------------------------------------------------------------------------
+This runbook guides you through a full bare-metal recovery after total drive
+failure, hardware replacement, or migration to a new NVMe/SSD drive.
+
+Recovery Flow:
+  1. Boot Arch Linux / {{DISTRO}} Live USB
+  2. Partition and format replacement NVMe drive (EFI + BTRFS root)
+  3. Mount backup drive and new drive; identify latest btrbk clone
+  4. Stream clone using btrfs send/receive
+  5. Snapshot clone to writable '@' subvolume
+  6. Delete read-only clone subvolume
+  7. Recreate subvolume layout based on: {{SUBVOL_LAYOUT}}
+  8. Set '@' as default BTRFS subvolume
+  9. Mount all subvolumes for chroot
+ 10. Update all UUIDs in /etc/fstab and bootloader configs
+ 11. Chroot and rebuild bootloader ({{BOOTLOADER}})
+ 12. Restore home directory data from Pika/Borg repository
+ 13. Reboot into fully restored system
+================================================================================
+
+
+--------------------------------------------------------------------------------
+STEP 1: BOOT LIVE USB AND IDENTIFY DRIVES
+--------------------------------------------------------------------------------
+1. Connect your backup drive (UUID: {{BACKUP_UUID}}) and boot your machine
+   from an Arch Linux or {{DISTRO}} Live USB.
+2. In the Live environment, open a root terminal (you are root by default).
+3. Identify all connected storage devices:
+
+     lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS
+
+   Identify:
+   - Your new target NVMe drive (e.g., /dev/nvme0n1 or /dev/sda)
+   - Your backup drive partition containing OS_Backup (UUID={{BACKUP_UUID}})
+
+[CRITICAL: In the commands below, replace '/dev/nvme0n1' with your target drive
+ if different, such as /dev/nvme1n1 or /dev/sda.]
+
+
+--------------------------------------------------------------------------------
+STEP 2: PARTITION AND FORMAT NEW NVME / SSD
+--------------------------------------------------------------------------------
+[WARNING: THIS WILL COMPLETELY ERASE THE TARGET DRIVE]
+
+1. Partition the new drive using cgdisk (interactive) or parted (scripted):
+
+   Option A — Interactive (cgdisk):
+     cgdisk /dev/nvme0n1
+     - Partition 1: Size: 4096M (4GB), Type code: EF00 (EFI System Partition)
+     - Partition 2: Size: Remainder of disk, Type code: 8300 (Linux filesystem)
+     - Write changes and exit.
+
+   Option B — Non-interactive (parted):
+     parted -s /dev/nvme0n1 mklabel gpt
+     parted -s /dev/nvme0n1 mkpart "EFI" fat32 1MiB 4097MiB
+     parted -s /dev/nvme0n1 set 1 esp on
+     parted -s /dev/nvme0n1 mkpart "ROOT" btrfs 4097MiB 100%
+
+2. Format the partitions:
+
+   # Format EFI partition as FAT32 (4GB):
+   mkfs.fat -F 32 -n EFI /dev/nvme0n1p1
+
+   # Format Root partition as BTRFS:
+   mkfs.btrfs -f -L ARCH_ROOT /dev/nvme0n1p2
+
+3. Record the new partition UUIDs:
+
+   NEW_EFI_UUID=$(blkid -s UUID -o value /dev/nvme0n1p1)
+   NEW_ROOT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p2)
+
+   echo "New EFI UUID:  $NEW_EFI_UUID"
+   echo "New Root UUID: $NEW_ROOT_UUID"
+
+
+--------------------------------------------------------------------------------
+STEP 3: MOUNT BOTH DRIVES AND IDENTIFY LATEST CLONE
+--------------------------------------------------------------------------------
+1. Mount the backup drive:
+
+   mkdir -p /mnt/backup
+   mount UUID={{BACKUP_UUID}} /mnt/backup 2>/dev/null || \
+   mount -o compress=zstd UUID={{BACKUP_UUID}} /mnt/backup
+
+   Verify the OS clone directory exists:
+   ls -la /mnt/backup/OS_Backup/
+
+2. Mount the new drive's top-level BTRFS root (subvol=/):
+
+   mkdir -p /mnt/new_os
+   mount -o subvol=/,compress=zstd /dev/nvme0n1p2 /mnt/new_os
+
+3. Identify the latest OS clone created by btrbk:
+
+   ls -lt /mnt/backup/OS_Backup/
+
+   Note the filename of the most recent snapshot (e.g., ROOT.20260903T0000 or
+   @.20260903). In following steps, this is referred to as <LATEST_CLONE>.
+   Example:
+     LATEST_CLONE=$(ls -1t /mnt/backup/OS_Backup | head -n 1)
+     echo "Selected latest clone: $LATEST_CLONE"
+
+
+--------------------------------------------------------------------------------
+STEP 4: BTRFS SEND / RECEIVE THE CLONE
+--------------------------------------------------------------------------------
+Transfer the full read-only snapshot from the backup drive to the new drive:
+
+  btrfs send "/mnt/backup/OS_Backup/$LATEST_CLONE" | btrfs receive /mnt/new_os/
+
+(Tip: If 'pv' is installed, monitor speed with:
+ btrfs send "/mnt/backup/OS_Backup/$LATEST_CLONE" | pv | btrfs receive /mnt/new_os/ )
+
+Verify the clone was received on the new drive:
+
+  ls -ld "/mnt/new_os/$LATEST_CLONE"
+
+
+--------------------------------------------------------------------------------
+STEP 5: SNAPSHOT READ-ONLY CLONE TO WRITABLE '@' SUBVOLUME
+--------------------------------------------------------------------------------
+Received subvolumes are permanently read-only. Create a new writable root
+subvolume named '@' from the received clone:
+
+  btrfs subvolume snapshot "/mnt/new_os/$LATEST_CLONE" /mnt/new_os/@
+
+Verify that '@' now exists:
+
+  btrfs subvolume list /mnt/new_os
+
+
+--------------------------------------------------------------------------------
+STEP 6: DELETE READ-ONLY RECEIVED SUBVOLUME
+--------------------------------------------------------------------------------
+Delete the read-only received clone subvolume to free up disk space:
+
+  btrfs subvolume delete "/mnt/new_os/$LATEST_CLONE"
+
+
+--------------------------------------------------------------------------------
+STEP 7: RECREATE SUBVOLUME LAYOUT BASED ON {{SUBVOL_LAYOUT}}
+--------------------------------------------------------------------------------
+Your original system used the layout: {{SUBVOL_LAYOUT}}
+
+Recreate all required standard subvolumes on the new drive:
+
+  btrfs subvolume create /mnt/new_os/@home
+  btrfs subvolume create /mnt/new_os/@log
+  btrfs subvolume create /mnt/new_os/@cache
+  btrfs subvolume create /mnt/new_os/@tmp
+  btrfs subvolume create /mnt/new_os/@srv
+  btrfs subvolume create /mnt/new_os/@root
+
+Create snapshot placeholder directories inside the new root:
+
+  mkdir -p /mnt/new_os/@/.snapshots
+  mkdir -p /mnt/new_os/@/.snapshots_btrbk
+  chmod 750 /mnt/new_os/@/.snapshots
+
+
+--------------------------------------------------------------------------------
+STEP 8: SET '@' AS BTRFS DEFAULT SUBVOLUME
+--------------------------------------------------------------------------------
+Find the subvolume ID of '@' and set it as the default:
+
+  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep ' path @$' | awk '{print $2}')
+  echo "Setting default subvolume to ID: $ROOT_SUBVOL_ID"
+  btrfs subvolume set-default "$ROOT_SUBVOL_ID" /mnt/new_os
+
+Unmount the top-level mount point:
+
+  umount /mnt/new_os
+
+
+--------------------------------------------------------------------------------
+STEP 9: MOUNT ALL SUBVOLUMES FOR CHROOT
+--------------------------------------------------------------------------------
+Mount the newly created subvolumes into /mnt/target:
+
+  mkdir -p /mnt/target
+  mount -o subvol=@,compress=zstd /dev/nvme0n1p2 /mnt/target
+
+Create mount points for nested subvolumes:
+
+  mkdir -p /mnt/target/{home,var/log,var/cache,tmp,srv,root}
+
+Mount the corresponding subvolumes:
+
+  mount -o subvol=@home,compress=zstd /dev/nvme0n1p2 /mnt/target/home
+  mount -o subvol=@log,compress=zstd /dev/nvme0n1p2 /mnt/target/var/log
+  mount -o subvol=@cache,compress=zstd /dev/nvme0n1p2 /mnt/target/var/cache
+  mount -o subvol=@tmp,compress=zstd /dev/nvme0n1p2 /mnt/target/tmp
+  mount -o subvol=@srv,compress=zstd /dev/nvme0n1p2 /mnt/target/srv
+  mount -o subvol=@root,compress=zstd /dev/nvme0n1p2 /mnt/target/root
+
+Mount the new EFI partition:
+
+  mkdir -p /mnt/target/boot /mnt/target/efi
+  # Mount to /boot (or /efi, matching original system):
+  mount /dev/nvme0n1p1 /mnt/target/boot 2>/dev/null || \
+  mount /dev/nvme0n1p1 /mnt/target/efi 2>/dev/null
+
+
+--------------------------------------------------------------------------------
+STEP 10: UPDATE ALL UUIDs IN CONFIGURATION FILES [CRITICAL]
+--------------------------------------------------------------------------------
+[CRITICAL WARNING: DRIVE UUID MISMATCH]
+The new NVMe drive has different UUIDs than the original drive!
+Original Root UUID: {{ROOT_UUID}}
+Original EFI UUID:  {{EFI_UUID}}
+New Root UUID:      $NEW_ROOT_UUID
+New EFI UUID:       $NEW_EFI_UUID
+
+If you do not update fstab and bootloader configs, the system will drop
+into an emergency shell on boot!
+
+1. Update /mnt/target/etc/fstab:
+   Replace old Root UUID with new Root UUID:
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/fstab
+
+   Replace old EFI UUID with new EFI UUID:
+     sed -i "s/{{EFI_UUID}}/$NEW_EFI_UUID/g" /mnt/target/etc/fstab
+
+   Verify fstab contents:
+     cat /mnt/target/etc/fstab
+
+2. Update bootloader configurations:
+
+   - For Limine:
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/limine 2>/dev/null || true
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.cfg 2>/dev/null || true
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.conf 2>/dev/null || true
+
+   - For GRUB:
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/grub 2>/dev/null || true
+
+   - For systemd-boot:
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/loader/entries/*.conf 2>/dev/null || true
+
+
+--------------------------------------------------------------------------------
+STEP 11: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
+--------------------------------------------------------------------------------
+1. Enter the chroot environment:
+
+     arch-chroot /mnt/target
+
+2. Regenerate initramfs image:
+
+     mkinitcpio -P
+
+3. Reinstall and configure bootloader according to: {{BOOTLOADER}}
+
+   - If Limine:
+       limine-mkinitcpio
+       # If deploying Limine MBR/BIOS boot code (UEFI does not require deploy):
+       # limine-deploy /dev/nvme0n1
+
+   - If GRUB:
+       grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+       grub-mkconfig -o /boot/grub/grub.cfg
+
+   - If systemd-boot:
+       bootctl --path=/boot install
+
+4. Keep the chroot open for Step 12, or exit if preferred.
+
+
+--------------------------------------------------------------------------------
+STEP 12: RESTORE HOME DATA FROM PIKA / BORG BACKUP
+--------------------------------------------------------------------------------
+The OS clone restored system files and software. Personal user data
+(/home/{{USERNAME}}) is stored in the Layer 3 Pika/Borg backup repository.
+
+Repository path on backup drive:
+  /mnt/backup/Personal/backup-{{HOSTNAME_VAL}}-{{USERNAME}}
+
+1. List available Borg archives in the repository:
+
+     borg list /mnt/backup/Personal/backup-{{HOSTNAME_VAL}}-{{USERNAME}}
+
+2. Select the latest archive name from the list (referred to as <ARCHIVE_NAME>).
+
+3. Extract files into the user home directory:
+
+     cd /home/{{USERNAME}}
+     borg extract --progress /mnt/backup/Personal/backup-{{HOSTNAME_VAL}}-{{USERNAME}}::<ARCHIVE_NAME>
+
+4. Restore proper user ownership and permissions:
+
+     chown -R {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}
+
+5. Note on Deep Storage (Layer 5):
+   If you had archives in '/mnt/backup/Deep Storage/', they remain safe on
+   your backup drive and can be accessed directly whenever needed.
+
+
+--------------------------------------------------------------------------------
+STEP 13: CLEANUP AND REBOOT
+--------------------------------------------------------------------------------
+1. If still inside chroot, exit:
+
+     exit
+
+2. Unmount all target partitions and the backup drive cleanly:
+
+     umount -R /mnt/target
+     umount /mnt/backup
+
+3. Reboot:
+
+     reboot
+
+4. Remove the Live USB. Your system should boot cleanly from the new drive.
+
+================================================================================
+END OF RUNBOOK
+================================================================================
