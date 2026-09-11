@@ -334,7 +334,351 @@ the box disappears before detection finishes.
 
 ### Recommendation
 
+
 Remove the `sleep 1` (the infobox already paces) or make the pacing a property of
 the infobox itself.
 
-`set -u` guard makes the check read empty.
+---
+
+## 10. `detect.sh` parses `findmnt`/`btrfs` output with unquoted word splitting — **Medium**
+
+`detect.sh` extracts mountpoint/source/fs-type via:
+
+```bash
+for line in $(findmnt -no MOUNTPOINTS,SOURCE,FSTYPE,SIZE,UUID -r 2>/dev/null); do
+  IFS=' ' read -r src fstype size uuid mpoints <<< "$line"
+   ...
+done
+```
+
+and similar at `detect_root_uuid`/`detect_btrfs_uuid`. Problems:
+
+- `$(findmnt ...)` splits on **any** whitespace and runs glob expansion. A
+   mountpoint or source containing a space or `*`/`?` breaks parsing or, worse,
+   expands to a filename.
+- `IFS=' ' read -r src fstype size uuid mpoints` silently truncates if
+   `MOUNTPOINTS` contains a comma or an unexpected column count; `uuid` and
+   `mpoints` then receive the wrong tokens.
+- The `findmnt -o ... -r` column order is positional; if a field is absent for a
+   mount, every subsequent column shifts.
+
+### Recommendation
+
+Prefer NUL-delimited output:
+
+```bash
+while IFS= read -r -d '' mp; do
+  # parse per-field
+done < <(findmnt -rn -o MOUNTPOINTS,SOURCE,FSTYPE,SIZE,UUID --target / 2>/dev/null)
+```
+
+or, if staying with `findmnt -r`, at minimum quote the command substitution
+(`while IFS= read -r line; do … done < <(findmnt …)`) and read fields
+explicitly from a known `--output` column set.
+
+---
+
+## 11. Dead `fstab_found` boolean in `validate.sh` — **Low**
+
+`validate.sh:295-301`:
+
+```bash
+local fstab_line=$(grep -i "$backup_dev" /etc/fstab 2>/dev/null || true)
+local fstab_found=false
+if [[ -n "$fstab_line" ]]; then
+    fstab_found=true
+fi
+if ! $fstab_found; then
+    log_warn "Layer 5 requires /etc/fstab entry for $backup_dev"
+fi
+```
+
+`fstab_found` is a redundant mirror of `-n "$fstab_line"`. The intermediate
+boolean adds a write-and-read cycle with no added clarity.
+
+### Recommendation
+
+Collapse to:
+
+```bash
+if [[ -z "$(grep -i "$backup_dev" /etc/fstab 2>/dev/null || true)" ]]; then
+    log_warn "Layer 5 requires /etc/fstab entry for $backup_dev"
+fi
+```
+
+---
+
+## 12. `--validate LAYERS` accepts invalid layer IDs silently — **Medium**
+
+`wizard.sh:33-37`:
+
+```bash
+--validate)
+    VALIDATE_LAYERS="${1:-1,2,3,4,5}"
+    shift
+   ;;
+```
+
+The value is later split on `,` and passed to `layer_selected`, which returns 1
+for any token that is not `1..5`. An invalid token (`--validate 1,9,3`) is
+silently dropped, and `run_validation` only validates the layers that *match*.
+The user gets no feedback that `9` was ignored.
+
+### Recommendation
+
+Validate the token set before dispatching:
+
+```bash
+--validate)
+    VALIDATE_LAYERS="${1:-1,2,3,4,5}"
+    shift
+    IFS=',' read -ra _layers <<< "$VALIDATE_LAYERS"
+    for l in "${_layers[@]}"; do
+        case "$l" in
+            1|2|3|4|5) ;;
+            *) die "Invalid layer id: '$l' (expected 1..5)" ;;
+        esac
+    done
+   ;;
+```
+
+---
+
+## 13. `uninstall.sh` deletes the user's entire `.bashrc`/`.zshrc` — **Critical**
+
+`uninstall.sh:81-82`:
+
+```bash
+rm -f "$user_home/.zshrc"
+rm -f "$user_home/.bashrc"
+```
+
+But `layer4_cloud.sh:193-200` only **appends** a small nag hook to the user's
+existing rc file:
+
+```bash
+cat >> "$target_rc" << 'HOOK'
+# arch-backup-wizard os-clone-nag
+...
+HOOK
+```
+
+Deleting the whole rc file when the wizard only appended a few lines will
+**destroy any pre-existing shell configuration the user had before running the
+wizard** — aliases, `PATH` additions, environment variables, plugin initialis-
+ation, etc. This is the most severe finding in the codebase and a real data-loss
+risk.
+
+### Recommendation
+
+Replace the two `rm -f` lines with a targeted block removal:
+
+```bash
+if grep -qF 'arch-backup-wizard os-clone-nag' "$user_home/.bashrc" 2>/dev/null; then
+    sed -i '/# arch-backup-wizard os-clone-nag/,/^done$/d' \
+        "$user_home/.bashrc" 2>/dev/null || true
+fi
+if grep -qF 'arch-backup-wizard os-clone-nag' "$user_home/.zshrc" 2>/dev/null; then
+    sed -i '/# arch-backup-wizard os-clone-nag/,/^done$/d' \
+        "$user_home/.zshrc" 2>/dev/null || true
+fi
+```
+
+or, better, write the hook between a sentinel comment pair so the `sed` range
+is unambiguous:
+
+```bash
+cat >> "$target_rc" << 'HOOK'
+# arch-backup-wizard os-clone-nag BEGIN
+...
+done
+# arch-backup-wizard os-clone-nag END
+HOOK
+```
+
+---
+
+## 14. `--dry-run` summary message is self-contradictory — **Low**
+
+`wizard.sh:448-454`:
+
+```bash
+log_info "── DRY-RUN: NO RUNBOOKS GENERATED ──"
+log_info "  (preview directory: $preview_dir)"
+if [[ -d "$preview_dir" ]]; then
+    rb_count=$(find "$preview_dir" -name 'rollback-*.txt' 2>/dev/null | wc -l)
+    log_info "  $rb_count recovery runbooks generated in $preview_dir"
+fi
+```
+
+The first line claims *no* runbooks are generated, then the next line reports a
+count of runbooks that *were* written to the preview directory. In dry-run mode
+the runbooks are generated but not copied to `/usr/local/bin`; the message
+should say that explicitly.
+
+### Recommendation
+
+```bash
+log_info "── DRY-RUN: runbooks written to preview dir only ──"
+log_info "  preview: $preview_dir"
+if [[ -d "$preview_dir" ]]; then
+    rb_count=$(find "$preview_dir" -name 'rollback-*.txt' 2>/dev/null | wc -l)
+    log_info "   $rb_count preview runbook(s) written"
+fi
+```
+
+---
+
+## 15. Missing CI / `shellcheck` / `shfmt` pipeline — **Medium**
+
+The codebase has no CI workflow, no `Makefile` target, no `.shellcheckrc`, and
+no formatting configuration. `shellcheck` is the standard static analyser for
+Bash and would catch several of the above issues automatically:
+
+- `local x="$(cmd)"` exit-status masking (finding 14) → `SC2155`
+- `for x in $(cmd)` word-splitting (finding 10) → `SC2206`
+- unquoted `$pkgs` in `pacman -S --needed $pkgs` → `SC2086`
+- `IFS=' '` read → `SC2162`
+
+### Recommendation
+
+Add a `.github/workflows/lint.yml`:
+
+```yaml
+name: Lint
+on: [push, pull_request]
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+       - uses: actions/checkout@v4
+       - uses: lundeen/action-shellcheck@v1
+```
+
+and a `Makefile` for local convenience:
+
+```makefile
+check:
+    shellcheck -x wizard.sh lib/*.sh
+```
+
+---
+
+## 16. Undeclared globals used across modules — **Medium**
+
+The following globals are set in `detect.sh` or `wizard.sh` and consumed in
+`lib/*.sh`, but no module declares or documents its *input* contract:
+
+- `DETECTED_USER` / `DETECTED_HOME` — consumed by `layer3`, `layer4`, `layer5`,
+    `runbooks.sh`
+- `DETECTED_BACKUP_MOUNT` / `DETECTED_BACKUP_UUID` — consumed by `layer2`,
+    `layer4`, `layer5`, `runbooks.sh`
+- `BACKUP_MOUNT` — set in `wizard.sh:507` as a normalised copy of
+    `DETECTED_BACKUP_MOUNT`
+- `RUNBOOK_DIR` — consumed by `runbooks.sh`
+- `SELECTED_LAYERS` — consumed by `runbooks.sh`, `validate.sh`
+- `WIZARD_HOME` — consumed by `ui.sh`
+
+A new layer author must read every module to discover which globals are
+pre-conditions. This is the root cause of findings 4 and 13 (undefined
+`user_home` in `validate.sh`/`uninstall.sh`).
+
+### Recommendation
+
+Add a `lib/contract.sh` (or a header comment in `common.sh`) that documents each
+global's producer, consumer, and default:
+
+```bash
+# ── Global contract ─────────────────────────────────────────────────────────
+# DETECTED_USER         – set by detect.sh; consumer: layer3, layer4, layer5
+#                        fallback: get_real_user()
+# DETECTED_HOME         – set by detect.sh; consumer: layer3, layer4, layer5
+#                        fallback: get_real_home()
+# DETECTED_BACKUP_MOUNT – set by detect.sh; consumer: layer2, layer4, layer5
+# RUNBOOK_DIR           – set by wizard.sh; consumer: runbooks.sh
+# SELECTED_LAYERS       – set by wizard.sh; consumer: runbooks.sh, validate.sh
+# ────────────────────────────────────────────────────────────────────────────
+```
+
+
+---
+
+## 17. `README.md` missing operational detail — **Low**
+
+The `README.md` covers installation and basic usage but omits:
+
+- `--dry-run` flag behaviour (and the runbook preview directory)
+- `--validate` flag and valid layer IDs
+- Uninstall procedure
+- The user `.bashrc`/`.zshrc` hook (finding 13) and how to remove it
+- `DRY_RUN` and `DETECTED_*` environment variable contract
+
+### Recommendation
+
+Add an **Advanced Usage** section covering `--dry-run`, `--validate`, and
+`--uninstall`, and a **Customisation** section that documents the `DETECTED_*`
+environment variables.
+
+---
+
+## 18. Priority action list
+
+| #  | Severity | Finding                         | Effort |
+|----|----------|--------------------------------|--------|
+| 13 | Critical | `uninstall.sh` destroys user rc | S      |
+| 5  | High     | `set -euo pipefail` not in lib | S      |
+| 3  | High     | Ambiguous `die` vs `return 1`  | M      |
+| 10 | Medium   | `detect.sh` word-split parsing | M      |
+| 7  | Medium   | Magic numbers / paths          | S      |
+| 12 | Medium   | `--validate` accepts bad IDs   | S      |
+| 15 | Medium   | No CI / shellcheck             | S      |
+| 16 | Medium   | Undeclared global contract     | M      |
+| 6  | Low      | Dead `export -f`               | S      |
+| 8  | Low      | Inconsistent comment indent    | S      |
+| 9  | Low      | `sleep 1` busy-wait            | S      |
+| 11 | Low      | Dead `fstab_found` boolean     | S      |
+| 14 | Low      | Contradictory dry-run message  | S      |
+| 17 | Low      | README missing advanced usage  | S      |
+
+*S = small (≤ 30 min), M = medium (30 min – 2 h)*
+
+---
+
+## Appendix A — File map
+
+| File                          | Responsibility                             |
+|-------------------------------|-------------------------------------------|
+| `wizard.sh`                   | Entry point; argument parsing; main flow  |
+| `lib/common.sh`               | Logging, `die`, `run_as_user`, `ensure_root` |
+| `lib/ui.sh`                   | `dialog`/`whiptail` wrappers              |
+| `lib/packages.sh`             | `install_layer_packages`, `get_layer_packages` |
+| `lib/detect.sh`               | System detection → `DETECTED_*` globals   |
+| `lib/layer1_snapper.sh`       | Snapper setup; `setup_layer1`             |
+| `lib/layer2_btrbk.sh`         | btrbk setup; `setup_layer2`               |
+| `lib/layer3_pika.sh`          | Pika GUI setup; `setup_layer3`            |
+| `lib/layer4_cloud.sh`         | rclone cloud setup; `setup_layer4`        |
+| `lib/layer5_deep_storage.sh`  | Borg deep storage; `setup_layer5`         |
+| `lib/runbooks.sh`             | Runbook generation; `generate_runbooks`   |
+| `lib/validate.sh`             | Layer validation; `run_validation`        |
+| `lib/uninstall.sh`            | Uninstall; `run_uninstall`                |
+| `templates/*.tmpl`            | Jinja-style runbook templates             |
+
+---
+
+## Appendix B — Cross-cutting naming convention
+
+| Prefix / name       | Scope                         |
+|---------------------|-------------------------------|
+| `DETECTED_*`        | Set by `detect.sh`, read-only |
+| `SELECTED_LAYERS`   | Set by `wizard.sh`, read-only |
+| `WIZARD_HOME`       | Set by `wizard.sh`, read-only |
+| `RUNBOOK_DIR`       | Set by `wizard.sh`, read-only |
+| `BACKUP_MOUNT`      | Set by `wizard.sh`, read-only |
+| `DIALOG_CMD`        | Set by `ui.sh`, read-only     |
+| `DRY_RUN`           | Set by `wizard.sh`, read-only |
+| `VALIDATE_LAYERS`   | Set by `wizard.sh`, read-only |
+| `setup_layerN`      | Exported function per layer   |
+| `run_<verb>`        | Top-level workflow functions  |
+| `generate_*`        | Content generators            |
+
+
