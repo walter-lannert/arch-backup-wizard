@@ -30,7 +30,17 @@ log_warn()    { _log "WARN"  "$*"; }
 log_error()   { _log "ERROR" "$*"; }
 log_success() { _log "OK"    "$*"; }
 
-# Fatal error — log, print to stderr, and exit
+# Fatal error — log, print to stderr, and exit immediately.
+#
+# USAGE CONTRACT:
+#   die() is ONLY for unrecoverable precondition failures in wizard.sh:
+#     - not running as root
+#     - root filesystem is not BTRFS
+#     - no backup drive selected
+#   It must NOT be called from inside setup_layerN() or any lib/ module.
+#   Layer-level failures must use:  log_error "..."; return 1
+#   This ensures the wizard always reaches runbook generation and validation
+#   even if an individual layer fails.
 die() {
     log_error "$*"
     echo -e "${CLR_RED}FATAL: $*${CLR_NC}" >&2

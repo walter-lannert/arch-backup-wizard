@@ -550,9 +550,15 @@ main() {
     source "$WIZARD_DIR/lib/validate.sh"
 
     # run_layer — invoke a setup function for a selected layer.
-    # Each setup_layerN must return 0 on success or non-zero on failure;
-    # it must never call die(). Failures are logged and the wizard continues
-    # to the next layer so runbooks and validation always run.
+    #
+    # Policy: layer failures are non-fatal — the wizard always continues to the
+    # next layer so that runbook generation and validation always run.
+    #
+    # Contract for setup_layerN authors:
+    #   - Return 0 on success, non-zero on failure.
+    #   - Use  log_error "..."; return 1  for any step that fails.
+    #   - Never call die() — that is reserved for precondition failures in
+    #     wizard.sh only (see die() in lib/common.sh for the full contract).
     run_layer() {
         local layer_id="$1"
         local fn="$2"
