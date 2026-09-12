@@ -549,11 +549,31 @@ main() {
     source "$WIZARD_DIR/lib/runbooks.sh"
     source "$WIZARD_DIR/lib/validate.sh"
 
-    layer_selected "1" && setup_layer1
-    layer_selected "2" && setup_layer2
-    layer_selected "3" && setup_layer3
-    layer_selected "4" && setup_layer4
-    layer_selected "5" && setup_layer5
+    # run_layer — invoke a setup function for a selected layer.
+    # Each setup_layerN must return 0 on success or non-zero on failure;
+    # it must never call die(). Failures are logged and the wizard continues
+    # to the next layer so runbooks and validation always run.
+    run_layer() {
+        local layer_id="$1"
+        local fn="$2"
+        if layer_selected "$layer_id"; then
+            if ! "$fn"; then
+                log_error "Layer $layer_id setup encountered errors — continuing to next layer."
+                ui_msgbox "Layer $layer_id Warning" \
+"Layer $layer_id setup encountered errors and could not complete fully.
+
+The wizard will continue setting up remaining layers.
+Please check the log for details:
+  $LOG_FILE"
+            fi
+        fi
+    }
+
+    run_layer "1" setup_layer1
+    run_layer "2" setup_layer2
+    run_layer "3" setup_layer3
+    run_layer "4" setup_layer4
+    run_layer "5" setup_layer5
 
     # ── Runbook generation ────────────────────────────────────────────────
     generate_runbooks

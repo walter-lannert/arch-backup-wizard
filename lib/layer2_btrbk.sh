@@ -72,11 +72,11 @@ EOF
 
     # 6. Run systemctl daemon-reload
     log_info "Step 6: Reloading systemd daemon..."
-    systemctl daemon-reload
+    systemctl daemon-reload >> "$LOG_FILE" 2>&1 || { log_error "systemctl daemon-reload failed"; return 1; }
 
     # 7. Enable the timer: systemctl enable --now btrbk.timer
     log_info "Step 7: Enabling and starting btrbk.timer..."
-    systemctl enable --now btrbk.timer
+    systemctl enable --now btrbk.timer >> "$LOG_FILE" 2>&1 || { log_error "Failed to enable btrbk.timer"; return 1; }
 
     # 8. Ask the user if they want to run the first backup now (ui_yesno). If yes:
     #    - Show ui_infobox saying backup is running

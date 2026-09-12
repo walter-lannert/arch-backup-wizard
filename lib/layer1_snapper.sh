@@ -13,7 +13,8 @@ setup_layer1() {
     log_info "Step 1: Installing Layer 1 packages..."
     ui_infobox "Layer 1" "Installing packages for Snapper and bootloader integration..."
     if ! install_layer_packages "1"; then
-        die "Failed to install Layer 1 packages."
+        log_error "Failed to install Layer 1 packages."
+        return 1
     fi
     log_success "Layer 1 packages installed successfully."
 
@@ -25,7 +26,7 @@ setup_layer1() {
         # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS/EndeavourOS)
         if mountpoint -q /.snapshots 2>/dev/null || findmnt -n /.snapshots &>/dev/null; then
             log_info "Unmounting pre-existing /.snapshots subvolume mount..."
-            umount /.snapshots >> "$LOG_FILE" 2>&1 || die "Failed to unmount /.snapshots"
+            umount /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to unmount /.snapshots"; return 1; }
         fi
 
         # Snapper create-config fails if the directory /.snapshots already exists on the root filesystem.
@@ -33,12 +34,12 @@ setup_layer1() {
         if [[ -e /.snapshots ]]; then
             if btrfs subvolume show /.snapshots &>/dev/null; then
                 log_info "Deleting existing unmounted /.snapshots subvolume on root..."
-                btrfs subvolume delete /.snapshots >> "$LOG_FILE" 2>&1 || die "Failed to delete /.snapshots subvolume"
+                btrfs subvolume delete /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to delete /.snapshots subvolume"; return 1; }
             elif [[ -d /.snapshots ]]; then
                 log_info "Removing /.snapshots mount directory..."
                 rmdir /.snapshots >> "$LOG_FILE" 2>&1 || {
                     log_warn "/.snapshots directory is not empty; backing it up to /.snapshots.wizard.bak"
-                    mv /.snapshots "/.snapshots.wizard.bak.$(date +%s)" >> "$LOG_FILE" 2>&1 || die "Failed to remove /.snapshots directory"
+                    mv /.snapshots "/.snapshots.wizard.bak.$(date +%s)" >> "$LOG_FILE" 2>&1 || { log_error "Failed to remove /.snapshots directory"; return 1; }
                 }
             fi
         fi
@@ -46,7 +47,7 @@ setup_layer1() {
         # Run snapper create-config
         log_info "Creating Snapper root config with: snapper -c root create-config /"
         ui_infobox "Snapper Setup" "Creating Snapper configuration for /..."
-        snapper -c root create-config / >> "$LOG_FILE" 2>&1 || die "snapper -c root create-config / failed. Check $LOG_FILE for details."
+        snapper -c root create-config / >> "$LOG_FILE" 2>&1 || { log_error "snapper -c root create-config / failed. Check $LOG_FILE for details."; return 1; }
 
         # Snapper creates its own .snapshots subvolume which conflicts with pre-existing ones.
         # Check if a top-level @.snapshots or @snapshots subvolume exists
@@ -71,19 +72,19 @@ setup_layer1() {
 
         if [[ -n "$existing_subvol" ]]; then
             log_info "Top-level subvolume '$existing_subvol' detected. Deleting Snapper auto-created subvolume and mounting '$existing_subvol'..."
-            btrfs subvolume delete /.snapshots >> "$LOG_FILE" 2>&1 || die "Failed to delete Snapper auto-created /.snapshots subvolume"
+            btrfs subvolume delete /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to delete Snapper auto-created /.snapshots subvolume"; return 1; }
             mkdir -p /.snapshots
 
             if grep -qE '[[:space:]]+/\.snapshots[[:space:]]+' /etc/fstab 2>/dev/null; then
                 log_info "Mounting /.snapshots from /etc/fstab..."
-                mount /.snapshots >> "$LOG_FILE" 2>&1 || die "Failed to mount /.snapshots from /etc/fstab"
+                mount /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount /.snapshots from /etc/fstab"; return 1; }
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
                 backup_file /etc/fstab
                 printf '\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n' \
                     "$root_uuid" "$existing_subvol" >> /etc/fstab
-                mount /.snapshots >> "$LOG_FILE" 2>&1 || die "Failed to mount /.snapshots"
+                mount /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount /.snapshots"; return 1; }
             fi
             chmod 750 /.snapshots
             log_success "Mounted existing subvolume $existing_subvol at /.snapshots"
@@ -170,7 +171,7 @@ EOF
 
     # ── 4. Enable snapper-cleanup.timer ───────────────────────────────────────
     log_info "Step 4: Enabling snapper-cleanup.timer..."
-    systemctl enable --now snapper-cleanup.timer >> "$LOG_FILE" 2>&1 || die "Failed to enable snapper-cleanup.timer"
+    systemctl enable --now snapper-cleanup.timer >> "$LOG_FILE" 2>&1 || { log_error "Failed to enable snapper-cleanup.timer"; return 1; }
     log_success "snapper-cleanup.timer enabled and started."
 
     # Ensure timeline timer is disabled since TIMELINE_CREATE="no"
@@ -184,7 +185,7 @@ EOF
     case "$DETECTED_BOOTLOADER" in
         grub)
             log_info "Enabling grub-btrfsd service..."
-            systemctl enable --now grub-btrfsd >> "$LOG_FILE" 2>&1 || die "Failed to enable grub-btrfsd service"
+            systemctl enable --now grub-btrfsd >> "$LOG_FILE" 2>&1 || { log_error "Failed to enable grub-btrfsd service"; return 1; }
             log_success "grub-btrfsd service enabled and started."
             ;;
         limine)

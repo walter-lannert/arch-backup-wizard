@@ -8,7 +8,9 @@ setup_layer5() {
     log_info "Setting up Layer 5: Deep Storage..."
 
     if [[ -z "${BACKUP_MOUNT:-}" ]]; then
-        die "Backup mount point is not set. Please select or configure a backup drive first."
+        log_error "Backup mount point is not set. Please select or configure a backup drive first."
+        ui_msgbox "Configuration Error" "Backup mount point is not set. Please configure the backup drive first."
+        return 1
     fi
 
     local deep_storage_dir="${BACKUP_MOUNT}/Deep Storage"
