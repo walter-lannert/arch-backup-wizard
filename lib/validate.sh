@@ -41,7 +41,7 @@ run_validation() {
 
     # ── 1. Check Layer 1 (Snapper) ────────────────────────────────────────────
     local layer1_status="— Skipped"
-    if layer_selected "1"; then
+    if layer_selected "$LAYER_SNAPPER"; then
         log_info "Validating Layer 1 (Snapper)..."
         local l1_ok=true
 
@@ -103,7 +103,7 @@ run_validation() {
 
     # ── 2. Check Layer 2 (btrbk) ──────────────────────────────────────────────
     local layer2_status="— Skipped"
-    if layer_selected "2"; then
+    if layer_selected "$LAYER_BTRBK"; then
         log_info "Validating Layer 2 (btrbk)..."
         local l2_ok=true
 
@@ -151,7 +151,7 @@ run_validation() {
 
     # ── 3. Check Layer 3 (Pika Backup) ────────────────────────────────────────
     local layer3_status="— Skipped"
-    if layer_selected "3"; then
+    if layer_selected "$LAYER_PIKA"; then
         log_info "Validating Layer 3 (Pika Backup)..."
         local l3_ok=true
 
@@ -187,7 +187,7 @@ run_validation() {
 
     # ── 4. Check Layer 4 (Cloud Offsite) ──────────────────────────────────────
     local layer4_status="— Skipped"
-    if layer_selected "4"; then
+    if layer_selected "$LAYER_CLOUD"; then
         log_info "Validating Layer 4 (Cloud Offsite)..."
         local l4_ok=true
 
@@ -256,7 +256,7 @@ run_validation() {
 
     # ── 5. Check Layer 5 (Deep Storage) ───────────────────────────────────────
     local layer5_status="— Skipped"
-    if layer_selected "5"; then
+    if layer_selected "$LAYER_DEEP"; then
         log_info "Validating Layer 5 (Deep Storage)..."
         local l5_ok=true
 
@@ -325,7 +325,7 @@ run_validation() {
         log_success "Recovery runbooks: $runbook_count found in ${BACKUP_MOUNT:-N/A}"
     else
         log_warn "Recovery runbooks: 0 found in ${BACKUP_MOUNT:-N/A}"
-        if layer_selected "1" || layer_selected "2" || layer_selected "4"; then
+        if layer_selected "$LAYER_SNAPPER" || layer_selected "$LAYER_BTRBK" || layer_selected "$LAYER_CLOUD"; then
             all_passed=false
             failure_issues+=("Runbooks: No recovery runbooks found in ${BACKUP_MOUNT:-N/A}")
         fi

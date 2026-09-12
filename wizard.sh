@@ -141,11 +141,11 @@ select_layers() {
     local result
     result=$(ui_checklist "Select Backup Layers" \
         "Choose which layers to set up (SPACE to toggle):" \
-        "1" "Snapper — Instant rollback on bad updates"     "on" \
-        "2" "btrbk — Daily OS clone to backup drive"        "on" \
-        "3" "Pika Backup — Hourly home directory backups"   "on" \
-        "4" "Cloud Offsite — Backups to cloud storage"      "on" \
-        "5" "Deep Storage — Local archive (not synced)"     "on" \
+        "$LAYER_SNAPPER" "Snapper — Instant rollback on bad updates"     "on" \
+        "$LAYER_BTRBK"   "btrbk — Daily OS clone to backup drive"        "on" \
+        "$LAYER_PIKA"    "Pika Backup — Hourly home directory backups"   "on" \
+        "$LAYER_CLOUD"   "Cloud Offsite — Backups to cloud storage"      "on" \
+        "$LAYER_DEEP"    "Deep Storage — Local archive (not synced)"     "on" \
     ) || die "Aborted by user at layer selection."
 
     SELECTED_LAYERS=()
@@ -171,12 +171,12 @@ layer_selected() {
 check_layer_deps() {
     NEEDS_BACKUP_DRIVE=false
 
-    for l in 2 3 5; do
+    for l in $LAYER_BTRBK $LAYER_PIKA $LAYER_DEEP; do
         layer_selected "$l" && NEEDS_BACKUP_DRIVE=true
     done
 
-    if layer_selected "4"; then
-        if ! layer_selected "2" && ! layer_selected "3"; then
+    if layer_selected "$LAYER_CLOUD"; then
+        if ! layer_selected "$LAYER_BTRBK" && ! layer_selected "$LAYER_PIKA"; then
             ui_msgbox "Dependency" \
 "Layer 4 (Cloud Offsite) needs data to upload.
 
@@ -380,7 +380,7 @@ run_dry_run_simulation() {
 
     # 2. Collect actions per layer
     local actions=""
-    if layer_selected "1"; then
+    if layer_selected "$LAYER_SNAPPER"; then
         actions+="• Layer 1 (Snapper):\n"
         actions+="  - Configure /etc/snapper/configs/root\n"
         actions+="  - Enable snapper-cleanup.timer\n"
@@ -391,7 +391,7 @@ run_dry_run_simulation() {
         esac
     fi
 
-    if layer_selected "2"; then
+    if layer_selected "$LAYER_BTRBK"; then
         actions+="• Layer 2 (btrbk):\n"
         actions+="  - Configure /etc/btrbk/btrbk.conf\n"
         actions+="  - Target: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/OS_Backup\n"
@@ -399,13 +399,13 @@ run_dry_run_simulation() {
         actions+="  - Enable btrbk.timer (daily clones)\n"
     fi
 
-    if layer_selected "3"; then
+    if layer_selected "$LAYER_PIKA"; then
         actions+="• Layer 3 (Pika Backup):\n"
         actions+="  - Borg repo: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Personal/backup-${DETECTED_HOSTNAME}-${DETECTED_USER}\n"
         actions+="  - Guided GUI setup (hourly schedule, retention)\n"
     fi
 
-    if layer_selected "4"; then
+    if layer_selected "$LAYER_CLOUD"; then
         actions+="• Layer 4 (Cloud Offsite):\n"
         actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh\n"
         actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh\n"
@@ -413,7 +413,7 @@ run_dry_run_simulation() {
         actions+="  - Shell startup nag integration: ${DETECTED_SHELL}\n"
     fi
 
-    if layer_selected "5"; then
+    if layer_selected "$LAYER_DEEP"; then
         actions+="• Layer 5 (Deep Storage):\n"
         actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage\n"
     fi
@@ -501,7 +501,7 @@ main() {
         if [[ ${#VALIDATE_LAYERS[@]} -gt 0 ]]; then
             SELECTED_LAYERS=("${VALIDATE_LAYERS[@]}")
         else
-            SELECTED_LAYERS=("1" "2" "3" "4" "5")
+            SELECTED_LAYERS=("$LAYER_SNAPPER" "$LAYER_BTRBK" "$LAYER_PIKA" "$LAYER_CLOUD" "$LAYER_DEEP")
         fi
         BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
         BACKUP_UUID="${DETECTED_BACKUP_UUID:-}"
@@ -575,11 +575,11 @@ Please check the log for details:
         fi
     }
 
-    run_layer "1" setup_layer1
-    run_layer "2" setup_layer2
-    run_layer "3" setup_layer3
-    run_layer "4" setup_layer4
-    run_layer "5" setup_layer5
+    run_layer "$LAYER_SNAPPER" setup_layer1
+    run_layer "$LAYER_BTRBK"   setup_layer2
+    run_layer "$LAYER_PIKA"    setup_layer3
+    run_layer "$LAYER_CLOUD"   setup_layer4
+    run_layer "$LAYER_DEEP"    setup_layer5
 
     # ── Runbook generation ────────────────────────────────────────────────
     generate_runbooks

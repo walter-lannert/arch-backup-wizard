@@ -73,7 +73,7 @@ generate_runbooks() {
     local missing_templates=()
 
     # 2. Generate Layer 1 Rollback Runbook (only if Layer 1 was configured)
-    if layer_selected "1"; then
+    if layer_selected "$LAYER_SNAPPER"; then
         local tpl1="$wizard_dir/templates/rollback-runbook.txt"
         local out1="$BACKUP_MOUNT/Layer1_Snapper_Rollback_Runbook.txt"
 
@@ -95,7 +95,7 @@ generate_runbooks() {
     fi
 
     # 3. Generate Bare-Metal Recovery Runbook (only if Layer 2 was configured)
-    if layer_selected "2"; then
+    if layer_selected "$LAYER_BTRBK"; then
         local tpl2="$wizard_dir/templates/bare-metal-runbook.txt"
         local out2="$BACKUP_MOUNT/Bare_Metal_Recovery_Runbook.txt"
 
@@ -117,7 +117,7 @@ generate_runbooks() {
     fi
 
     # 4. Generate Cloud Recovery Runbook (only if Layer 4 was configured)
-    if layer_selected "4"; then
+    if layer_selected "$LAYER_CLOUD"; then
         local tpl4="$wizard_dir/templates/cloud-recovery-runbook.txt"
         local out4="$BACKUP_MOUNT/Cloud_Recovery_Runbook.txt"
 
