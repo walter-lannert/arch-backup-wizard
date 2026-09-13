@@ -504,7 +504,6 @@ main() {
     # Detect
     ui_infobox "Scanning" "Detecting your system configuration..."
     run_detection
-    sleep 1
 
     # BTRFS gate
     check_btrfs
