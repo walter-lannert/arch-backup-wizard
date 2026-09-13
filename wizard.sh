@@ -161,7 +161,7 @@ select_layers() {
 check_layer_deps() {
     NEEDS_BACKUP_DRIVE=false
 
-    for l in $LAYER_BTRBK $LAYER_PIKA $LAYER_DEEP; do
+    for l in "$LAYER_BTRBK" "$LAYER_PIKA" "$LAYER_DEEP"; do
         layer_selected "$l" && NEEDS_BACKUP_DRIVE=true
     done
 
