@@ -34,6 +34,16 @@ parse_args() {
                 if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
                     IFS=',' read -ra VALIDATE_LAYERS <<< "$1"
                     shift
+                    # Validate each token — case literals are intentional here;
+                    # bash case patterns don't expand variables so LAYER_* can't
+                    # be used in pattern position.
+                    local _l
+                    for _l in "${VALIDATE_LAYERS[@]}"; do
+                        case "$_l" in
+                            1|2|3|4|5) ;;
+                            *) die "Invalid layer id: '$_l' (expected 1..5, or comma-separated subset, e.g. 1,3)" ;;
+                        esac
+                    done
                 fi
                 ;;
             --dry-run|-d)  DRY_RUN=true;   shift ;;
