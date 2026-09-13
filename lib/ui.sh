@@ -6,6 +6,9 @@
 
 # ── Backend detection ─────────────────────────────────────────────────────────
 
+
+set -euo pipefail
+
 DIALOG_CMD=""
 
 detect_dialog() {

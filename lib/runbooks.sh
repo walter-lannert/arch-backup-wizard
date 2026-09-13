@@ -6,6 +6,9 @@
 
 
 # Generate personalized recovery runbooks based on configured layers
+
+set -euo pipefail
+
 generate_runbooks() {
     log_info "── Generating Personalized Recovery Runbooks ──"
 

@@ -4,6 +4,9 @@
 # ── Query helpers ─────────────────────────────────────────────────────────────
 
 # Check if a package is installed
+
+set -euo pipefail
+
 pkg_is_installed() {
     pacman -Qi "$1" &>/dev/null
 }

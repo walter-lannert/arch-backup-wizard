@@ -8,6 +8,9 @@
 
 # ── Main validation entrypoint ────────────────────────────────────────────────
 
+
+set -euo pipefail
+
 run_validation() {
     log_info "══════ Starting Post-Setup Validation Checks ══════"
 

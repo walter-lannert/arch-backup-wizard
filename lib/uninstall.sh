@@ -7,6 +7,9 @@
 
 # ── Main uninstall entrypoint ──────────────────────────────────────────────────
 
+
+set -euo pipefail
+
 run_uninstall() {
     require_root
     [[ -z "${DIALOG_CMD:-}" ]] && detect_dialog

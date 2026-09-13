@@ -13,6 +13,9 @@
 # 9. Uploads Cloud_Recovery_Runbook.txt to cloud if it exists
 # 10. Displays completion summary dialog
 
+
+set -euo pipefail
+
 setup_layer4() {
     log_info "── Setting up Layer 4: Cloud Offsite (rclone) ──"
 

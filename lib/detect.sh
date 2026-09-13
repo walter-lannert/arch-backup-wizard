@@ -6,6 +6,9 @@
 
 # ── Distro ────────────────────────────────────────────────────────────────────
 
+
+set -euo pipefail
+
 detect_distro() {
     if [[ -f /etc/os-release ]]; then
         # shellcheck source=/dev/null

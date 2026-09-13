@@ -4,6 +4,9 @@
 # Configures btrbk to create daily snapshots of the root filesystem
 # and transfer them to the secondary backup drive for disaster recovery.
 
+
+set -euo pipefail
+
 setup_layer2() {
     log_info "── Setting up Layer 2: btrbk daily OS clones ──"
 
@@ -25,16 +28,16 @@ setup_layer2() {
     # 2. Create the btrbk snapshot directory on root if it doesn't exist:
     #    mkdir -p /.snapshots_btrbk
     log_info "Step 2: Ensuring snapshot directory /.snapshots_btrbk exists..."
-    mkdir -p /.snapshots_btrbk
+    mkdir -p /.snapshots_btrbk || { log_error "Failed to create /.snapshots_btrbk"; return 1; }
 
     # 3. Create the OS_Backup target directory on the backup drive:
     #    mkdir -p "$BACKUP_MOUNT/OS_Backup"
     log_info "Step 3: Ensuring backup target directory $backup_mount/OS_Backup exists..."
-    mkdir -p "$backup_mount/OS_Backup"
+    mkdir -p "$backup_mount/OS_Backup" || { log_error "Failed to create $backup_mount/OS_Backup"; return 1; }
 
     # 4. Write /etc/btrbk/btrbk.conf (back up existing one first with backup_file)
     log_info "Step 4: Writing /etc/btrbk/btrbk.conf..."
-    mkdir -p /etc/btrbk
+    mkdir -p /etc/btrbk || { log_error "Failed to create /etc/btrbk"; return 1; }
     backup_file /etc/btrbk/btrbk.conf >/dev/null
 
     cat <<EOF > /etc/btrbk/btrbk.conf
@@ -57,7 +60,7 @@ EOF
     local override_dir="/etc/systemd/system/btrbk.service.d"
     local override_conf="$override_dir/override.conf"
 
-    mkdir -p "$override_dir"
+    mkdir -p "$override_dir" || { log_error "Failed to create $override_dir"; return 1; }
     backup_file "$override_conf" >/dev/null
 
     cat <<EOF > "$override_conf"

@@ -6,6 +6,9 @@
 
 # ── Main setup entrypoint ─────────────────────────────────────────────────────
 
+
+set -euo pipefail
+
 setup_layer1() {
     log_info "══════ Setting up Layer 1: Snapper ══════"
 

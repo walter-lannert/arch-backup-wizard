@@ -11,6 +11,9 @@
 # 7. Asks user to confirm completion
 # 8. Validates Pika Backup configuration file exists
 
+
+set -euo pipefail
+
 setup_layer3() {
     log_info "── Setting up Layer 3: Pika Backup (Borg home backups) ──"
 

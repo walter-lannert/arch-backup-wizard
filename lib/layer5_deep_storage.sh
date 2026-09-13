@@ -4,6 +4,9 @@
 # Sets up a local archive directory on the backup drive that is intentionally
 # excluded from cloud sync (Layer 4) for sensitive or large files.
 
+
+set -euo pipefail
+
 setup_layer5() {
     log_info "Setting up Layer 5: Deep Storage..."
 
