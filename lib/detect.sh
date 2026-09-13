@@ -213,13 +213,13 @@ detect_existing_setup() {
     [[ -f /etc/snapper/configs/root ]] && DETECTED_SNAPPER_CONFIG_EXISTS=true
 
     DETECTED_BTRBK_CONFIG_EXISTS=false
-    [[ -f /etc/btrbk/btrbk.conf ]] && DETECTED_BTRBK_CONFIG_EXISTS=true
+    [[ -f "$BTRBK_CONF" ]] && DETECTED_BTRBK_CONFIG_EXISTS=true
 
     DETECTED_PIKA_CONFIG_EXISTS=false
-    [[ -f "$(get_real_home)/.config/pika-backup/backup.json" ]] && DETECTED_PIKA_CONFIG_EXISTS=true
+    [[ -f "$(effective_home)/.config/pika-backup/backup.json" ]] && DETECTED_PIKA_CONFIG_EXISTS=true
 
     DETECTED_RCLONE_CONFIG_EXISTS=false
-    [[ -f "$(get_real_home)/.config/rclone/rclone.conf" ]] && DETECTED_RCLONE_CONFIG_EXISTS=true
+    [[ -f "$(effective_home)/.config/rclone/rclone.conf" ]] && DETECTED_RCLONE_CONFIG_EXISTS=true
 
     log_info "Existing tools: snapper=$DETECTED_HAS_SNAPPER btrbk=$DETECTED_HAS_BTRBK pika=$DETECTED_HAS_PIKA rclone=$DETECTED_HAS_RCLONE snap-pac=$DETECTED_HAS_SNAP_PAC"
 }
