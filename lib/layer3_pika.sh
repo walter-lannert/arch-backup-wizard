@@ -21,9 +21,9 @@ setup_layer3() {
     fi
 
     local backup_mount="${BACKUP_MOUNT%/}"
-    local target_user="${DETECTED_USER:-$(get_real_user)}"
+    local target_user="$(effective_user)"
     local target_host="${DETECTED_HOSTNAME:-$(cat /etc/hostname 2>/dev/null || uname -n)}"
-    local target_home="${DETECTED_HOME:-$(get_real_home)}"
+    local target_home="$(effective_home)"
 
     # 1. Install packages: call install_layer_packages "3"
     log_info "Step 1: Installing Layer 3 packages..."

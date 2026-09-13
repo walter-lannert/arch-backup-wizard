@@ -357,7 +357,8 @@ _ensure_backup_mounted() {
 run_dry_run_simulation() {
     log_info "══════ Running Wizard Simulation (Dry Run) ══════"
 
-    local preview_dir="${DETECTED_HOME:-$HOME}/arch-backup-wizard-preview"
+    local preview_dir
+    preview_dir="$(effective_home)/arch-backup-wizard-preview"
     mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
 
     # 1. Collect packages
@@ -468,9 +469,7 @@ main() {
     require_root
 
     # Set up log file under the real user's home
-    local target_home
-    target_home="$(get_real_home 2>/dev/null || echo "$HOME")"
-    LOG_FILE="${target_home}/arch-backup-wizard.log"
+    LOG_FILE="$(effective_home)/arch-backup-wizard.log"
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
 
     # Ensure dialog is available before anything else

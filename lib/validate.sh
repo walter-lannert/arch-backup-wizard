@@ -24,7 +24,8 @@ run_validation() {
 
     local all_passed=true
     local failure_issues=()
-    local user_home="${DETECTED_HOME:-$(get_real_home 2>/dev/null || echo "$HOME")}"
+    local user_home
+    user_home="$(effective_home)"
 
     # ── 1. Check Layer 1 (Snapper) ────────────────────────────────────────────
     local layer1_status="— Skipped"

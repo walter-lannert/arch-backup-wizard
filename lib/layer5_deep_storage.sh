@@ -17,7 +17,7 @@ setup_layer5() {
 
     mkdir -p "$deep_storage_dir"
 
-    local target_user="${DETECTED_USER:-$(get_real_user)}"
+    local target_user="$(effective_user)"
     if [[ -n "$target_user" && "$target_user" != "root" ]]; then
         chown "$target_user:$target_user" "$deep_storage_dir" 2>/dev/null || true
     fi

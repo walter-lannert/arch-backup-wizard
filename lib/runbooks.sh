@@ -14,8 +14,7 @@ generate_runbooks() {
 
     # Ensure BACKUP_MOUNT is set and directory exists
     if [[ -z "${BACKUP_MOUNT:-}" ]]; then
-        local default_home="${DETECTED_HOME:-$(get_real_home)}"
-        BACKUP_MOUNT="${default_home:-/root}/Backup"
+        BACKUP_MOUNT="$(effective_home)/Backup"
         log_warn "BACKUP_MOUNT is not set; defaulting runbook destination to ${BACKUP_MOUNT}"
     fi
 
@@ -28,8 +27,8 @@ generate_runbooks() {
     export ROOT_UUID="${DETECTED_ROOT_UUID:-}"
     export EFI_UUID="${DETECTED_EFI_UUID:-}"
     export BOOTLOADER="${DETECTED_BOOTLOADER:-}"
-    export USERNAME="${DETECTED_USER:-$(get_real_user)}"
-    export HOME_DIR="${DETECTED_HOME:-$(get_real_home)}"
+    export USERNAME="$(effective_user)"
+    export HOME_DIR="$(effective_home)"
     export HOSTNAME_VAL="${DETECTED_HOSTNAME:-$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "")}"
     export BACKUP_MOUNT="${BACKUP_MOUNT:-}"
     export BACKUP_UUID="${BACKUP_UUID:-}"
@@ -56,7 +55,8 @@ generate_runbooks() {
     log_info "  CLOUD_OS_DIR=$CLOUD_OS_DIR"
     log_info "  CLOUD_PIKA_DIR=$CLOUD_PIKA_DIR"
 
-    local target_user="${DETECTED_USER:-$(get_real_user)}"
+    local target_user
+    target_user="$(effective_user)"
     local generated_runbooks=()
     local missing_templates=()
 

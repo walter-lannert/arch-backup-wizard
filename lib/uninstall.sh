@@ -77,12 +77,9 @@ This will NOT remove:
     # ── 4. Layer 4 cleanup (Cloud & Nag Scripts) ──────────────────────────────
     log_info "── Layer 4 Cleanup: Cloud Offsite & Nag Scripts ──"
     local user
-    user=$(get_real_user)
+    user="$(effective_user)"
     local home
-    home=$(get_real_home)
-
-    [[ -z "$user" ]] && user="${DETECTED_USER:-root}"
-    [[ -z "$home" ]] && home="${DETECTED_HOME:-/root}"
+    home="$(effective_home)"
 
     log_info "Target user: $user (home: $home)"
 
