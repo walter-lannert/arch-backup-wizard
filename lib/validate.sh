@@ -5,19 +5,6 @@
 # cross-layer configurations (fstab, recovery runbooks), and displays
 # a health summary dashboard via dialog.
 
-# Ensure layer_selected function exists if running outside wizard.sh
-if ! declare -F layer_selected >/dev/null 2>&1; then
-    layer_selected() {
-        local target="$1"
-        if [[ -n "${SELECTED_LAYERS+x}" ]]; then
-            for l in "${SELECTED_LAYERS[@]}"; do
-                [[ "$l" == "$target" ]] && return 0
-            done
-            return 1
-        fi
-        return 0
-    }
-fi
 
 # ── Main validation entrypoint ────────────────────────────────────────────────
 

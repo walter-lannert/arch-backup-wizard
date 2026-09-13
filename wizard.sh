@@ -134,7 +134,6 @@ The wizard cannot continue."
 
 # ── Layer selection ───────────────────────────────────────────────────────────
 
-SELECTED_LAYERS=()
 NEEDS_BACKUP_DRIVE=false
 
 select_layers() {
@@ -156,15 +155,6 @@ select_layers() {
 
     [[ ${#SELECTED_LAYERS[@]} -eq 0 ]] && die "No layers selected."
     log_info "Selected layers: ${SELECTED_LAYERS[*]}"
-}
-
-# Check if a specific layer number was selected
-layer_selected() {
-    local target="$1"
-    for l in "${SELECTED_LAYERS[@]}"; do
-        [[ "$l" == "$target" ]] && return 0
-    done
-    return 1
 }
 
 # Enforce inter-layer dependencies

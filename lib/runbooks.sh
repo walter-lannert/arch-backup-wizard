@@ -4,18 +4,6 @@
 # Generates personalized, step-by-step disaster recovery runbooks with
 # the user's actual UUIDs, paths, and system configuration baked in.
 
-# Ensure layer_selected function exists if running outside wizard.sh
-if ! declare -F layer_selected >/dev/null 2>&1; then
-    layer_selected() {
-        local target="$1"
-        if [[ -n "${SELECTED_LAYERS+x}" ]]; then
-            for l in "${SELECTED_LAYERS[@]}"; do
-                [[ "$l" == "$target" ]] && return 0
-            done
-        fi
-        return 1
-    }
-fi
 
 # Generate personalized recovery runbooks based on configured layers
 generate_runbooks() {

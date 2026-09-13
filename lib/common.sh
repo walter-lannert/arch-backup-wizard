@@ -36,6 +36,23 @@ layer_name() {
     esac
 }
 
+# SELECTED_LAYERS holds the IDs chosen by the user (or set by --validate).
+# Declared here so that set -u never trips when layer_selected is called
+# before wizard.sh has had a chance to populate it.
+SELECTED_LAYERS=("${SELECTED_LAYERS[@]+"${SELECTED_LAYERS[@]}"}")
+
+# Returns 0 if the given layer ID was selected, 1 otherwise.
+# This is the single authoritative definition — do NOT redefine it in
+# lib/runbooks.sh or lib/validate.sh.
+layer_selected() {
+    local target="$1"
+    local l
+    for l in "${SELECTED_LAYERS[@]+"${SELECTED_LAYERS[@]}"}"; do
+        [[ "$l" == "$target" ]] && return 0
+    done
+    return 1
+}
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_FILE="${LOG_FILE:-/tmp/arch-backup-wizard.log}"
 
