@@ -187,4 +187,3 @@ Pika Backup from your desktop application menu."
     return 0
 }
 
-export -f setup_layer3

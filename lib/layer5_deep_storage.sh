@@ -44,4 +44,3 @@ whenever you need to archive something."
     log_success "Layer 5: Deep Storage directory created at ${deep_storage_dir}"
 }
 
-export -f setup_layer5

@@ -247,4 +247,3 @@ Please check $LOG_FILE for details."
     log_success "══════ Layer 1: Snapper setup complete ══════"
 }
 
-export -f setup_layer1

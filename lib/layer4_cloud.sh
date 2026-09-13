@@ -288,4 +288,3 @@ Your offsite cloud backup pipeline is ready."
     return 0
 }
 
-export -f setup_layer4

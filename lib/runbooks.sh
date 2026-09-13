@@ -163,4 +163,3 @@ generate_runbooks() {
     log_info "Runbook summary displayed to user."
 }
 
-export -f generate_runbooks

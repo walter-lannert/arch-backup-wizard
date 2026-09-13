@@ -146,4 +146,3 @@ You can reinstall by running the wizard again."
     exit 0
 }
 
-export -f run_uninstall

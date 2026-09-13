@@ -144,4 +144,3 @@ Log details:
     fi
 }
 
-export -f setup_layer2

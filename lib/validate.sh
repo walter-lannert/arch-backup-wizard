@@ -361,4 +361,3 @@ run_validation() {
     fi
 }
 
-export -f run_validation
