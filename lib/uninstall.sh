@@ -20,7 +20,7 @@ run_uninstall() {
     local warning_msg="This will remove all backup configurations created by the Arch Backup Wizard:
 
 • Snapper config (/etc/snapper/configs/root)
-• btrbk config (/etc/btrbk/btrbk.conf) and systemd override
+• btrbk config ($BTRBK_CONF) and systemd override
 • Cloud backup scripts (~/.os_cloud_backup.sh, ~/.os_clone_nag.sh)
 • Pika cloud sync systemd timer
 • Shell startup nag integration
@@ -55,7 +55,7 @@ This will NOT remove:
     log_info "Disabling btrbk.timer..."
     systemctl disable --now btrbk.timer >> "$LOG_FILE" 2>&1 || true
 
-    local btrbk_cfg="/etc/btrbk/btrbk.conf"
+    local btrbk_cfg="$BTRBK_CONF"
     if [[ -f "$btrbk_cfg" ]]; then
         log_info "Removing btrbk configuration: $btrbk_cfg"
         rm -f "$btrbk_cfg"
@@ -64,11 +64,11 @@ This will NOT remove:
         log_info "btrbk configuration not found ($btrbk_cfg); skipping."
     fi
 
-    local btrbk_override="/etc/systemd/system/btrbk.service.d/override.conf"
+    local btrbk_override="$BTRBK_OVERRIDE_DIR/override.conf"
     if [[ -e "$btrbk_override" ]]; then
         log_info "Removing btrbk systemd override: $btrbk_override"
         rm -rf "$btrbk_override"
-        rmdir /etc/systemd/system/btrbk.service.d 2>/dev/null || true
+        rmdir $BTRBK_OVERRIDE_DIR 2>/dev/null || true
         log_success "Removed $btrbk_override"
     else
         log_info "btrbk systemd override not found ($btrbk_override); skipping."

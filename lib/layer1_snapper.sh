@@ -27,22 +27,22 @@ setup_layer1() {
         log_info "Snapper root configuration already exists. Skipping subvolume creation."
     else
         # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS/EndeavourOS)
-        if mountpoint -q /.snapshots 2>/dev/null || findmnt -n /.snapshots &>/dev/null; then
+        if mountpoint -q "$SNAP_DIR" 2>/dev/null || findmnt -n "$SNAP_DIR" &>/dev/null; then
             log_info "Unmounting pre-existing /.snapshots subvolume mount..."
-            umount /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to unmount /.snapshots"; return 1; }
+            umount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to unmount "$SNAP_DIR""; return 1; }
         fi
 
         # Snapper create-config fails if the directory /.snapshots already exists on the root filesystem.
         # If /.snapshots exists (as directory mountpoint or pre-created subvolume), remove it first.
-        if [[ -e /.snapshots ]]; then
-            if btrfs subvolume show /.snapshots &>/dev/null; then
+        if [[ -e "$SNAP_DIR" ]]; then
+            if btrfs subvolume show "$SNAP_DIR" &>/dev/null; then
                 log_info "Deleting existing unmounted /.snapshots subvolume on root..."
-                btrfs subvolume delete /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to delete /.snapshots subvolume"; return 1; }
-            elif [[ -d /.snapshots ]]; then
+                btrfs subvolume delete "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to delete /.snapshots subvolume"; return 1; }
+            elif [[ -d "$SNAP_DIR" ]]; then
                 log_info "Removing /.snapshots mount directory..."
-                rmdir /.snapshots >> "$LOG_FILE" 2>&1 || {
-                    log_warn "/.snapshots directory is not empty; backing it up to /.snapshots.wizard.bak"
-                    mv /.snapshots "/.snapshots.wizard.bak.$(date +%s)" >> "$LOG_FILE" 2>&1 || { log_error "Failed to remove /.snapshots directory"; return 1; }
+                rmdir "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || {
+                    log_warn "$SNAP_DIR directory is not empty; backing it up to ${SNAP_DIR}.wizard.bak"
+                    mv "$SNAP_DIR" "${SNAP_DIR}.wizard.bak.$(date +%s)" >> "$LOG_FILE" 2>&1 || { log_error "Failed to remove $SNAP_DIR directory"; return 1; }
                 }
             fi
         fi
@@ -75,25 +75,25 @@ setup_layer1() {
 
         if [[ -n "$existing_subvol" ]]; then
             log_info "Top-level subvolume '$existing_subvol' detected. Deleting Snapper auto-created subvolume and mounting '$existing_subvol'..."
-            btrfs subvolume delete /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to delete Snapper auto-created /.snapshots subvolume"; return 1; }
-            mkdir -p /.snapshots
+            btrfs subvolume delete "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to delete Snapper auto-created /.snapshots subvolume"; return 1; }
+            mkdir -p "$SNAP_DIR"
 
             if grep -qE '[[:space:]]+/\.snapshots[[:space:]]+' /etc/fstab 2>/dev/null; then
                 log_info "Mounting /.snapshots from /etc/fstab..."
-                mount /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount /.snapshots from /etc/fstab"; return 1; }
+                mount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount "$SNAP_DIR" from /etc/fstab"; return 1; }
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
                 backup_file /etc/fstab
                 printf '\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n' \
                     "$root_uuid" "$existing_subvol" >> /etc/fstab
-                mount /.snapshots >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount /.snapshots"; return 1; }
+                mount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount "$SNAP_DIR""; return 1; }
             fi
-            chmod 750 /.snapshots
+            chmod 750 "$SNAP_DIR"
             log_success "Mounted existing subvolume $existing_subvol at /.snapshots"
         else
             log_info "Using Snapper auto-created /.snapshots subvolume."
-            chmod 750 /.snapshots
+            chmod 750 "$SNAP_DIR"
         fi
     fi
 

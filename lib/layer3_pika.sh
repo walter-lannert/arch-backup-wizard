@@ -141,8 +141,8 @@ Please follow these steps:
 5. Go to the Exclude tab and add these paths:
 $formatted_exclusions
 6. Set the schedule to 'Hourly'
-7. Enable Pruning with:
-   Hourly: 12, Daily: 7, Weekly: 4, Monthly: 6
+7. Enable Pruning and configure your preferred retention
+   (e.g. Hourly: 12, Daily: 7, Weekly: 4, Monthly: 6)
 8. Click 'Create Backup' to save"
 
     # 6. Ask if the user wants to launch Pika now (ui_yesno)

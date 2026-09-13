@@ -36,6 +36,24 @@ layer_name() {
     esac
 }
 
+# ── Configuration defaults ────────────────────────────────────────────────────
+# All tunable defaults live here. Changing a value in this block is the single
+# place required to alter wizard behaviour — no need to hunt for literals.
+
+# btrbk (Layer 2) retention policy
+readonly BTRBK_SNAP_MIN="7d"       # minimum local snapshot age to keep
+readonly BTRBK_SNAP="14d"          # local snapshot retention window
+readonly BTRBK_TARGET_MIN="latest" # minimum target (backup drive) retention
+readonly BTRBK_TARGET="14d"        # target retention window
+
+# Snapshot directory paths
+readonly SNAP_DIR="/.snapshots"              # Snapper snapshot mount (Layer 1)
+readonly SNAP_DIR_BTRBK="/.snapshots_btrbk" # btrbk snapshot dir (Layer 2)
+
+# btrbk configuration paths
+readonly BTRBK_CONF="/etc/btrbk/btrbk.conf"
+readonly BTRBK_OVERRIDE_DIR="/etc/systemd/system/btrbk.service.d"
+
 # SELECTED_LAYERS holds the IDs chosen by the user (or set by --validate).
 # Declared here so that set -u never trips when layer_selected is called
 # before wizard.sh has had a chance to populate it.

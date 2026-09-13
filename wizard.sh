@@ -384,7 +384,7 @@ run_dry_run_simulation() {
 
     if layer_selected "$LAYER_BTRBK"; then
         actions+="• Layer 2 (btrbk):\n"
-        actions+="  - Configure /etc/btrbk/btrbk.conf\n"
+        actions+="  - Configure $BTRBK_CONF\n"
         actions+="  - Target: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/OS_Backup\n"
         actions+="  - Create systemd override (Nice=19, Idle I/O)\n"
         actions+="  - Enable btrbk.timer (daily clones)\n"

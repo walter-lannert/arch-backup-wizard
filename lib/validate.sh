@@ -104,10 +104,10 @@ run_validation() {
             failure_issues+=("Layer 2: btrbk package not installed")
         fi
 
-        if [[ ! -f /etc/btrbk/btrbk.conf ]]; then
+        if [[ ! -f "$BTRBK_CONF" ]]; then
             l2_ok=false
-            log_warn "Layer 2 check failed: /etc/btrbk/btrbk.conf does not exist"
-            failure_issues+=("Layer 2: /etc/btrbk/btrbk.conf missing")
+            log_warn "Layer 2 check failed: $BTRBK_CONF does not exist"
+            failure_issues+=("Layer 2: $BTRBK_CONF missing")
         fi
 
         if ! unit_is_enabled btrbk.timer; then
