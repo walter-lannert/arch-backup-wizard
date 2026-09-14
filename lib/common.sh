@@ -54,6 +54,17 @@ readonly SNAP_DIR_BTRBK="/.snapshots_btrbk" # btrbk snapshot dir (Layer 2)
 readonly BTRBK_CONF="/etc/btrbk/btrbk.conf"
 readonly BTRBK_OVERRIDE_DIR="/etc/systemd/system/btrbk.service.d"
 
+# ── Global contract ─────────────────────────────────────────────────────────
+# The wizard operates by setting global variables in detect.sh or wizard.sh
+# which are then consumed by the layer scripts (lib/*.sh).
+#
+# BACKUP_MOUNT          – set by wizard.sh; consumed by layer2..5, runbooks, validate
+# BACKUP_UUID           – set by detect.sh/wizard.sh; consumed by validate
+# SELECTED_LAYERS       – set by wizard.sh; consumed by runbooks, validate, packages
+# DETECTED_*            – set by detect.sh; consumed across all modules
+# WIZARD_DIR            – set by wizard.sh; used for relative paths in all modules
+# ────────────────────────────────────────────────────────────────────────────
+
 # SELECTED_LAYERS holds the IDs chosen by the user (or set by --validate).
 # Declared here so that set -u never trips when layer_selected is called
 # before wizard.sh has had a chance to populate it.
