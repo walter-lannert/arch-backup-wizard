@@ -1,226 +1,253 @@
-# Code Review — arch-backup-wizard
+# Code Review — Arch Backup Wizard
 
-**Lens:** Boy Scout Rule — *"Always leave the code cleaner than you found it."*
-**Scope:** `wizard.sh`, `lib/*.sh`, `templates/*`, build/CI config.
-**Reviewer focus:** small, safe, high-leverage improvements. No big rewrites.
-**Status:** Findings only. No source changes applied yet.
-
----
-
-## 0. TL;DR
-
-The wizard is well-structured, defensively written, and idempotent by design.
-The biggest wins are **removing dead code** and **fixing one portability bug**
-in `detect.sh`. Everything below is a small, self-contained change.
-
-| # | Severity | Area | One-liner |
-|---|----------|------|-----------|
-| 1 | Bug | `lib/detect.sh:152` | `grep '^\s*#'` — GNU `\s` is not portable; use `[[:space:]]` |
-| 2 | Cleanup | `lib/detect.sh:264` | `format_backup_drive_choices()` is dead code |
-| 3 | Cleanup | `lib/detect.sh:164` | `DETECTED_MACHINE_ID` set, never read |
-| 4 | Cleanup | `lib/common.sh:210` | `user_unit_is_enabled()` never called |
-| 5 | Cleanup | `lib/packages.sh:15` | `pkg_in_repos()` never called |
-| 6 | Quality | `lib/layer3_pika.sh:98` | `eval` of dialog output — use `read -ra` |
-| 7 | Robust | `wizard.sh:345` | fstab presence check is a loose substring match |
-| 8 | Edge | `wizard.sh:314` | whole-disk regex misses multi-part names |
-| 9 | Cosmetic | `wizard.sh:30-80` | Inconsistent indentation in `parse_args` |
-| 10 | Consistency | all `lib/*.sh` | `set -euo pipefail` sits mid-file, not at top |
-
-Nothing here is blocking. Pick the ones you value most.
+**Mode:** Boy Scout Rule ("leave the code cleaner than you found it").
+**Focus:** the last commit that touched code — `0d4948d` *"feat: apply
+comprehensive code review refactors and fixes"* (brought into `bgra_review` by
+merge `e477e30`).
+**Date:** 2026-09-14 · **Reviewer:** BGRA
+**Scope:** `wizard.sh`, `lib/*.sh`, `templates/*`, `README.md`.
+**Note on "enpasys":** no symbol, file, or string by that name exists in the
+repository (`grep -r enpasys` → no match). Interpreted as *"in place / on the
+last commit"*; review is therefore scoped to that commit's changes and the code
+around them.
 
 ---
 
-## 1. Portability bug — `grep -v '^\s*#'`      *(Bug, high value)*
+## TL;DR
 
-**`lib/detect.sh:152`**
+The last commit was a large `shfmt`-style reformat (whitespace, case-statement
+alignment, `>> $F` → `>>"$F"`, blank-line removal) plus a handful of genuine
+logic fixes. The mechanical work is clean and consistent. A few spots,
+however, were *missed* by that same pass and will now actively **break the
+`make check` (ShellCheck) gate the commit's own README advertises**, plus a
+couple of robustness/consistency nits that a passing developer should tidy up.
+
+All scripts pass `bash -n`. No syntax errors.
+
+| # | Severity | File:line | Title |
+|---|----------|-----------|-------|
+| 1 | **High** | `wizard.sh:171`, `lib/packages.sh:121` | Unquoted word-split loops trip SC2086 → `make check` fails |
+| 2 | **Medium** | `lib/uninstall.sh:67` | `rm -rf` used on a single *file* |
+| 3 | **Medium** | `lib/uninstall.sh:122-125` | Nag cleanup runs 3 `sed` passes; broad pattern can delete user lines |
+| 4 | **Medium** | `templates/os-cloud-backup.sh:6,19,23,27` | Unquoted templated paths break on mount points with spaces |
+| 5 | **Medium** | `templates/pika-cloud-sync.service:12` | `rclone sync` (destructive mirror) for offsite backup — confirm intent |
+| 6 | **Low** | `lib/detect.sh:66-68` | `findmnt` assignments lack `|| echo ""` guard (inconsistent w/ line 69) |
+| 7 | **Low** | `README.md:157` | `--validate` example dropped `sudo`, inconsistent with the rest |
+| 8 | **Low** | `templates/os-cloud-backup.sh` | No `set -euo pipefail`; "latest by mtime" may not be sendable |
+
+---
+
+## 1. `make check` currently fails on the reformat it shipped (High)
+
+The commit's README (line 208) advertises `make check` (ShellCheck) and
+`shfmt -i 4 -w .`. But two loops still split an unquoted variable, which
+ShellCheck reports as **SC2086**, and `.shellcheckrc` does *not* disable it
+(it only disables `SC2034`, `SC1091`, `SC2088`):
+
 ```bash
-done < <(grep -v '^\s*#' /etc/fstab | grep -v '^\s*$')
+# wizard.sh:171     (inside select_layers)
+for tag in $result; do
+
+# lib/packages.sh:121     (inside install_layer_packages)
+for pkg in $all_pkgs; do
 ```
 
-`\s` is a GNU extension; it is **not** portable and is not POSIX. The rest of
-the codebase already uses the correct form — e.g. `lib/validate.sh:280`:
+Both are *intentional* word-splitting (a list of tags / a list of package
+names). The correct, self-documenting fix is a scoped directive, **not** adding
+`SC2086` to the global config (that would hide real quoting bugs elsewhere):
+
 ```bash
-grep -v '^[[:space:]]*#'
+# shellcheck disable=SC2086    # intentional word-split of a space/newline-separated list
+for tag in $result; do
 ```
 
-The inconsistency means this one line will behave differently (or warn) on a
-non-GNU `grep`, and it is the only place using `\s` in the whole tree.
-**Fix — match the convention already used 40 lines away:**
+`for l in "$LAYER_BTRBK" ...` at `wizard.sh:184` is fine (quoted literals) and
+needs no change. This is the single most impactful cleanup: it un-breaks the
+lint gate.
+
+---
+
+## 2. `rm -rf` on a single file (Medium) — `lib/uninstall.sh:67`
+
 ```bash
-done < <(grep -v '^[[:space:]]*#' /etc/fstab | grep -v '^[[:space:]]*$')
+rm -rf "$btrbk_override"       # $btrbk_override = "$BTRBK_OVERRIDE_DIR/override.conf" (a file)
+```
+
+`-rf` on a known single file obscures intent and is the exact pattern
+reviewers flag (it would happily recurse if the path were ever wrong). It is a
+file, so:
+
+```bash
+rm -f "$btrbk_override"
+rmdir "$BTRBK_OVERRIDE_DIR" 2>/dev/null || true
+```
+
+The following `rmdir` already handles the empty dir, so the intent is clear once
+the flag is narrowed.
+
+---
+
+## 3. Over-broad nag-script cleanup (Medium) — `lib/uninstall.sh:122-125`
+
+```bash
+sed -i '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' "$rc"
+sed -i '/Arch Backup Wizard OS Clone Nag/d' "$rc"       # fallback for old installs
+sed -i '/os_clone_nag/d' "$rc"                          # also strips ANY line mentioning os_clone_nag
+```
+
+- Three passes over the same file can be one `sed -i -e ... -e ... -e ...`.
+- The last pattern `/os_clone_nag/d` will delete a user's *unrelated* line that
+  merely contains the substring (e.g. a comment or a third-party tool). The
+  sentinel-based first pass is the correct, safe primary path; the broad
+  fallback is a footgun.
+
+Suggested:
+
+```bash
+sed -i \
+    -e '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' \
+    -e '/# Arch Backup Wizard OS Clone Nag/d' \
+    "$rc"
+```
+
+(Keep the `/os_clone_nag/` fallback only if a pre-sentinel install format still
+exists; otherwise drop it. If kept, scope it to the exact generated `nag_line`
+rather than the bare substring.)
+
+---
+
+## 4. Unquoted templated paths break on mount points with spaces (Medium)
+
+`templates/os-cloud-backup.sh` interpolates `{{BACKUP_MOUNT}}` into unquoted
+shell positions:
+
+```bash
+LATEST_SNAP=$(ls -t {{BACKUP_MOUNT}}/OS_Backup | head -n 1)
+sudo btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | ... > "{{BACKUP_MOUNT}}/Cloud_Archive.btrfs.zst"
+rclone copy "{{BACKUP_MOUNT}}/Cloud_Archive.btrfs.zst" "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}" -P
+rm "{{BACKUP_MOUNT}}/Cloud_Archive.btrfs.zst"
+```
+
+The wizard itself is space-aware (it escapes spaces in the fstab entry,
+`fstab_mount="${BACKUP_MOUNT// /\\040}"` in `wizard.sh`), but the *generated*
+script is not: a backup mount with a space (e.g. `/mnt/My Drive`) word-splits at
+`ls -t {{BACKUP_MOUNT}}/OS_Backup`. Quote every interpolation in the template,
+and add `set -euo pipefail` at the top of the generated script (see #8).
+
+
+---
+
+## 5. Destructive `rclone sync` for offsite backup — confirm intent (Medium)
+
+`templates/pika-cloud-sync.service:12`:
+
+```
+ExecStart=/usr/bin/rclone sync "{{BACKUP_MOUNT}}/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v
+```
+
+The commit correctly added a warning comment that `sync` mirrors (deletes
+remote-only files). But for *offsite* data this is the one setting that can
+irreversibly delete cloud data if the local Borg repo is briefly incomplete or
+partially pruned. The unit already uses `Nice=19`/`IOSchedulingClass=idle`, so
+a non-destructive `copy` (optionally `--delete-duplicates`) is usually the safer
+offsite default. This is a **design decision**, not a bug — flag it so the
+choice is explicit and user-facing, and align the "weekly sync" wording in the
+timer/summary with whichever verb is actually chosen.
+
+---
+
+## 6. Inconsistent `findmnt` guards (Low) — `lib/detect.sh:66-69`
+
+```bash
+DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE /)
+DETECTED_ROOT_DEV=$(findmnt -n -o SOURCE /)
+DETECTED_ROOT_UUID=$(findmnt -n -o UUID /)
+DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / | grep -oP 'subvol=\K[^,]+' || echo "")
+```
+
+Line 69 already guards against failure, but 66-68 do not. Under
+`set -euo pipefail` (set in `wizard.sh`) a non-zero `findmnt` would abort
+detection before the friendly "BTRFS required" dialog. Make all four consistent:
+
+```bash
+DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE / 2>/dev/null || echo "")
+DETECTED_ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
+DETECTED_ROOT_UUID=$(findmnt -n -o UUID / 2>/dev/null || echo "")
 ```
 
 ---
 
-## 2. Dead code — `format_backup_drive_choices()`      *(Cleanup)*
+## 7. README `sudo` convention is now inconsistent (Low) — `README.md:157`
 
-**`lib/detect.sh:264-286`** — this function is defined but **never called**.
-The live path (`select_backup_drive`, `wizard.sh:217-249`) builds the radiolist
-inline instead, so this is a stale duplicate of that logic.
+The commit changed the `--validate` example to drop `sudo`:
 
-**Fix:** delete the function and its comment block (`# Build dialog-formatted
-list of candidate backup partitions ...` through the closing brace at line 286).
-Removing it also drops the only reference to the `_type` throwaway read pattern
-in `detect.sh`.
-
----
-
-## 3. Dead detection value — `DETECTED_MACHINE_ID`      *(Cleanup)*
-
-**`lib/detect.sh:164`**
-```bash
-DETECTED_MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
 ```
-Set here, read **nowhere** in the tree. Either wire it into a runbook
-(useful for offsite recovery identification) or remove the line. Removing is
-the lower-risk choice.
-
----
-
-## 4. Dead helper — `user_unit_is_enabled()`      *(Cleanup)*
-
-**`lib/common.sh:210-212`** — defined, never invoked. The only user-unit check
-that actually runs is the inline `run_as_user systemctl --user is-enabled` in
-`layer4_cloud.sh`. Remove this wrapper, or use it in `validate.sh` to confirm
-`pika-cloud-sync.timer` for the real user (a small validation gain).
-
----
-
-## 5. Dead helper — `pkg_in_repos()`      *(Cleanup)*
-
-**`lib/packages.sh:15-17`** — defined, never called. Remove it, or use it in
-`pkg_install` to give a clearer error when a package name is wrong (a nice
-DX improvement if you keep it).
-
----
-
-## 6. Avoid `eval` on dialog output — `read -ra`      *(Quality)*
-
-**`lib/layer3_pika.sh:98`**
-```bash
-eval "selected_exclusions=($raw_exclusions)"
+./wizard.sh --validate 1,3,4
 ```
 
-`raw_exclusions` is the raw stdout of `ui_checklist`. Today the tags are
-hardcoded, so injection risk is low — but `eval` on external-command output is a
-code smell and it will silently mangle any tag containing shell metacharacters.
-The intent is word-splitting into an array; `read -ra` does that safely:
-```bash
-local -a selected_exclusions=()
-if [[ -n "$raw_exclusions" ]]; then
-    read -ra selected_exclusions <<< "$raw_exclusions"
-fi
-```
-*(Note: the two other `eval`s — `validate.sh:311` restoring `shopt`, and
-`wizard.sh:432` restoring a function definition — are intentional and correct.
-Leave those.)*
-
+…but every other invocation keeps it (`sudo ./wizard.sh` L46/54,
+`sudo ./wizard.sh --uninstall` L163, `sudo ./wizard.sh --dry-run` L209).
+`require_root` intentionally allows non-root for `--validate`/`--dry-run`, so
+the drop is *defensible* — but `--validate` runs `run_detection`, which
+invokes root-only steps (`btrfs subvolume list /`, mount lookups), so in
+practice it should be run as root to get meaningful results. Pick one convention
+and apply it uniformly (either all `sudo`, or explicitly document that
+`--validate`/`--dry-run` are the two non-root modes).
 
 ---
 
-## 7. Loosen the fstab presence check       *(Robustness)*
+## 8. Generated nag/cloud scripts lack hardening (Low)
 
-**`wizard.sh:345`** (`_ensure_backup_mounted`)
-```bash
-if ! grep -q "$BACKUP_UUID" /etc/fstab 2>/dev/null; then
-```
-A plain `grep -q` is a substring match, so a UUID appearing inside an unrelated
-comment line would make the wizard skip adding a real mount entry. Anchor it to
-a UUID token:
-```bash
-if ! grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" /etc/fstab 2>/dev/null; then
-```
-Minor, but this is the one place the wizard edits `/etc/fstab` and correctness
-matters.
+`templates/os-clone-nag.sh` and `templates/os-cloud-backup.sh` are
+`#!/bin/bash` with no `set -euo pipefail`. In particular
+`os-cloud-backup.sh`:
 
----
-
-## 8. Whole-disk regex misses multi-part names       *(Edge case)*
-
-**`wizard.sh:314`** (`_format_backup_drive`)
-```bash
-if [[ "$dev" =~ ^/dev/[a-z]+$ ]] || [[ "$dev" =~ ^/dev/nvme[0-9]+n[0-9]+$ ]]; then
-```
-`^/dev/[a-z]+$` only matches pure-letter device names, so `mmcblk0`, `vd`, or
-any name with digits/underscore is missed — those disks would skip partitioning
-and fail later at `mkfs.btrfs`. A device that is *not* a partition is simply one
-whose name is not `...pN`/`...N`. A more robust test:
-```bash
-if lsblk -no TYPE "$dev" 2>/dev/null | grep -qx disk; then
-```
-Low frequency, but it is the path that erases a drive, so it is worth hardening.
+- `LATEST_SNAP=$(ls -t .../OS_Backup | head -n 1)` picks the snapshot newest by
+   *mtime*, which is not guaranteed to be a sendable leaf snapshot;
+   `btrfs send` can fail with "parent not found" on non-leaf snapshots. Prefer
+   `btrfs subvolume list` + `--parent`, or at least `|| true` so the script is
+  diagnosable.
+- `{{DETECTED_TERMINAL_CMD}}` can render empty on a system with no detected
+  terminal; guard with a default (the wizard already computes
+  `${DETECTED_TERMINAL_CMD:-xterm -e}` in `layer4_cloud.sh:174` — reuse that at
+  render time so the template never emits a bare empty token).
 
 ---
 
-## 9. Cosmetic — inconsistent indentation in `parse_args`       *(Cosmetic)*
+## Positives (already clean — worth keeping)
 
-**`wizard.sh:30-80`** — the `case` labels and their arms are indented with an
-inconsistent mix of spaces (some 5, some 3). Re-flow to a consistent 4-space
-style. Purely cosmetic; bundle it with any other edit to `parse_args` so it
-does not generate noise on its own.
-
----
-
-## 10. Consistency — `set -euo pipefail` placement       *(Consistency)*
-
-Each `lib/*.sh` file places `set -euo pipefail` *below* its header comment
-(after a blank line, before the functions), rather than at the top. It works
-because the files are sourced into the wizard shell (which already set it),
-so the placement is cosmetic — but it is inconsistent with `wizard.sh` (top of
-file) and reads oddly. Either move it under the shebang in every module, or drop
-it entirely and rely on the parent shell. Pick one convention.
-
----
-
-## 11. Observations — worth a thought, not a defect
-
-- **`pika-cloud-sync.service` uses `rclone sync`** (`templates/pika-cloud-sync.service:10`).
-   `sync` deletes remote objects not present locally — the intended behaviour for a
-  mirror, but it is destructive. A one-line comment in the template noting "sync
-  deletes stale remote files" would help the next reader. Design choice, not a bug.
-- **`templates/os-clone-nag.sh:44`** composes `{{DETECTED_TERMINAL_CMD}} bash -c "..."`.
-  For the `gnome-terminal --` candidate that becomes `gnome-terminal -- bash -c "..."`;
-  verify it launches as intended, since `gnome-terminal` arg handling differs from
-   `xterm -e`.
-- **`--validate` without root + no dialog:** `ensure_dialog` (`packages.sh:149`)
-  runs before the `--validate` branch in `main()`, so a rootless validate with no
-   `dialog`/`whiptail` fatal-exits via `ensure_dialog` instead of reporting cleanly.
-  Edge case only.
-- **`run_as_user`** (`common.sh:188`) uses `sudo -u "$(get_real_user)"`. Fine in the
-  interactive flow; just note it depends on `get_real_user` resolving, which relies on
-   `SUDO_USER`/`logname`/`USER`.
+- **Single source of truth:** `layer_selected()` is defined only in
+   `lib/common.sh:74` and its "do not redefine" contract holds (verified across
+   `runbooks.sh`/`validate.sh`).
+- **Sourcing hygiene:** `set -euo pipefail` was correctly *removed* from the
+  sourced libs (a `set -e` in a sourced file infects the parent) and kept only
+  in the top-level `wizard.sh:8`.
+- **Startup ordering fix:** moving `ensure_dialog`/`detect_dialog` *after* the
+   `--uninstall`/`--validate` branches (`wizard.sh:517-519`) so headless modes no
+  longer force a GUI install — `uninstall.sh`/`validate.sh` self-detect the
+  backend.
+- **Consistent failure contract:** layer setup now uniformly
+  `log_error "..."; return 1` (e.g. the new `mkdir ... || { return 1; }`
+  guards in layers 1/2/4/5), matching the documented "never call `die()` inside
+  a layer" rule.
+- **Quoting & redirect cleanup** (`>>"$F"`, `cat >>"$rc"` etc.) is uniform and
+  ShellCheck-friendly across the diff.
+- All 13 scripts pass `bash -n`.
 
 ---
 
-## 12. Already good — do not "fix" these
+## Suggested follow-up (smallest clean commit)
 
-Future reviewers: these are deliberate and correct.
+1. Add the two `# shellcheck disable=SC2086` directives (#1) — restores
+   `make check`.
+2. Narrow `rm -rf`→`rm -f` and collapse the `sed` passes (#2, #3).
+3. Quote the templated paths + add `set -euo pipefail` to the two generated
+   scripts (#4, #8).
+4. Decide `sync` vs `copy` for offsite and document it (#5).
+5. Make `findmnt` guards consistent (#6) and fix the README `sudo` convention
+   (#7).
 
-- **`die()` contract** (`common.sh:100-115`) — `die()` is reserved for
-  precondition failures in `wizard.sh`; layers return non-zero instead so the
-  wizard always reaches runbook generation and validation. Well documented.
-- **`layer_selected()`** (`common.sh:76`) — single authoritative definition,
-  guarded against `set -u` with the `${arr[@]+"${arr[@]}"}` idiom. Good.
-- **`SELECTED_LAYERS` pre-declaration** (`common.sh:71`) — prevents `set -u`
-  trips before population. Correct.
-- **`template_render`** (`common.sh:133`) — indirect `${!var:-}` expansion is
-  safe under `set -u` for missing placeholders.
-- **Idempotency** — `backup_file` before every write; nag-script sentinels
-   (`BEGIN`/`END`) in `layer4_cloud.sh` + `uninstall.sh` with a fallback `sed`
-  for older installs. Solid.
-- **Dry-run isolation** (`wizard.sh:367-473`) — previews to
-   `~/arch-backup-wizard-preview`, silences `ui_msgbox`, restores it. Nice.
-- **`run_layer` non-fatal policy** (`wizard.sh:560`) — one layer failing never
-  blocks the others. Correct for a multi-layer setup tool.
-- **Resource throttling** (`Nice=19`, `IOSchedulingClass=idle`) — consistent
-  across the btrbk override and the pika user timer. On theme for a gaming rig.
-- **CI** (`.github/workflows/lint.yml`) runs `shellcheck -x` and ignores
-   `templates/` — appropriate. Note: `shellcheck` is not installed locally, so
-  the `make check` target cannot run on a bare box; worth documenting or
-  packaging in the dev environment.
-
----
-
-*Suggested order:* #1 (real bug) -> #6 (quality) -> #2-#5 (dead-code sweep) ->
-the rest. All are independent and low-risk; each is a self-contained commit.
+Each item is independently mergeable and keeps the Boy Scout spirit: the last
+commit cleaned up the formatting; these finish the job on the lint gate and the
+robustness edges it left behind.
 
