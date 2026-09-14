@@ -5,21 +5,11 @@
 # cross-layer configurations (fstab, recovery runbooks), and displays
 # a health summary dashboard via dialog.
 
-# Ensure layer_selected function exists if running outside wizard.sh
-if ! declare -F layer_selected >/dev/null 2>&1; then
-    layer_selected() {
-        local target="$1"
-        if [[ -n "${SELECTED_LAYERS+x}" ]]; then
-            for l in "${SELECTED_LAYERS[@]}"; do
-                [[ "$l" == "$target" ]] && return 0
-            done
-            return 1
-        fi
-        return 0
-    }
-fi
 
 # ── Main validation entrypoint ────────────────────────────────────────────────
+
+
+set -euo pipefail
 
 run_validation() {
     log_info "══════ Starting Post-Setup Validation Checks ══════"
@@ -37,11 +27,12 @@ run_validation() {
 
     local all_passed=true
     local failure_issues=()
-    local user_home="${DETECTED_HOME:-$(get_real_home 2>/dev/null || echo "$HOME")}"
+    local user_home
+    user_home="$(effective_home)"
 
     # ── 1. Check Layer 1 (Snapper) ────────────────────────────────────────────
     local layer1_status="— Skipped"
-    if layer_selected "1"; then
+    if layer_selected "$LAYER_SNAPPER"; then
         log_info "Validating Layer 1 (Snapper)..."
         local l1_ok=true
 
@@ -103,7 +94,7 @@ run_validation() {
 
     # ── 2. Check Layer 2 (btrbk) ──────────────────────────────────────────────
     local layer2_status="— Skipped"
-    if layer_selected "2"; then
+    if layer_selected "$LAYER_BTRBK"; then
         log_info "Validating Layer 2 (btrbk)..."
         local l2_ok=true
 
@@ -113,10 +104,10 @@ run_validation() {
             failure_issues+=("Layer 2: btrbk package not installed")
         fi
 
-        if [[ ! -f /etc/btrbk/btrbk.conf ]]; then
+        if [[ ! -f "$BTRBK_CONF" ]]; then
             l2_ok=false
-            log_warn "Layer 2 check failed: /etc/btrbk/btrbk.conf does not exist"
-            failure_issues+=("Layer 2: /etc/btrbk/btrbk.conf missing")
+            log_warn "Layer 2 check failed: $BTRBK_CONF does not exist"
+            failure_issues+=("Layer 2: $BTRBK_CONF missing")
         fi
 
         if ! unit_is_enabled btrbk.timer; then
@@ -151,7 +142,7 @@ run_validation() {
 
     # ── 3. Check Layer 3 (Pika Backup) ────────────────────────────────────────
     local layer3_status="— Skipped"
-    if layer_selected "3"; then
+    if layer_selected "$LAYER_PIKA"; then
         log_info "Validating Layer 3 (Pika Backup)..."
         local l3_ok=true
 
@@ -187,7 +178,7 @@ run_validation() {
 
     # ── 4. Check Layer 4 (Cloud Offsite) ──────────────────────────────────────
     local layer4_status="— Skipped"
-    if layer_selected "4"; then
+    if layer_selected "$LAYER_CLOUD"; then
         log_info "Validating Layer 4 (Cloud Offsite)..."
         local l4_ok=true
 
@@ -256,7 +247,7 @@ run_validation() {
 
     # ── 5. Check Layer 5 (Deep Storage) ───────────────────────────────────────
     local layer5_status="— Skipped"
-    if layer_selected "5"; then
+    if layer_selected "$LAYER_DEEP"; then
         log_info "Validating Layer 5 (Deep Storage)..."
         local l5_ok=true
 
@@ -325,7 +316,7 @@ run_validation() {
         log_success "Recovery runbooks: $runbook_count found in ${BACKUP_MOUNT:-N/A}"
     else
         log_warn "Recovery runbooks: 0 found in ${BACKUP_MOUNT:-N/A}"
-        if layer_selected "1" || layer_selected "2" || layer_selected "4"; then
+        if layer_selected "$LAYER_SNAPPER" || layer_selected "$LAYER_BTRBK" || layer_selected "$LAYER_CLOUD"; then
             all_passed=false
             failure_issues+=("Runbooks: No recovery runbooks found in ${BACKUP_MOUNT:-N/A}")
         fi
@@ -370,4 +361,3 @@ run_validation() {
     fi
 }
 
-export -f run_validation

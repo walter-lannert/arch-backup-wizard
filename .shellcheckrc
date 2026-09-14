@@ -1,0 +1,5 @@
+# Shellcheck configuration
+source-path=SCRIPTDIR
+disable=SC2034
+disable=SC1091
+disable=SC2088

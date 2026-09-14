@@ -11,6 +11,9 @@
 # 7. Asks user to confirm completion
 # 8. Validates Pika Backup configuration file exists
 
+
+set -euo pipefail
+
 setup_layer3() {
     log_info "── Setting up Layer 3: Pika Backup (Borg home backups) ──"
 
@@ -21,9 +24,12 @@ setup_layer3() {
     fi
 
     local backup_mount="${BACKUP_MOUNT%/}"
-    local target_user="${DETECTED_USER:-$(get_real_user)}"
-    local target_host="${DETECTED_HOSTNAME:-$(cat /etc/hostname 2>/dev/null || uname -n)}"
-    local target_home="${DETECTED_HOME:-$(get_real_home)}"
+    local target_user
+    target_user="$(effective_user)"
+    local target_host
+    target_host="${DETECTED_HOSTNAME:-$(cat /etc/hostname 2>/dev/null || uname -n)}"
+    local target_home
+    target_home="$(effective_home)"
 
     # 1. Install packages: call install_layer_packages "3"
     log_info "Step 1: Installing Layer 3 packages..."
@@ -138,8 +144,8 @@ Please follow these steps:
 5. Go to the Exclude tab and add these paths:
 $formatted_exclusions
 6. Set the schedule to 'Hourly'
-7. Enable Pruning with:
-   Hourly: 12, Daily: 7, Weekly: 4, Monthly: 6
+7. Enable Pruning and configure your preferred retention
+   (e.g. Hourly: 12, Daily: 7, Weekly: 4, Monthly: 6)
 8. Click 'Create Backup' to save"
 
     # 6. Ask if the user wants to launch Pika now (ui_yesno)
@@ -184,4 +190,3 @@ Pika Backup from your desktop application menu."
     return 0
 }
 
-export -f setup_layer3

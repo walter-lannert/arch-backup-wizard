@@ -4,6 +4,9 @@
 # Configures btrbk to create daily snapshots of the root filesystem
 # and transfer them to the secondary backup drive for disaster recovery.
 
+
+set -euo pipefail
+
 setup_layer2() {
     log_info "── Setting up Layer 2: btrbk daily OS clones ──"
 
@@ -23,41 +26,41 @@ setup_layer2() {
     fi
 
     # 2. Create the btrbk snapshot directory on root if it doesn't exist:
-    #    mkdir -p /.snapshots_btrbk
-    log_info "Step 2: Ensuring snapshot directory /.snapshots_btrbk exists..."
-    mkdir -p /.snapshots_btrbk
+    #    mkdir -p "$SNAP_DIR_BTRBK"
+    log_info "Step 2: Ensuring snapshot directory $SNAP_DIR_BTRBK exists..."
+    mkdir -p "$SNAP_DIR_BTRBK" || { log_error "Failed to create $SNAP_DIR_BTRBK"; return 1; }
 
     # 3. Create the OS_Backup target directory on the backup drive:
     #    mkdir -p "$BACKUP_MOUNT/OS_Backup"
     log_info "Step 3: Ensuring backup target directory $backup_mount/OS_Backup exists..."
-    mkdir -p "$backup_mount/OS_Backup"
+    mkdir -p "$backup_mount/OS_Backup" || { log_error "Failed to create $backup_mount/OS_Backup"; return 1; }
 
     # 4. Write /etc/btrbk/btrbk.conf (back up existing one first with backup_file)
     log_info "Step 4: Writing /etc/btrbk/btrbk.conf..."
-    mkdir -p /etc/btrbk
-    backup_file /etc/btrbk/btrbk.conf >/dev/null
+    mkdir -p "$(dirname "$BTRBK_CONF")" || { log_error "Failed to create $(dirname "$BTRBK_CONF")"; return 1; }
+    backup_file "$BTRBK_CONF" >/dev/null
 
-    cat <<EOF > /etc/btrbk/btrbk.conf
+    cat <<EOF > "$BTRBK_CONF"
 transaction_log            /var/log/btrbk.log
-snapshot_dir               .snapshots_btrbk
-snapshot_preserve_min      7d
-snapshot_preserve          14d
-target_preserve_min        latest
-target_preserve            14d
+snapshot_dir               ${SNAP_DIR_BTRBK#/}
+snapshot_preserve_min      ${BTRBK_SNAP_MIN}
+snapshot_preserve          ${BTRBK_SNAP}
+target_preserve_min        ${BTRBK_TARGET_MIN}
+target_preserve            ${BTRBK_TARGET}
 
 volume /
   subvolume .
   target send-receive      ${backup_mount}/OS_Backup
 EOF
-    log_success "Created /etc/btrbk/btrbk.conf"
+    log_success "Created $BTRBK_CONF"
 
     # 5. Create systemd drop-in override at /etc/systemd/system/btrbk.service.d/override.conf:
     #    Create the directory first: mkdir -p /etc/systemd/system/btrbk.service.d
     log_info "Step 5: Configuring systemd drop-in override for btrbk.service..."
-    local override_dir="/etc/systemd/system/btrbk.service.d"
+    local override_dir="$BTRBK_OVERRIDE_DIR"
     local override_conf="$override_dir/override.conf"
 
-    mkdir -p "$override_dir"
+    mkdir -p "$override_dir" || { log_error "Failed to create $override_dir"; return 1; }
     backup_file "$override_conf" >/dev/null
 
     cat <<EOF > "$override_conf"
@@ -72,11 +75,11 @@ EOF
 
     # 6. Run systemctl daemon-reload
     log_info "Step 6: Reloading systemd daemon..."
-    systemctl daemon-reload
+    systemctl daemon-reload >> "$LOG_FILE" 2>&1 || { log_error "systemctl daemon-reload failed"; return 1; }
 
     # 7. Enable the timer: systemctl enable --now btrbk.timer
     log_info "Step 7: Enabling and starting btrbk.timer..."
-    systemctl enable --now btrbk.timer
+    systemctl enable --now btrbk.timer >> "$LOG_FILE" 2>&1 || { log_error "Failed to enable btrbk.timer"; return 1; }
 
     # 8. Ask the user if they want to run the first backup now (ui_yesno). If yes:
     #    - Show ui_infobox saying backup is running
@@ -124,7 +127,7 @@ Please check the log file for details:
 
   Status:    btrbk.timer is active
   Target:    ${backup_mount}/OS_Backup
-  Config:    /etc/btrbk/btrbk.conf
+  Config:    $BTRBK_CONF
   Schedule:  Daily backups preserved for 14 days"
         return 0
     else
@@ -141,4 +144,3 @@ Log details:
     fi
 }
 
-export -f setup_layer2
