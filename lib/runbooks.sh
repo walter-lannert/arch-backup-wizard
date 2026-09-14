@@ -4,20 +4,11 @@
 # Generates personalized, step-by-step disaster recovery runbooks with
 # the user's actual UUIDs, paths, and system configuration baked in.
 
-# Ensure layer_selected function exists if running outside wizard.sh
-if ! declare -F layer_selected >/dev/null 2>&1; then
-    layer_selected() {
-        local target="$1"
-        if [[ -n "${SELECTED_LAYERS+x}" ]]; then
-            for l in "${SELECTED_LAYERS[@]}"; do
-                [[ "$l" == "$target" ]] && return 0
-            done
-        fi
-        return 1
-    }
-fi
 
 # Generate personalized recovery runbooks based on configured layers
+
+set -euo pipefail
+
 generate_runbooks() {
     log_info "── Generating Personalized Recovery Runbooks ──"
 
@@ -26,8 +17,7 @@ generate_runbooks() {
 
     # Ensure BACKUP_MOUNT is set and directory exists
     if [[ -z "${BACKUP_MOUNT:-}" ]]; then
-        local default_home="${DETECTED_HOME:-$(get_real_home)}"
-        BACKUP_MOUNT="${default_home:-/root}/Backup"
+        BACKUP_MOUNT="$(effective_home)/Backup"
         log_warn "BACKUP_MOUNT is not set; defaulting runbook destination to ${BACKUP_MOUNT}"
     fi
 
@@ -40,8 +30,10 @@ generate_runbooks() {
     export ROOT_UUID="${DETECTED_ROOT_UUID:-}"
     export EFI_UUID="${DETECTED_EFI_UUID:-}"
     export BOOTLOADER="${DETECTED_BOOTLOADER:-}"
-    export USERNAME="${DETECTED_USER:-$(get_real_user)}"
-    export HOME_DIR="${DETECTED_HOME:-$(get_real_home)}"
+    export USERNAME
+    USERNAME="$(effective_user)"
+    export HOME_DIR
+    HOME_DIR="$(effective_home)"
     export HOSTNAME_VAL="${DETECTED_HOSTNAME:-$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "")}"
     export BACKUP_MOUNT="${BACKUP_MOUNT:-}"
     export BACKUP_UUID="${BACKUP_UUID:-}"
@@ -68,12 +60,13 @@ generate_runbooks() {
     log_info "  CLOUD_OS_DIR=$CLOUD_OS_DIR"
     log_info "  CLOUD_PIKA_DIR=$CLOUD_PIKA_DIR"
 
-    local target_user="${DETECTED_USER:-$(get_real_user)}"
+    local target_user
+    target_user="$(effective_user)"
     local generated_runbooks=()
     local missing_templates=()
 
     # 2. Generate Layer 1 Rollback Runbook (only if Layer 1 was configured)
-    if layer_selected "1"; then
+    if layer_selected "$LAYER_SNAPPER"; then
         local tpl1="$wizard_dir/templates/rollback-runbook.txt"
         local out1="$BACKUP_MOUNT/Layer1_Snapper_Rollback_Runbook.txt"
 
@@ -95,7 +88,7 @@ generate_runbooks() {
     fi
 
     # 3. Generate Bare-Metal Recovery Runbook (only if Layer 2 was configured)
-    if layer_selected "2"; then
+    if layer_selected "$LAYER_BTRBK"; then
         local tpl2="$wizard_dir/templates/bare-metal-runbook.txt"
         local out2="$BACKUP_MOUNT/Bare_Metal_Recovery_Runbook.txt"
 
@@ -117,7 +110,7 @@ generate_runbooks() {
     fi
 
     # 4. Generate Cloud Recovery Runbook (only if Layer 4 was configured)
-    if layer_selected "4"; then
+    if layer_selected "$LAYER_CLOUD"; then
         local tpl4="$wizard_dir/templates/cloud-recovery-runbook.txt"
         local out4="$BACKUP_MOUNT/Cloud_Recovery_Runbook.txt"
 
@@ -172,4 +165,3 @@ generate_runbooks() {
     log_info "Runbook summary displayed to user."
 }
 
-export -f generate_runbooks

@@ -34,6 +34,16 @@ parse_args() {
                 if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
                     IFS=',' read -ra VALIDATE_LAYERS <<< "$1"
                     shift
+                    # Validate each token — case literals are intentional here;
+                    # bash case patterns don't expand variables so LAYER_* can't
+                    # be used in pattern position.
+                    local _l
+                    for _l in "${VALIDATE_LAYERS[@]}"; do
+                        case "$_l" in
+                            1|2|3|4|5) ;;
+                            *) die "Invalid layer id: '$_l' (expected 1..5, or comma-separated subset, e.g. 1,3)" ;;
+                        esac
+                    done
                 fi
                 ;;
             --dry-run|-d)  DRY_RUN=true;   shift ;;
@@ -134,18 +144,17 @@ The wizard cannot continue."
 
 # ── Layer selection ───────────────────────────────────────────────────────────
 
-SELECTED_LAYERS=()
 NEEDS_BACKUP_DRIVE=false
 
 select_layers() {
     local result
     result=$(ui_checklist "Select Backup Layers" \
         "Choose which layers to set up (SPACE to toggle):" \
-        "1" "Snapper — Instant rollback on bad updates"     "on" \
-        "2" "btrbk — Daily OS clone to backup drive"        "on" \
-        "3" "Pika Backup — Hourly home directory backups"   "on" \
-        "4" "Cloud Offsite — Backups to cloud storage"      "on" \
-        "5" "Deep Storage — Local archive (not synced)"     "on" \
+        "$LAYER_SNAPPER" "Snapper — Instant rollback on bad updates"     "on" \
+        "$LAYER_BTRBK"   "btrbk — Daily OS clone to backup drive"        "on" \
+        "$LAYER_PIKA"    "Pika Backup — Hourly home directory backups"   "on" \
+        "$LAYER_CLOUD"   "Cloud Offsite — Backups to cloud storage"      "on" \
+        "$LAYER_DEEP"    "Deep Storage — Local archive (not synced)"     "on" \
     ) || die "Aborted by user at layer selection."
 
     SELECTED_LAYERS=()
@@ -158,25 +167,16 @@ select_layers() {
     log_info "Selected layers: ${SELECTED_LAYERS[*]}"
 }
 
-# Check if a specific layer number was selected
-layer_selected() {
-    local target="$1"
-    for l in "${SELECTED_LAYERS[@]}"; do
-        [[ "$l" == "$target" ]] && return 0
-    done
-    return 1
-}
-
 # Enforce inter-layer dependencies
 check_layer_deps() {
     NEEDS_BACKUP_DRIVE=false
 
-    for l in 2 3 5; do
+    for l in "$LAYER_BTRBK" "$LAYER_PIKA" "$LAYER_DEEP"; do
         layer_selected "$l" && NEEDS_BACKUP_DRIVE=true
     done
 
-    if layer_selected "4"; then
-        if ! layer_selected "2" && ! layer_selected "3"; then
+    if layer_selected "$LAYER_CLOUD"; then
+        if ! layer_selected "$LAYER_BTRBK" && ! layer_selected "$LAYER_PIKA"; then
             ui_msgbox "Dependency" \
 "Layer 4 (Cloud Offsite) needs data to upload.
 
@@ -367,7 +367,8 @@ _ensure_backup_mounted() {
 run_dry_run_simulation() {
     log_info "══════ Running Wizard Simulation (Dry Run) ══════"
 
-    local preview_dir="${DETECTED_HOME:-$HOME}/arch-backup-wizard-preview"
+    local preview_dir
+    preview_dir="$(effective_home)/arch-backup-wizard-preview"
     mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
 
     # 1. Collect packages
@@ -380,7 +381,7 @@ run_dry_run_simulation() {
 
     # 2. Collect actions per layer
     local actions=""
-    if layer_selected "1"; then
+    if layer_selected "$LAYER_SNAPPER"; then
         actions+="• Layer 1 (Snapper):\n"
         actions+="  - Configure /etc/snapper/configs/root\n"
         actions+="  - Enable snapper-cleanup.timer\n"
@@ -391,21 +392,21 @@ run_dry_run_simulation() {
         esac
     fi
 
-    if layer_selected "2"; then
+    if layer_selected "$LAYER_BTRBK"; then
         actions+="• Layer 2 (btrbk):\n"
-        actions+="  - Configure /etc/btrbk/btrbk.conf\n"
+        actions+="  - Configure $BTRBK_CONF\n"
         actions+="  - Target: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/OS_Backup\n"
         actions+="  - Create systemd override (Nice=19, Idle I/O)\n"
         actions+="  - Enable btrbk.timer (daily clones)\n"
     fi
 
-    if layer_selected "3"; then
+    if layer_selected "$LAYER_PIKA"; then
         actions+="• Layer 3 (Pika Backup):\n"
         actions+="  - Borg repo: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Personal/backup-${DETECTED_HOSTNAME}-${DETECTED_USER}\n"
         actions+="  - Guided GUI setup (hourly schedule, retention)\n"
     fi
 
-    if layer_selected "4"; then
+    if layer_selected "$LAYER_CLOUD"; then
         actions+="• Layer 4 (Cloud Offsite):\n"
         actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh\n"
         actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh\n"
@@ -413,7 +414,7 @@ run_dry_run_simulation() {
         actions+="  - Shell startup nag integration: ${DETECTED_SHELL}\n"
     fi
 
-    if layer_selected "5"; then
+    if layer_selected "$LAYER_DEEP"; then
         actions+="• Layer 5 (Deep Storage):\n"
         actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage\n"
     fi
@@ -478,9 +479,7 @@ main() {
     require_root
 
     # Set up log file under the real user's home
-    local target_home
-    target_home="$(get_real_home 2>/dev/null || echo "$HOME")"
-    LOG_FILE="${target_home}/arch-backup-wizard.log"
+    LOG_FILE="$(effective_home)/arch-backup-wizard.log"
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
 
     # Ensure dialog is available before anything else
@@ -501,7 +500,7 @@ main() {
         if [[ ${#VALIDATE_LAYERS[@]} -gt 0 ]]; then
             SELECTED_LAYERS=("${VALIDATE_LAYERS[@]}")
         else
-            SELECTED_LAYERS=("1" "2" "3" "4" "5")
+            SELECTED_LAYERS=("$LAYER_SNAPPER" "$LAYER_BTRBK" "$LAYER_PIKA" "$LAYER_CLOUD" "$LAYER_DEEP")
         fi
         BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
         BACKUP_UUID="${DETECTED_BACKUP_UUID:-}"
@@ -515,7 +514,6 @@ main() {
     # Detect
     ui_infobox "Scanning" "Detecting your system configuration..."
     run_detection
-    sleep 1
 
     # BTRFS gate
     check_btrfs
@@ -549,11 +547,37 @@ main() {
     source "$WIZARD_DIR/lib/runbooks.sh"
     source "$WIZARD_DIR/lib/validate.sh"
 
-    layer_selected "1" && setup_layer1
-    layer_selected "2" && setup_layer2
-    layer_selected "3" && setup_layer3
-    layer_selected "4" && setup_layer4
-    layer_selected "5" && setup_layer5
+    # run_layer — invoke a setup function for a selected layer.
+    #
+    # Policy: layer failures are non-fatal — the wizard always continues to the
+    # next layer so that runbook generation and validation always run.
+    #
+    # Contract for setup_layerN authors:
+    #   - Return 0 on success, non-zero on failure.
+    #   - Use  log_error "..."; return 1  for any step that fails.
+    #   - Never call die() — that is reserved for precondition failures in
+    #     wizard.sh only (see die() in lib/common.sh for the full contract).
+    run_layer() {
+        local layer_id="$1"
+        local fn="$2"
+        if layer_selected "$layer_id"; then
+            if ! "$fn"; then
+                log_error "Layer $layer_id setup encountered errors — continuing to next layer."
+                ui_msgbox "Layer $layer_id Warning" \
+"Layer $layer_id setup encountered errors and could not complete fully.
+
+The wizard will continue setting up remaining layers.
+Please check the log for details:
+  $LOG_FILE"
+            fi
+        fi
+    }
+
+    run_layer "$LAYER_SNAPPER" setup_layer1
+    run_layer "$LAYER_BTRBK"   setup_layer2
+    run_layer "$LAYER_PIKA"    setup_layer3
+    run_layer "$LAYER_CLOUD"   setup_layer4
+    run_layer "$LAYER_DEEP"    setup_layer5
 
     # ── Runbook generation ────────────────────────────────────────────────
     generate_runbooks

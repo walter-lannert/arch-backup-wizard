@@ -7,6 +7,9 @@
 
 # ── Main uninstall entrypoint ──────────────────────────────────────────────────
 
+
+set -euo pipefail
+
 run_uninstall() {
     require_root
     [[ -z "${DIALOG_CMD:-}" ]] && detect_dialog
@@ -17,7 +20,7 @@ run_uninstall() {
     local warning_msg="This will remove all backup configurations created by the Arch Backup Wizard:
 
 • Snapper config (/etc/snapper/configs/root)
-• btrbk config (/etc/btrbk/btrbk.conf) and systemd override
+• btrbk config ($BTRBK_CONF) and systemd override
 • Cloud backup scripts (~/.os_cloud_backup.sh, ~/.os_clone_nag.sh)
 • Pika cloud sync systemd timer
 • Shell startup nag integration
@@ -52,7 +55,7 @@ This will NOT remove:
     log_info "Disabling btrbk.timer..."
     systemctl disable --now btrbk.timer >> "$LOG_FILE" 2>&1 || true
 
-    local btrbk_cfg="/etc/btrbk/btrbk.conf"
+    local btrbk_cfg="$BTRBK_CONF"
     if [[ -f "$btrbk_cfg" ]]; then
         log_info "Removing btrbk configuration: $btrbk_cfg"
         rm -f "$btrbk_cfg"
@@ -61,11 +64,11 @@ This will NOT remove:
         log_info "btrbk configuration not found ($btrbk_cfg); skipping."
     fi
 
-    local btrbk_override="/etc/systemd/system/btrbk.service.d/override.conf"
+    local btrbk_override="$BTRBK_OVERRIDE_DIR/override.conf"
     if [[ -e "$btrbk_override" ]]; then
         log_info "Removing btrbk systemd override: $btrbk_override"
         rm -rf "$btrbk_override"
-        rmdir /etc/systemd/system/btrbk.service.d 2>/dev/null || true
+        rmdir "$BTRBK_OVERRIDE_DIR" 2>/dev/null || true
         log_success "Removed $btrbk_override"
     else
         log_info "btrbk systemd override not found ($btrbk_override); skipping."
@@ -77,12 +80,9 @@ This will NOT remove:
     # ── 4. Layer 4 cleanup (Cloud & Nag Scripts) ──────────────────────────────
     log_info "── Layer 4 Cleanup: Cloud Offsite & Nag Scripts ──"
     local user
-    user=$(get_real_user)
+    user="$(effective_user)"
     local home
-    home=$(get_real_home)
-
-    [[ -z "$user" ]] && user="${DETECTED_USER:-root}"
-    [[ -z "$home" ]] && home="${DETECTED_HOME:-/root}"
+    home="$(effective_home)"
 
     log_info "Target user: $user (home: $home)"
 
@@ -122,6 +122,8 @@ This will NOT remove:
             if grep -q "os_clone_nag" "$rc" 2>/dev/null; then
                 log_info "Removing nag script lines from $rc..."
                 backup_file "$rc" >/dev/null
+                sed -i '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' "$rc"
+                # Fallback for older installs without the END sentinel
                 sed -i '/Arch Backup Wizard OS Clone Nag/d' "$rc"
                 sed -i '/os_clone_nag/d' "$rc"
                 chown "$user:$user" "$rc" 2>/dev/null || true
@@ -146,4 +148,3 @@ You can reinstall by running the wizard again."
     exit 0
 }
 
-export -f run_uninstall

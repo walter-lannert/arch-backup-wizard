@@ -13,6 +13,9 @@
 # 9. Uploads Cloud_Recovery_Runbook.txt to cloud if it exists
 # 10. Displays completion summary dialog
 
+
+set -euo pipefail
+
 setup_layer4() {
     log_info "── Setting up Layer 4: Cloud Offsite (rclone) ──"
 
@@ -23,8 +26,10 @@ setup_layer4() {
     fi
 
     local backup_mount="${BACKUP_MOUNT%/}"
-    local target_user="${DETECTED_USER:-$(get_real_user)}"
-    local target_home="${DETECTED_HOME:-$(get_real_home)}"
+    local target_user
+    target_user="$(effective_user)"
+    local target_home
+    target_home="$(effective_home)"
     local wizard_dir="${WIZARD_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
     # ── 1. Install packages ───────────────────────────────────────────────────
@@ -236,11 +241,16 @@ Would you like to re-run 'rclone config' to retry?
     esac
 
     mkdir -p "$(dirname "$rc_file")"
-    if [[ -f "$rc_file" ]] && grep -Fq ".os_clone_nag.sh" "$rc_file"; then
+    if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
         log_info "Nag script already configured in $rc_file"
     else
         backup_file "$rc_file" >/dev/null
-        printf '\n# Arch Backup Wizard OS Clone Nag\n%s\n' "$nag_line" >> "$rc_file"
+        cat >> "$rc_file" << EOF
+
+# Arch Backup Wizard OS Clone Nag BEGIN
+$nag_line
+# Arch Backup Wizard OS Clone Nag END
+EOF
         chown "$target_user:$target_user" "$rc_file"
         log_success "Added nag script invocation to $rc_file"
     fi
@@ -285,4 +295,3 @@ Your offsite cloud backup pipeline is ready."
     return 0
 }
 
-export -f setup_layer4
