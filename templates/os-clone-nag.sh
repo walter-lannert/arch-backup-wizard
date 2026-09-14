@@ -35,12 +35,12 @@ fi
 
 if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
     sleep 5
-    
+
     if zenity --question --title="OS Cloud Backup Due" \
-              --text="Your bi-weekly OS clone cloud backup is due.\n\nWould you like to run it now?" \
-              --ok-label="Run Now" \
-              --cancel-label="Later"; then
-        
+        --text="Your bi-weekly OS clone cloud backup is due.\n\nWould you like to run it now?" \
+        --ok-label="Run Now" \
+        --cancel-label="Later"; then
+
         {{DETECTED_TERMINAL_CMD}} bash -c "{{DETECTED_HOME}}/.os_cloud_backup.sh && echo \"$CURRENT_TARGET\" > \"$LAST_RUN_FILE\""
     fi
 fi

@@ -5,11 +5,7 @@
 # cross-layer configurations (fstab, recovery runbooks), and displays
 # a health summary dashboard via dialog.
 
-
 # ── Main validation entrypoint ────────────────────────────────────────────────
-
-
-set -euo pipefail
 
 run_validation() {
     log_info "══════ Starting Post-Setup Validation Checks ══════"
@@ -212,9 +208,9 @@ run_validation() {
         shell_bin=$(basename "${DETECTED_SHELL:-bash}")
         local rc_file=""
         case "$shell_bin" in
-            zsh)    rc_file="${user_home}/.zshrc" ;;
-            fish)   rc_file="${user_home}/.config/fish/config.fish" ;;
-            bash|*) rc_file="${user_home}/.bashrc" ;;
+        zsh) rc_file="${user_home}/.zshrc" ;;
+        fish) rc_file="${user_home}/.config/fish/config.fish" ;;
+        bash | *) rc_file="${user_home}/.bashrc" ;;
         esac
 
         if [[ -f "$rc_file" ]] && grep -Fq ".os_clone_nag.sh" "$rc_file"; then
@@ -222,8 +218,8 @@ run_validation() {
         fi
 
         # Also check XDG Autostart desktop entry
-        if [[ -f "${user_home}/.config/autostart/os-clone-nag.desktop" ]] || \
-           grep -rFqs ".os_clone_nag.sh" "${user_home}/.config/autostart/" 2>/dev/null; then
+        if [[ -f "${user_home}/.config/autostart/os-clone-nag.desktop" ]] ||
+            grep -rFqs ".os_clone_nag.sh" "${user_home}/.config/autostart/" 2>/dev/null; then
             hook_found=true
         fi
 
@@ -281,7 +277,7 @@ run_validation() {
             fi
         fi
 
-        if [[ -n "$fstab_line" ]] && grep -qE '(^|[[:space:],])nofail([[:space:],]|$)' <<< "$fstab_line"; then
+        if [[ -n "$fstab_line" ]] && grep -qE '(^|[[:space:],])nofail([[:space:],]|$)' <<<"$fstab_line"; then
             fstab_status="✓"
             log_success "Backup drive ($BACKUP_MOUNT) found in /etc/fstab with 'nofail'"
         else
@@ -360,4 +356,3 @@ run_validation() {
         return 1
     fi
 }
-

@@ -13,9 +13,6 @@
 # 9. Uploads Cloud_Recovery_Runbook.txt to cloud if it exists
 # 10. Displays completion summary dialog
 
-
-set -euo pipefail
-
 setup_layer4() {
     log_info "── Setting up Layer 4: Cloud Offsite (rclone) ──"
 
@@ -46,10 +43,10 @@ setup_layer4() {
     local cloud_type
     if ! cloud_type=$(ui_menu "Cloud Provider" \
         "Select your cloud storage provider:" \
-        "drive"     "Google Drive" \
-        "onedrive"  "Microsoft OneDrive" \
-        "dropbox"   "Dropbox" \
-        "b2"        "Backblaze B2"); then
+        "drive" "Google Drive" \
+        "onedrive" "Microsoft OneDrive" \
+        "dropbox" "Dropbox" \
+        "b2" "Backblaze B2"); then
         log_warn "Cloud provider selection cancelled by user."
         return 1
     fi
@@ -57,17 +54,17 @@ setup_layer4() {
 
     local provider_label="$cloud_type"
     case "$cloud_type" in
-        drive)    provider_label="Google Drive" ;;
-        onedrive) provider_label="Microsoft OneDrive" ;;
-        dropbox)  provider_label="Dropbox" ;;
-        b2)       provider_label="Backblaze B2" ;;
+    drive) provider_label="Google Drive" ;;
+    onedrive) provider_label="Microsoft OneDrive" ;;
+    dropbox) provider_label="Dropbox" ;;
+    b2) provider_label="Backblaze B2" ;;
     esac
     log_info "Selected cloud provider: $provider_label ($cloud_type)"
 
     # ── 3. Guide user through rclone configuration ────────────────────────────
     log_info "Step 3: Guiding user through rclone configuration..."
     ui_msgbox "Rclone Configuration" \
-"You will now configure rclone to connect to ${provider_label}.
+        "You will now configure rclone to connect to ${provider_label}.
 
 Next, an interactive 'rclone config' session will open in this terminal.
 
@@ -101,13 +98,13 @@ Press OK to continue."
         log_info "Verifying connectivity for remote '$rclone_remote'..."
         ui_infobox "Verifying Remote" "Testing connection to $rclone_remote...\nPlease wait."
 
-        if run_as_user rclone lsd "$rclone_remote" >> "$LOG_FILE" 2>&1; then
+        if run_as_user rclone lsd "$rclone_remote" >>"$LOG_FILE" 2>&1; then
             log_success "Connectivity to remote '$rclone_remote' verified successfully."
             break
         else
             log_warn "Failed to connect to rclone remote '$rclone_remote'."
             if ui_yesno "Connection Failed" \
-"Failed to connect to rclone remote '$rclone_remote'.
+                "Failed to connect to rclone remote '$rclone_remote'.
 
 The remote may not be configured properly or authentication failed.
 Check $LOG_FILE for details.
@@ -195,7 +192,10 @@ Would you like to re-run 'rclone config' to retry?
     export CLOUD_PIKA_DIR="$cloud_pika_dir"
 
     local user_systemd_dir="${target_home}/.config/systemd/user"
-    run_as_user mkdir -p "$user_systemd_dir"
+    run_as_user mkdir -p "$user_systemd_dir" || {
+        log_error "Failed to create $user_systemd_dir"
+        return 1
+    }
 
     local service_file="${user_systemd_dir}/pika-cloud-sync.service"
     local timer_file="${user_systemd_dir}/pika-cloud-sync.timer"
@@ -210,9 +210,9 @@ Would you like to re-run 'rclone config' to retry?
     log_success "Installed user systemd units: $service_file and $timer_file"
 
     log_info "Reloading user systemd daemon and enabling pika-cloud-sync.timer..."
-    run_as_user systemctl --user daemon-reload >> "$LOG_FILE" 2>&1 || true
+    run_as_user systemctl --user daemon-reload >>"$LOG_FILE" 2>&1 || true
 
-    if run_as_user systemctl --user enable --now pika-cloud-sync.timer >> "$LOG_FILE" 2>&1; then
+    if run_as_user systemctl --user enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
         log_success "Enabled and started pika-cloud-sync.timer"
     else
         log_warn "systemctl --user enable --now pika-cloud-sync.timer exited with warning. It will activate upon user desktop session login."
@@ -226,26 +226,29 @@ Would you like to re-run 'rclone config' to retry?
     local nag_line=""
 
     case "$shell_bin" in
-        zsh)
-            rc_file="${target_home}/.zshrc"
-            nag_line='[[ -o interactive ]] && [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh &'
-            ;;
-        fish)
-            rc_file="${target_home}/.config/fish/config.fish"
-            nag_line='status is-interactive; and test -f ~/.os_clone_nag.sh; and bash ~/.os_clone_nag.sh &'
-            ;;
-        bash|*)
-            rc_file="${target_home}/.bashrc"
-            nag_line='case $- in *i*) [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh & ;; esac'
-            ;;
+    zsh)
+        rc_file="${target_home}/.zshrc"
+        nag_line='[[ -o interactive ]] && [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh &'
+        ;;
+    fish)
+        rc_file="${target_home}/.config/fish/config.fish"
+        nag_line='status is-interactive; and test -f ~/.os_clone_nag.sh; and bash ~/.os_clone_nag.sh &'
+        ;;
+    bash | *)
+        rc_file="${target_home}/.bashrc"
+        nag_line='case $- in *i*) [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh & ;; esac'
+        ;;
     esac
 
-    mkdir -p "$(dirname "$rc_file")"
+    mkdir -p "$(dirname "$rc_file")" || {
+        log_error "Failed to create $(dirname "$rc_file")"
+        return 1
+    }
     if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
         log_info "Nag script already configured in $rc_file"
     else
         backup_file "$rc_file" >/dev/null
-        cat >> "$rc_file" << EOF
+        cat >>"$rc_file" <<EOF
 
 # Arch Backup Wizard OS Clone Nag BEGIN
 $nag_line
@@ -261,7 +264,7 @@ EOF
     if [[ -f "$runbook_path" ]]; then
         log_info "Uploading $runbook_path to ${rclone_remote}${cloud_os_dir}/..."
         ui_infobox "Cloud Upload" "Uploading recovery runbook to cloud storage...\nPlease wait."
-        if run_as_user rclone copy "$runbook_path" "${rclone_remote}${cloud_os_dir}/" >> "$LOG_FILE" 2>&1; then
+        if run_as_user rclone copy "$runbook_path" "${rclone_remote}${cloud_os_dir}/" >>"$LOG_FILE" 2>&1; then
             log_success "Uploaded recovery runbook to ${rclone_remote}${cloud_os_dir}/"
         else
             log_warn "Failed to upload recovery runbook to ${rclone_remote}${cloud_os_dir}/"
@@ -273,7 +276,7 @@ EOF
     # ── 10. Completion summary dialog ────────────────────────────────────────
     log_info "Step 10: Showing completion summary..."
     ui_msgbox "Layer 4 Setup Complete" \
-"Layer 4 (Cloud Offsite) has been successfully configured!
+        "Layer 4 (Cloud Offsite) has been successfully configured!
 
 Configuration Summary:
 • Provider:           ${provider_label} (${cloud_type})
@@ -294,4 +297,3 @@ Your offsite cloud backup pipeline is ready."
     log_success "── Layer 4 setup completed ──"
     return 0
 }
-

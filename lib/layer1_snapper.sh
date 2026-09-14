@@ -6,9 +6,6 @@
 
 # ── Main setup entrypoint ─────────────────────────────────────────────────────
 
-
-set -euo pipefail
-
 setup_layer1() {
     log_info "══════ Setting up Layer 1: Snapper ══════"
 
@@ -29,7 +26,10 @@ setup_layer1() {
         # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS/EndeavourOS)
         if mountpoint -q "$SNAP_DIR" 2>/dev/null || findmnt -n "$SNAP_DIR" &>/dev/null; then
             log_info "Unmounting pre-existing /.snapshots subvolume mount..."
-            umount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to unmount $SNAP_DIR"; return 1; }
+            umount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                log_error "Failed to unmount $SNAP_DIR"
+                return 1
+            }
         fi
 
         # Snapper create-config fails if the directory /.snapshots already exists on the root filesystem.
@@ -37,12 +37,18 @@ setup_layer1() {
         if [[ -e "$SNAP_DIR" ]]; then
             if btrfs subvolume show "$SNAP_DIR" &>/dev/null; then
                 log_info "Deleting existing unmounted /.snapshots subvolume on root..."
-                btrfs subvolume delete "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to delete /.snapshots subvolume"; return 1; }
+                btrfs subvolume delete "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                    log_error "Failed to delete /.snapshots subvolume"
+                    return 1
+                }
             elif [[ -d "$SNAP_DIR" ]]; then
                 log_info "Removing /.snapshots mount directory..."
-                rmdir "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || {
+                rmdir "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_warn "$SNAP_DIR directory is not empty; backing it up to ${SNAP_DIR}.wizard.bak"
-                    mv "$SNAP_DIR" "${SNAP_DIR}.wizard.bak.$(date +%s)" >> "$LOG_FILE" 2>&1 || { log_error "Failed to remove $SNAP_DIR directory"; return 1; }
+                    mv "$SNAP_DIR" "${SNAP_DIR}.wizard.bak.$(date +%s)" >>"$LOG_FILE" 2>&1 || {
+                        log_error "Failed to remove $SNAP_DIR directory"
+                        return 1
+                    }
                 }
             fi
         fi
@@ -50,7 +56,10 @@ setup_layer1() {
         # Run snapper create-config
         log_info "Creating Snapper root config with: snapper -c root create-config /"
         ui_infobox "Snapper Setup" "Creating Snapper configuration for /..."
-        snapper -c root create-config / >> "$LOG_FILE" 2>&1 || { log_error "snapper -c root create-config / failed. Check $LOG_FILE for details."; return 1; }
+        snapper -c root create-config / >>"$LOG_FILE" 2>&1 || {
+            log_error "snapper -c root create-config / failed. Check $LOG_FILE for details."
+            return 1
+        }
 
         # Snapper creates its own .snapshots subvolume which conflicts with pre-existing ones.
         # Check if a top-level @.snapshots or @snapshots subvolume exists
@@ -75,19 +84,31 @@ setup_layer1() {
 
         if [[ -n "$existing_subvol" ]]; then
             log_info "Top-level subvolume '$existing_subvol' detected. Deleting Snapper auto-created subvolume and mounting '$existing_subvol'..."
-            btrfs subvolume delete "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to delete Snapper auto-created /.snapshots subvolume"; return 1; }
-            mkdir -p "$SNAP_DIR"
+            btrfs subvolume delete "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                log_error "Failed to delete Snapper auto-created /.snapshots subvolume"
+                return 1
+            }
+            mkdir -p "$SNAP_DIR" || {
+                log_error "Failed to create $SNAP_DIR"
+                return 1
+            }
 
             if grep -qE '[[:space:]]+/\.snapshots[[:space:]]+' /etc/fstab 2>/dev/null; then
                 log_info "Mounting /.snapshots from /etc/fstab..."
-                mount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount $SNAP_DIR from /etc/fstab"; return 1; }
+                mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                    log_error "Failed to mount $SNAP_DIR from /etc/fstab"
+                    return 1
+                }
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
                 backup_file /etc/fstab
                 printf '\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n' \
-                    "$root_uuid" "$existing_subvol" >> /etc/fstab
-                mount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount $SNAP_DIR"; return 1; }
+                    "$root_uuid" "$existing_subvol" >>/etc/fstab
+                mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                    log_error "Failed to mount $SNAP_DIR"
+                    return 1
+                }
             fi
             chmod 750 "$SNAP_DIR"
             log_success "Mounted existing subvolume $existing_subvol at /.snapshots"
@@ -99,10 +120,13 @@ setup_layer1() {
 
     # ── 3. Write Snapper config /etc/snapper/configs/root ──────────────────────
     log_info "Step 3: Writing /etc/snapper/configs/root..."
-    mkdir -p /etc/snapper/configs
+    mkdir -p /etc/snapper/configs || {
+        log_error "Failed to create /etc/snapper/configs"
+        return 1
+    }
     backup_file /etc/snapper/configs/root
 
-    cat > /etc/snapper/configs/root <<'EOF'
+    cat >/etc/snapper/configs/root <<'EOF'
 # subvolume to snapshot
 SUBVOLUME="/"
 
@@ -166,7 +190,7 @@ EOF
                 sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper
                 sed -i 's/^SNAPPER_CONFIGS=""/SNAPPER_CONFIGS="root"/' /etc/conf.d/snapper
             else
-                echo 'SNAPPER_CONFIGS="root"' >> /etc/conf.d/snapper
+                echo 'SNAPPER_CONFIGS="root"' >>/etc/conf.d/snapper
             fi
             log_info "Updated /etc/conf.d/snapper with root config."
         fi
@@ -174,46 +198,52 @@ EOF
 
     # ── 4. Enable snapper-cleanup.timer ───────────────────────────────────────
     log_info "Step 4: Enabling snapper-cleanup.timer..."
-    systemctl enable --now snapper-cleanup.timer >> "$LOG_FILE" 2>&1 || { log_error "Failed to enable snapper-cleanup.timer"; return 1; }
+    systemctl enable --now snapper-cleanup.timer >>"$LOG_FILE" 2>&1 || {
+        log_error "Failed to enable snapper-cleanup.timer"
+        return 1
+    }
     log_success "snapper-cleanup.timer enabled and started."
 
     # Ensure timeline timer is disabled since TIMELINE_CREATE="no"
     if unit_is_active snapper-timeline.timer || unit_is_enabled snapper-timeline.timer; then
         log_info "Disabling snapper-timeline.timer (TIMELINE_CREATE is set to no)..."
-        systemctl disable --now snapper-timeline.timer >> "$LOG_FILE" 2>&1 || true
+        systemctl disable --now snapper-timeline.timer >>"$LOG_FILE" 2>&1 || true
     fi
 
     # ── 5. Bootloader-specific setup ──────────────────────────────────────────
     log_info "Step 5: Configuring bootloader integration for '$DETECTED_BOOTLOADER'..."
     case "$DETECTED_BOOTLOADER" in
-        grub)
-            log_info "Enabling grub-btrfsd service..."
-            systemctl enable --now grub-btrfsd >> "$LOG_FILE" 2>&1 || { log_error "Failed to enable grub-btrfsd service"; return 1; }
-            log_success "grub-btrfsd service enabled and started."
-            ;;
-        limine)
-            log_info "Limine bootloader detected; showing limine-snapper-sync info..."
-            ui_msgbox "Limine Bootloader Integration" \
-"Limine snapshot integration is active.
+    grub)
+        log_info "Enabling grub-btrfsd service..."
+        systemctl enable --now grub-btrfsd >>"$LOG_FILE" 2>&1 || {
+            log_error "Failed to enable grub-btrfsd service"
+            return 1
+        }
+        log_success "grub-btrfsd service enabled and started."
+        ;;
+    limine)
+        log_info "Limine bootloader detected; showing limine-snapper-sync info..."
+        ui_msgbox "Limine Bootloader Integration" \
+            "Limine snapshot integration is active.
 
 limine-snapper-sync is installed. Whenever a snapshot is created by Snapper or pacman, it will automatically appear in your Limine boot menu."
-            ;;
-        systemd-boot)
-            log_info "systemd-boot detected; showing manual rollback notice..."
-            ui_msgbox "systemd-boot Notice" \
-"Notice for systemd-boot:
+        ;;
+    systemd-boot)
+        log_info "systemd-boot detected; showing manual rollback notice..."
+        ui_msgbox "systemd-boot Notice" \
+            "Notice for systemd-boot:
 
 systemd-boot does not natively support booting directly into BTRFS snapshots from the boot menu.
 
 However, snapshots are still automatically created on every pacman transaction (via snap-pac) and can be rolled back manually using Snapper or a live USB."
-            ;;
-        *)
-            log_warn "Unknown or unsupported bootloader: $DETECTED_BOOTLOADER"
-            ui_msgbox "Bootloader Notice" \
-"Bootloader '$DETECTED_BOOTLOADER' does not have automated boot menu snapshot integration.
+        ;;
+    *)
+        log_warn "Unknown or unsupported bootloader: $DETECTED_BOOTLOADER"
+        ui_msgbox "Bootloader Notice" \
+            "Bootloader '$DETECTED_BOOTLOADER' does not have automated boot menu snapshot integration.
 
 Snapshots will still be taken before and after package changes and can be restored manually using Snapper."
-            ;;
+        ;;
     esac
 
     # ── 6. Verify ─────────────────────────────────────────────────────────────
@@ -223,7 +253,7 @@ Snapshots will still be taken before and after package changes and can be restor
         log_success "Snapper verification succeeded."
         log_info "Verification output:\n$snapper_out"
         ui_msgbox "Layer 1 Setup Succeeded" \
-"Layer 1 (Snapper) setup completed successfully!
+            "Layer 1 (Snapper) setup completed successfully!
 
 Snapper is active and configured for pacman hook snapshots.
 
@@ -233,7 +263,7 @@ $snapper_out"
         local exit_code=$?
         log_error "Snapper verification failed with exit code $exit_code: $snapper_out"
         ui_msgbox "Layer 1 Verification Failed" \
-"Snapper verification failed!
+            "Snapper verification failed!
 
 Command 'snapper list' returned exit code $exit_code.
 
@@ -246,4 +276,3 @@ Please check $LOG_FILE for details."
 
     log_success "══════ Layer 1: Snapper setup complete ══════"
 }
-

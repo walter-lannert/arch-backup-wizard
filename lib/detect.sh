@@ -6,9 +6,6 @@
 
 # ── Distro ────────────────────────────────────────────────────────────────────
 
-
-set -euo pipefail
-
 detect_distro() {
     if [[ -f /etc/os-release ]]; then
         # shellcheck source=/dev/null
@@ -23,12 +20,12 @@ detect_distro() {
     fi
 
     case "$DETECTED_DISTRO_ID" in
-        cachyos)       DETECTED_DISTRO="CachyOS"      ;;
-        endeavouros)   DETECTED_DISTRO="EndeavourOS"   ;;
-        manjaro)       DETECTED_DISTRO="Manjaro"       ;;
-        garuda)        DETECTED_DISTRO="Garuda"        ;;
-        arch)          DETECTED_DISTRO="Arch"          ;;
-        *)             DETECTED_DISTRO="$DETECTED_DISTRO_NAME" ;;
+    cachyos) DETECTED_DISTRO="CachyOS" ;;
+    endeavouros) DETECTED_DISTRO="EndeavourOS" ;;
+    manjaro) DETECTED_DISTRO="Manjaro" ;;
+    garuda) DETECTED_DISTRO="Garuda" ;;
+    arch) DETECTED_DISTRO="Arch" ;;
+    *) DETECTED_DISTRO="$DETECTED_DISTRO_NAME" ;;
     esac
 
     log_info "Detected distro: $DETECTED_DISTRO ($DETECTED_DISTRO_ID)"
@@ -106,11 +103,11 @@ detect_btrfs_subvolumes() {
 
     if [[ "$DETECTED_ROOT_FS" == "btrfs" ]]; then
         # List top-level subvolumes (those whose path starts with @)
-        DETECTED_SUBVOLUMES=$(btrfs subvolume list / 2>/dev/null \
-            | awk '{print $NF}' \
-            | grep '^@' \
-            | grep -v '\.snapshots' \
-            | sort || echo "")
+        DETECTED_SUBVOLUMES=$(btrfs subvolume list / 2>/dev/null |
+            awk '{print $NF}' |
+            grep '^@' |
+            grep -v '\.snapshots' |
+            sort || echo "")
         DETECTED_SUBVOL_LAYOUT=$(echo "$DETECTED_SUBVOLUMES" | paste -sd',' - | sed 's/,/, /g')
         log_info "BTRFS layout: $DETECTED_SUBVOL_LAYOUT"
     fi
@@ -120,14 +117,14 @@ detect_btrfs_subvolumes() {
 
 detect_available_drives() {
     # Whole disks (for potential formatting)
-    DETECTED_DRIVES=$(lsblk -dpno NAME,SIZE,TYPE 2>/dev/null \
-        | grep -E 'disk' \
-        | grep -v 'loop\|rom\|sr0' || echo "")
+    DETECTED_DRIVES=$(lsblk -dpno NAME,SIZE,TYPE 2>/dev/null |
+        grep -E 'disk' |
+        grep -v 'loop\|rom\|sr0' || echo "")
 
     # Partitions with filesystem info
-    DETECTED_PARTITIONS=$(lsblk -l -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null \
-        | grep 'part' \
-        | grep -v 'loop\|rom' || echo "")
+    DETECTED_PARTITIONS=$(lsblk -l -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null |
+        grep 'part' |
+        grep -v 'loop\|rom' || echo "")
 
     log_info "Drive scan complete"
 }
@@ -149,7 +146,7 @@ detect_existing_backup_drive() {
             DETECTED_BACKUP_DEV=$(findmnt -n -o SOURCE "$mnt" 2>/dev/null || echo "")
             break
         fi
-    done < <(grep -v '^\s*#' /etc/fstab | grep -v '^\s*$')
+    done < <(grep -v '^[[:space:]]*#' /etc/fstab | grep -v '^[[:space:]]*$')
 
     log_info "Backup drive: mount=$DETECTED_BACKUP_MOUNT UUID=$DETECTED_BACKUP_UUID"
 }
@@ -161,7 +158,6 @@ detect_user_info() {
     DETECTED_HOME=$(get_real_home)
     DETECTED_SHELL=$(getent passwd "$DETECTED_USER" | cut -d: -f7)
     DETECTED_HOSTNAME=$(cat /etc/hostname 2>/dev/null || uname -n || echo "localhost")
-    DETECTED_MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
 
     log_info "User=$DETECTED_USER Home=$DETECTED_HOME Shell=$DETECTED_SHELL Host=$DETECTED_HOSTNAME"
 }
@@ -202,24 +198,15 @@ detect_existing_setup() {
     DETECTED_HAS_RCLONE=false
     DETECTED_HAS_SNAP_PAC=false
 
-    pacman -Qi snapper   &>/dev/null && DETECTED_HAS_SNAPPER=true
-    pacman -Qi btrbk     &>/dev/null && DETECTED_HAS_BTRBK=true
+    pacman -Qi snapper &>/dev/null && DETECTED_HAS_SNAPPER=true
+    pacman -Qi btrbk &>/dev/null && DETECTED_HAS_BTRBK=true
     pacman -Qi pika-backup &>/dev/null && DETECTED_HAS_PIKA=true
-    pacman -Qi rclone    &>/dev/null && DETECTED_HAS_RCLONE=true
-    pacman -Qi snap-pac  &>/dev/null && DETECTED_HAS_SNAP_PAC=true
+    pacman -Qi rclone &>/dev/null && DETECTED_HAS_RCLONE=true
+    pacman -Qi snap-pac &>/dev/null && DETECTED_HAS_SNAP_PAC=true
 
     # Config file existence
     DETECTED_SNAPPER_CONFIG_EXISTS=false
     [[ -f /etc/snapper/configs/root ]] && DETECTED_SNAPPER_CONFIG_EXISTS=true
-
-    DETECTED_BTRBK_CONFIG_EXISTS=false
-    [[ -f "$BTRBK_CONF" ]] && DETECTED_BTRBK_CONFIG_EXISTS=true
-
-    DETECTED_PIKA_CONFIG_EXISTS=false
-    [[ -f "$(effective_home)/.config/pika-backup/backup.json" ]] && DETECTED_PIKA_CONFIG_EXISTS=true
-
-    DETECTED_RCLONE_CONFIG_EXISTS=false
-    [[ -f "$(effective_home)/.config/rclone/rclone.conf" ]] && DETECTED_RCLONE_CONFIG_EXISTS=true
 
     log_info "Existing tools: snapper=$DETECTED_HAS_SNAPPER btrbk=$DETECTED_HAS_BTRBK pika=$DETECTED_HAS_PIKA rclone=$DETECTED_HAS_RCLONE snap-pac=$DETECTED_HAS_SNAP_PAC"
 }
@@ -260,27 +247,3 @@ EOF
 }
 
 # Build dialog-formatted list of candidate backup partitions
-# Output: tag1 label1 tag2 label2 …  (suitable for ui_radiolist)
-format_backup_drive_choices() {
-    local root_dev="$DETECTED_ROOT_DEV"
-    local efi_dev="$DETECTED_EFI_DEV"
-
-    while IFS= read -r line; do
-        local dev size _type fstype mountpoint
-        read -r dev size _type fstype mountpoint <<< "$line"
-
-        # Skip root and EFI partitions
-        [[ "$dev" == "$root_dev" ]] && continue
-        [[ "$dev" == "$efi_dev"  ]] && continue
-        # Skip tiny partitions (< 10G typically EFI or swap)
-        # Skip swap
-        [[ "$fstype" == "swap" ]] && continue
-
-        local label="${size}"
-        [[ -n "$fstype" ]]     && label+="  $fstype"
-        [[ -n "$mountpoint" ]] && label+="  ($mountpoint)"
-
-        echo "$dev"
-        echo "$label"
-    done <<< "$DETECTED_PARTITIONS"
-}

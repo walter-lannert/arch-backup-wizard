@@ -4,9 +4,6 @@
 # Sets up a local archive directory on the backup drive that is intentionally
 # excluded from cloud sync (Layer 4) for sensitive or large files.
 
-
-set -euo pipefail
-
 setup_layer5() {
     log_info "Setting up Layer 5: Deep Storage..."
 
@@ -18,7 +15,10 @@ setup_layer5() {
 
     local deep_storage_dir="${BACKUP_MOUNT}/Deep Storage"
 
-    mkdir -p "$deep_storage_dir"
+    mkdir -p "$deep_storage_dir" || {
+        log_error "Failed to create $deep_storage_dir"
+        return 1
+    }
 
     local target_user
     target_user="$(effective_user)"
@@ -27,7 +27,7 @@ setup_layer5() {
     fi
 
     ui_msgbox "Layer 5: Deep Storage" \
-"Deep Storage has been created at:
+        "Deep Storage has been created at:
 ${deep_storage_dir}
 
 This is a local-only archive for:
@@ -44,4 +44,3 @@ whenever you need to archive something."
 
     log_success "Layer 5: Deep Storage directory created at ${deep_storage_dir}"
 }
-

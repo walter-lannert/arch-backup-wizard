@@ -7,9 +7,6 @@
 
 # ── Main uninstall entrypoint ──────────────────────────────────────────────────
 
-
-set -euo pipefail
-
 run_uninstall() {
     require_root
     [[ -z "${DIALOG_CMD:-}" ]] && detect_dialog
@@ -39,7 +36,7 @@ This will NOT remove:
     # ── 2. Layer 1 cleanup (Snapper) ──────────────────────────────────────────
     log_info "── Layer 1 Cleanup: Snapper ──"
     log_info "Disabling snapper-cleanup.timer..."
-    systemctl disable --now snapper-cleanup.timer >> "$LOG_FILE" 2>&1 || true
+    systemctl disable --now snapper-cleanup.timer >>"$LOG_FILE" 2>&1 || true
 
     local snapper_cfg="/etc/snapper/configs/root"
     if [[ -f "$snapper_cfg" ]]; then
@@ -53,7 +50,7 @@ This will NOT remove:
     # ── 3. Layer 2 cleanup (btrbk) ────────────────────────────────────────────
     log_info "── Layer 2 Cleanup: btrbk ──"
     log_info "Disabling btrbk.timer..."
-    systemctl disable --now btrbk.timer >> "$LOG_FILE" 2>&1 || true
+    systemctl disable --now btrbk.timer >>"$LOG_FILE" 2>&1 || true
 
     local btrbk_cfg="$BTRBK_CONF"
     if [[ -f "$btrbk_cfg" ]]; then
@@ -75,7 +72,7 @@ This will NOT remove:
     fi
 
     log_info "Reloading systemd daemon..."
-    systemctl daemon-reload >> "$LOG_FILE" 2>&1 || true
+    systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
 
     # ── 4. Layer 4 cleanup (Cloud & Nag Scripts) ──────────────────────────────
     log_info "── Layer 4 Cleanup: Cloud Offsite & Nag Scripts ──"
@@ -138,7 +135,7 @@ This will NOT remove:
 
     # ── 5. Success message ────────────────────────────────────────────────────
     ui_msgbox "Uninstall Complete" \
-"All wizard configurations have been removed.
+        "All wizard configurations have been removed.
 
 Packages and backup data were preserved.
 You can reinstall by running the wizard again."
@@ -147,4 +144,3 @@ You can reinstall by running the wizard again."
     log_success "══════ Wizard configuration uninstall completed successfully ══════"
     exit 0
 }
-

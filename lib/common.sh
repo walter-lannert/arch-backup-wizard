@@ -4,8 +4,6 @@
 [[ -n "${_ARCH_BACKUP_COMMON_LOADED:-}" ]] && return 0
 _ARCH_BACKUP_COMMON_LOADED=1
 
-set -euo pipefail
-
 # ── Colors ────────────────────────────────────────────────────────────────────
 readonly CLR_RED='\033[0;31m'
 readonly CLR_GREEN='\033[0;32m'
@@ -27,12 +25,12 @@ readonly LAYER_DEEP=5
 # Human-readable name for a layer ID (1..5 → string label).
 layer_name() {
     case "$1" in
-        1) echo "Snapper" ;;
-        2) echo "btrbk" ;;
-        3) echo "Pika Backup" ;;
-        4) echo "Cloud Offsite" ;;
-        5) echo "Deep Storage" ;;
-        *) echo "Layer $1" ;;
+    1) echo "Snapper" ;;
+    2) echo "btrbk" ;;
+    3) echo "Pika Backup" ;;
+    4) echo "Cloud Offsite" ;;
+    5) echo "Deep Storage" ;;
+    *) echo "Layer $1" ;;
     esac
 }
 
@@ -47,7 +45,7 @@ readonly BTRBK_TARGET_MIN="latest" # minimum target (backup drive) retention
 readonly BTRBK_TARGET="14d"        # target retention window
 
 # Snapshot directory paths
-readonly SNAP_DIR="/.snapshots"              # Snapper snapshot mount (Layer 1)
+readonly SNAP_DIR="/.snapshots"             # Snapper snapshot mount (Layer 1)
 readonly SNAP_DIR_BTRBK="/.snapshots_btrbk" # btrbk snapshot dir (Layer 2)
 
 # btrbk configuration paths
@@ -86,16 +84,17 @@ layer_selected() {
 LOG_FILE="${LOG_FILE:-/tmp/arch-backup-wizard.log}"
 
 _log() {
-    local level="$1"; shift
+    local level="$1"
+    shift
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >> "$LOG_FILE"
+    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"$LOG_FILE"
 }
 
-log_info()    { _log "INFO"  "$*"; }
-log_warn()    { _log "WARN"  "$*"; }
-log_error()   { _log "ERROR" "$*"; }
-log_success() { _log "OK"    "$*"; }
+log_info() { _log "INFO" "$*"; }
+log_warn() { _log "WARN" "$*"; }
+log_error() { _log "ERROR" "$*"; }
+log_success() { _log "OK" "$*"; }
 
 # Fatal error — log, print to stderr, and exit immediately.
 #
@@ -138,15 +137,15 @@ template_render() {
 
     # Extract unique variable names from {{…}} placeholders
     local vars
-    vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<< "$content" | sort -u) || true
+    vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" | sort -u) || true
 
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
         local value="${!var:-}"
         content="${content//\{\{${var}\}\}/${value}}"
-    done <<< "$vars"
+    done <<<"$vars"
 
-    echo "$content" > "$output"
+    echo "$content" >"$output"
     log_info "Rendered template $(basename "$template") → $output"
 }
 
@@ -170,7 +169,7 @@ get_real_user() {
 
 # Get the real user's home directory
 get_real_home() {
-    getent passwd "$(get_real_user)" | cut -d: -f6
+    getent passwd "$(effective_user)" | cut -d: -f6
 }
 
 # Canonical user/home resolution for layer modules.
@@ -186,7 +185,7 @@ effective_home() {
 
 # Run a command as the real (non-root) user
 run_as_user() {
-    sudo -u "$(get_real_user)" "$@"
+    sudo -u "$(effective_user)" "$@"
 }
 
 # ── Misc helpers ──────────────────────────────────────────────────────────────
@@ -204,9 +203,4 @@ unit_is_active() {
 # Check if a systemd unit is enabled
 unit_is_enabled() {
     systemctl is-enabled --quiet "$1" 2>/dev/null
-}
-
-# Check if a systemd user unit is enabled (runs as the real user)
-user_unit_is_enabled() {
-    sudo -u "$(get_real_user)" systemctl --user is-enabled --quiet "$1" 2>/dev/null
 }
