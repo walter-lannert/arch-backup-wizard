@@ -30,8 +30,10 @@ generate_runbooks() {
     export ROOT_UUID="${DETECTED_ROOT_UUID:-}"
     export EFI_UUID="${DETECTED_EFI_UUID:-}"
     export BOOTLOADER="${DETECTED_BOOTLOADER:-}"
-    export USERNAME="$(effective_user)"
-    export HOME_DIR="$(effective_home)"
+    export USERNAME
+    USERNAME="$(effective_user)"
+    export HOME_DIR
+    HOME_DIR="$(effective_home)"
     export HOSTNAME_VAL="${DETECTED_HOSTNAME:-$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "")}"
     export BACKUP_MOUNT="${BACKUP_MOUNT:-}"
     export BACKUP_UUID="${BACKUP_UUID:-}"

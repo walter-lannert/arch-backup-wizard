@@ -120,7 +120,8 @@ die() {
 backup_file() {
     local file="$1"
     if [[ -f "$file" ]]; then
-        local backup="${file}.bak.$(date +%s)"
+        local backup
+        backup="${file}.bak.$(date +%s)"
         cp "$file" "$backup"
         log_info "Backed up $file → $backup"
         echo "$backup"

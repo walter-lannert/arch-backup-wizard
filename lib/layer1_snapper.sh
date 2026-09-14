@@ -29,7 +29,7 @@ setup_layer1() {
         # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS/EndeavourOS)
         if mountpoint -q "$SNAP_DIR" 2>/dev/null || findmnt -n "$SNAP_DIR" &>/dev/null; then
             log_info "Unmounting pre-existing /.snapshots subvolume mount..."
-            umount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to unmount "$SNAP_DIR""; return 1; }
+            umount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to unmount $SNAP_DIR"; return 1; }
         fi
 
         # Snapper create-config fails if the directory /.snapshots already exists on the root filesystem.
@@ -80,14 +80,14 @@ setup_layer1() {
 
             if grep -qE '[[:space:]]+/\.snapshots[[:space:]]+' /etc/fstab 2>/dev/null; then
                 log_info "Mounting /.snapshots from /etc/fstab..."
-                mount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount "$SNAP_DIR" from /etc/fstab"; return 1; }
+                mount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount $SNAP_DIR from /etc/fstab"; return 1; }
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
                 backup_file /etc/fstab
                 printf '\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n' \
                     "$root_uuid" "$existing_subvol" >> /etc/fstab
-                mount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount "$SNAP_DIR""; return 1; }
+                mount "$SNAP_DIR" >> "$LOG_FILE" 2>&1 || { log_error "Failed to mount $SNAP_DIR"; return 1; }
             fi
             chmod 750 "$SNAP_DIR"
             log_success "Mounted existing subvolume $existing_subvol at /.snapshots"

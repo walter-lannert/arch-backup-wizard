@@ -68,7 +68,7 @@ This will NOT remove:
     if [[ -e "$btrbk_override" ]]; then
         log_info "Removing btrbk systemd override: $btrbk_override"
         rm -rf "$btrbk_override"
-        rmdir $BTRBK_OVERRIDE_DIR 2>/dev/null || true
+        rmdir "$BTRBK_OVERRIDE_DIR" 2>/dev/null || true
         log_success "Removed $btrbk_override"
     else
         log_info "btrbk systemd override not found ($btrbk_override); skipping."

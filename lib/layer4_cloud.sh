@@ -26,8 +26,10 @@ setup_layer4() {
     fi
 
     local backup_mount="${BACKUP_MOUNT%/}"
-    local target_user="$(effective_user)"
-    local target_home="$(effective_home)"
+    local target_user
+    target_user="$(effective_user)"
+    local target_home
+    target_home="$(effective_home)"
     local wizard_dir="${WIZARD_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
     # ── 1. Install packages ───────────────────────────────────────────────────
