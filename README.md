@@ -146,15 +146,35 @@ All runbooks are rendered dynamically with your system's actual UUIDs, mount pat
 
 ---
 
-## Uninstalling
+## Advanced Usage
 
-To clean up wizard-managed configs:
+### Dry-Run Simulation (`--dry-run`)
+Run the wizard safely without making any system changes by using the `--dry-run` or `-d` flag. In this mode, the wizard simulates system detection, package planning, drive selection, and template rendering. Preview recovery runbooks and scripts are written to `~/arch-backup-wizard-preview` rather than their actual destinations.
 
+### Validation Checks (`--validate`)
+Run post-setup health checks using the `--validate` flag. By default, it validates all 5 layers. You can pass a comma-separated list of valid layer IDs (1 through 5) to restrict validation to specific layers:
+```bash
+sudo ./wizard.sh --validate 1,3,4
+```
+
+### Uninstalling (`--uninstall`)
+To safely clean up wizard-managed configs and undo system changes:
 ```bash
 sudo ./wizard.sh --uninstall
 ```
+> **Note:** The uninstaller removes configuration files, systemd timers, and the `~/.os_clone_nag.sh` interactive shell hook from your `.bashrc`/`.zshrc`/`config.fish` (wrapped in `# Arch Backup Wizard OS Clone Nag BEGIN/END` sentinels). It intentionally preserves your installed packages, backup data, and generated runbooks.
 
-> **Note:** The uninstaller removes configuration files and systemd timers created by the wizard, but intentionally preserves your installed packages, backup data, and generated runbooks.
+---
+
+## Customisation
+
+The wizard relies on a strict environment variable contract. The `lib/detect.sh` module populates system details into `DETECTED_*` globals, which are then consumed as read-only inputs by the layer scripts:
+
+- `DETECTED_DISTRO` / `DETECTED_BOOTLOADER` — Influences bootloader integration and package manager commands.
+- `DETECTED_ROOT_FS` / `DETECTED_ROOT_DEV` / `DETECTED_EFI_DEV` — Used for runbook generation and mount checks.
+- `DETECTED_TERMINAL_CMD` — The detected native GUI terminal (e.g. `ptyxis`, `gnome-terminal`) used by the Layer 4 nag script.
+
+To override detections, you can export these variables before running the wizard. See the `# ── Global contract` block in `lib/common.sh` for complete details.
 
 ---
 
