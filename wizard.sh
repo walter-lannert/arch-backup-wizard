@@ -27,29 +27,38 @@ VALIDATE_LAYERS=()
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --uninstall)   UNINSTALL=true; shift ;;
-            --validate)
-                VALIDATE=true
+        --uninstall)
+            UNINSTALL=true
+            shift
+            ;;
+        --validate)
+            VALIDATE=true
+            shift
+            if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
+                IFS=',' read -ra VALIDATE_LAYERS <<<"$1"
                 shift
-                if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
-                    IFS=',' read -ra VALIDATE_LAYERS <<< "$1"
-                    shift
-                    # Validate each token — case literals are intentional here;
-                    # bash case patterns don't expand variables so LAYER_* can't
-                    # be used in pattern position.
-                    local _l
-                    for _l in "${VALIDATE_LAYERS[@]}"; do
-                        case "$_l" in
-                            1|2|3|4|5) ;;
-                            *) die "Invalid layer id: '$_l' (expected 1..5, or comma-separated subset, e.g. 1,3)" ;;
-                        esac
-                    done
-                fi
-                ;;
-            --dry-run|-d)  DRY_RUN=true;   shift ;;
-            --verbose|-v)  VERBOSE=true;   shift ;;
-            --help|-h)
-                cat <<EOF
+                # Validate each token — case literals are intentional here;
+                # bash case patterns don't expand variables so LAYER_* can't
+                # be used in pattern position.
+                local _l
+                for _l in "${VALIDATE_LAYERS[@]}"; do
+                    case "$_l" in
+                    1 | 2 | 3 | 4 | 5) ;;
+                    *) die "Invalid layer id: '$_l' (expected 1..5, or comma-separated subset, e.g. 1,3)" ;;
+                    esac
+                done
+            fi
+            ;;
+        --dry-run | -d)
+            DRY_RUN=true
+            shift
+            ;;
+        --verbose | -v)
+            VERBOSE=true
+            shift
+            ;;
+        --help | -h)
+            cat <<EOF
 Arch Backup Wizard v${WIZARD_VERSION}
 
 Sets up a production-grade 5-layer backup architecture for Arch Linux.
@@ -72,12 +81,12 @@ Layers:
 
 Requires:  BTRFS root filesystem, Arch-based distro (pacman)
 EOF
-                exit 0
-                ;;
-            *)
-                echo "Unknown option: $1  (use --help)" >&2
-                exit 1
-                ;;
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1  (use --help)" >&2
+            exit 1
+            ;;
         esac
     done
 }
@@ -93,7 +102,7 @@ show_welcome() {
     fi
 
     ui_msgbox "$title" \
-"${notice}Welcome to the Arch Backup Wizard!
+        "${notice}Welcome to the Arch Backup Wizard!
 
 This wizard will guide you through setting up a
 production-grade 5-layer backup architecture:
@@ -119,7 +128,7 @@ show_detection_results() {
     summary=$(format_detection_summary)
 
     ui_yesno "System Detection" \
-"Your system was scanned. Please verify:
+        "Your system was scanned. Please verify:
 
 $summary
 
@@ -131,7 +140,7 @@ Is this correct?" || die "Aborted by user at detection review."
 check_btrfs() {
     if [[ "$DETECTED_ROOT_FS" != "btrfs" ]]; then
         ui_msgbox "BTRFS Required" \
-"Your root filesystem is '$DETECTED_ROOT_FS'.
+            "Your root filesystem is '$DETECTED_ROOT_FS'.
 
 Layers 1 (Snapper) and 2 (btrbk) require BTRFS.
 Most Arch-based installers (CachyOS, EndeavourOS,
@@ -148,13 +157,14 @@ NEEDS_BACKUP_DRIVE=false
 
 select_layers() {
     local result
-    result=$(ui_checklist "Select Backup Layers" \
-        "Choose which layers to set up (SPACE to toggle):" \
-        "$LAYER_SNAPPER" "Snapper — Instant rollback on bad updates"     "on" \
-        "$LAYER_BTRBK"   "btrbk — Daily OS clone to backup drive"        "on" \
-        "$LAYER_PIKA"    "Pika Backup — Hourly home directory backups"   "on" \
-        "$LAYER_CLOUD"   "Cloud Offsite — Backups to cloud storage"      "on" \
-        "$LAYER_DEEP"    "Deep Storage — Local archive (not synced)"     "on" \
+    result=$(
+        ui_checklist "Select Backup Layers" \
+            "Choose which layers to set up (SPACE to toggle):" \
+            "$LAYER_SNAPPER" "Snapper — Instant rollback on bad updates" "on" \
+            "$LAYER_BTRBK" "btrbk — Daily OS clone to backup drive" "on" \
+            "$LAYER_PIKA" "Pika Backup — Hourly home directory backups" "on" \
+            "$LAYER_CLOUD" "Cloud Offsite — Backups to cloud storage" "on" \
+            "$LAYER_DEEP" "Deep Storage — Local archive (not synced)" "on"
     ) || die "Aborted by user at layer selection."
 
     SELECTED_LAYERS=()
@@ -178,7 +188,7 @@ check_layer_deps() {
     if layer_selected "$LAYER_CLOUD"; then
         if ! layer_selected "$LAYER_BTRBK" && ! layer_selected "$LAYER_PIKA"; then
             ui_msgbox "Dependency" \
-"Layer 4 (Cloud Offsite) needs data to upload.
+                "Layer 4 (Cloud Offsite) needs data to upload.
 
 Please also select at least one of:
   • Layer 2 (btrbk OS clones)
@@ -198,7 +208,7 @@ select_backup_drive() {
     # If an existing backup mount was detected, offer to reuse it
     if [[ -n "$DETECTED_BACKUP_MOUNT" ]]; then
         if ui_yesno "Existing Backup Drive" \
-"An existing backup mount was detected:
+            "An existing backup mount was detected:
 
   Mount:  $DETECTED_BACKUP_MOUNT
   UUID:   $DETECTED_BACKUP_UUID
@@ -218,25 +228,25 @@ Use this drive?"; then
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         local dev size _type fstype mountpoint
-        read -r dev size _type fstype mountpoint <<< "$line"
+        read -r dev size _type fstype mountpoint <<<"$line"
 
         # Skip root and EFI
         [[ "$dev" == "$DETECTED_ROOT_DEV" ]] && continue
-        [[ "$dev" == "$DETECTED_EFI_DEV" ]]  && continue
-        [[ "$fstype" == "swap" ]]             && continue
+        [[ "$dev" == "$DETECTED_EFI_DEV" ]] && continue
+        [[ "$fstype" == "swap" ]] && continue
 
         local label="${size}"
-        [[ -n "$fstype" ]]     && label+="  $fstype"
+        [[ -n "$fstype" ]] && label+="  $fstype"
         [[ -n "$mountpoint" ]] && label+="  ($mountpoint)"
 
         choices+=("$dev" "$label" "off")
-    done <<< "$DETECTED_PARTITIONS"
+    done <<<"$DETECTED_PARTITIONS"
 
     # Also offer unformatted whole disks
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         local dev size _type
-        read -r dev size _type <<< "$line"
+        read -r dev size _type <<<"$line"
 
         # Skip if any partition from this disk is already in the list
         local dominated=false
@@ -246,11 +256,11 @@ Use this drive?"; then
 
         # Offer the whole disk as a "format new" option
         choices+=("$dev" "${size}  (UNFORMATTED — will partition)" "off")
-    done <<< "$DETECTED_DRIVES"
+    done <<<"$DETECTED_DRIVES"
 
     if [[ ${#choices[@]} -eq 0 ]]; then
         ui_msgbox "No Drives Found" \
-"No candidate drives were found for backup storage.
+            "No candidate drives were found for backup storage.
 
 Please connect a secondary drive and re-run the wizard."
         die "No backup drive candidates found."
@@ -270,7 +280,7 @@ Please connect a secondary drive and re-run the wizard."
 
     if [[ -z "$fstype" ]] || [[ "$fstype" != "btrfs" ]]; then
         if ui_confirm_destructive "Format Drive" \
-"The selected device ($BACKUP_DEV) is not BTRFS.
+            "The selected device ($BACKUP_DEV) is not BTRFS.
 
 It needs to be formatted as BTRFS for backup storage.
 THIS WILL ERASE ALL DATA ON $BACKUP_DEV.
@@ -302,7 +312,7 @@ _format_backup_drive() {
     if $DRY_RUN; then
         log_info "[DRY RUN] Would partition and format $dev as BTRFS"
         ui_msgbox "Format Drive [DRY RUN]" \
-"[DRY RUN] Simulating drive formatting:
+            "[DRY RUN] Simulating drive formatting:
   Device: $dev
   Filesystem: BTRFS (compress=zstd)
 
@@ -311,12 +321,12 @@ No partitions or data were modified."
     fi
 
     # If it's a whole disk (not a partition), partition it first
-    if [[ "$dev" =~ ^/dev/[a-z]+$ ]] || [[ "$dev" =~ ^/dev/nvme[0-9]+n[0-9]+$ ]]; then
+    if lsblk -no TYPE "$dev" 2>/dev/null | grep -qx disk; then
         log_info "Partitioning whole disk: $dev"
         ui_infobox "Partitioning" "Creating GPT partition table on $dev..."
 
-        parted -s "$dev" mklabel gpt >> "$LOG_FILE" 2>&1
-        parted -s "$dev" mkpart primary btrfs 1MiB 100% >> "$LOG_FILE" 2>&1
+        parted -s "$dev" mklabel gpt >>"$LOG_FILE" 2>&1
+        parted -s "$dev" mkpart primary btrfs 1MiB 100% >>"$LOG_FILE" 2>&1
 
         # Determine the new partition name
         if [[ "$dev" =~ nvme ]]; then
@@ -324,12 +334,12 @@ No partitions or data were modified."
         else
             BACKUP_DEV="${dev}1"
         fi
-        sleep 1  # wait for udev
+        sleep 1 # wait for udev
     fi
 
     log_info "Formatting $BACKUP_DEV as BTRFS with zstd compression"
     ui_infobox "Formatting" "Creating BTRFS filesystem on $BACKUP_DEV..."
-    mkfs.btrfs -f "$BACKUP_DEV" >> "$LOG_FILE" 2>&1 || die "mkfs.btrfs failed on $BACKUP_DEV"
+    mkfs.btrfs -f "$BACKUP_DEV" >>"$LOG_FILE" 2>&1 || die "mkfs.btrfs failed on $BACKUP_DEV"
     log_success "Formatted $BACKUP_DEV as BTRFS"
 }
 
@@ -342,16 +352,17 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT"
 
     # Add to fstab if not already present
-    if ! grep -q "$BACKUP_UUID" /etc/fstab 2>/dev/null; then
+    if ! grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" /etc/fstab 2>/dev/null; then
         backup_file /etc/fstab
+        local fstab_mount="${BACKUP_MOUNT// /\\040}"
         printf '\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n' \
-            "$BACKUP_UUID" "$BACKUP_MOUNT" >> /etc/fstab
+            "$BACKUP_UUID" "$fstab_mount" >>/etc/fstab
         log_info "Added backup drive to /etc/fstab"
     fi
 
     # Mount if not already mounted
     if ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
-        mount "$BACKUP_MOUNT" >> "$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
+        mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
     fi
 
     # Create standard directory structure
@@ -386,9 +397,9 @@ run_dry_run_simulation() {
         actions+="  - Configure /etc/snapper/configs/root\n"
         actions+="  - Enable snapper-cleanup.timer\n"
         case "$DETECTED_BOOTLOADER" in
-            grub) actions+="  - Enable grub-btrfsd.service\n" ;;
-            limine) actions+="  - limine-snapper-sync boot integration\n" ;;
-            systemd-boot) actions+="  - Manual snapshot swap rollback\n" ;;
+        grub) actions+="  - Enable grub-btrfsd.service\n" ;;
+        limine) actions+="  - limine-snapper-sync boot integration\n" ;;
+        systemd-boot) actions+="  - Manual snapshot swap rollback\n" ;;
         esac
     fi
 
@@ -442,7 +453,7 @@ run_dry_run_simulation() {
     rb_count=$(find "$preview_dir/runbooks" -maxdepth 1 -name "*Runbook*.txt" 2>/dev/null | wc -l)
 
     ui_msgbox "Simulation Complete [DRY RUN]" \
-"The wizard simulated all configuration steps!
+        "The wizard simulated all configuration steps!
 
 PACKAGES TO INSTALL:
 $pkg_info
@@ -459,7 +470,7 @@ NO SYSTEM FILES, DRIVES, OR PACKAGES WERE MODIFIED."
     first_rb=$(find "$preview_dir/runbooks" -maxdepth 1 -name "*Runbook*.txt" 2>/dev/null | head -n 1)
     if [[ -n "$first_rb" && -f "$first_rb" ]]; then
         if ui_yesno "Preview Runbook" \
-"Would you like to view one of the generated runbooks?
+            "Would you like to view one of the generated runbooks?
 ($(basename "$first_rb"))"; then
             ui_textbox "Runbook Preview" "$first_rb"
         fi
@@ -482,15 +493,10 @@ main() {
     LOG_FILE="$(effective_home)/arch-backup-wizard.log"
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
 
-    # Ensure dialog is available before anything else
-    ensure_dialog
-    detect_dialog
-
     # Handle --uninstall mode
     if $UNINSTALL; then
         source "$WIZARD_DIR/lib/uninstall.sh"
         run_uninstall
-        exit 0
     fi
 
     # Handle --validate mode
@@ -507,6 +513,10 @@ main() {
         run_validation
         exit $?
     fi
+
+    # Ensure dialog is available before launching the interactive GUI
+    ensure_dialog
+    detect_dialog
 
     # Welcome
     show_welcome
@@ -564,7 +574,7 @@ main() {
             if ! "$fn"; then
                 log_error "Layer $layer_id setup encountered errors — continuing to next layer."
                 ui_msgbox "Layer $layer_id Warning" \
-"Layer $layer_id setup encountered errors and could not complete fully.
+                    "Layer $layer_id setup encountered errors and could not complete fully.
 
 The wizard will continue setting up remaining layers.
 Please check the log for details:
@@ -574,10 +584,10 @@ Please check the log for details:
     }
 
     run_layer "$LAYER_SNAPPER" setup_layer1
-    run_layer "$LAYER_BTRBK"   setup_layer2
-    run_layer "$LAYER_PIKA"    setup_layer3
-    run_layer "$LAYER_CLOUD"   setup_layer4
-    run_layer "$LAYER_DEEP"    setup_layer5
+    run_layer "$LAYER_BTRBK" setup_layer2
+    run_layer "$LAYER_PIKA" setup_layer3
+    run_layer "$LAYER_CLOUD" setup_layer4
+    run_layer "$LAYER_DEEP" setup_layer5
 
     # ── Runbook generation ────────────────────────────────────────────────
     generate_runbooks

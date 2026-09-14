@@ -4,9 +4,6 @@
 # Configures btrbk to create daily snapshots of the root filesystem
 # and transfer them to the secondary backup drive for disaster recovery.
 
-
-set -euo pipefail
-
 setup_layer2() {
     log_info "── Setting up Layer 2: btrbk daily OS clones ──"
 
@@ -28,19 +25,28 @@ setup_layer2() {
     # 2. Create the btrbk snapshot directory on root if it doesn't exist:
     #    mkdir -p "$SNAP_DIR_BTRBK"
     log_info "Step 2: Ensuring snapshot directory $SNAP_DIR_BTRBK exists..."
-    mkdir -p "$SNAP_DIR_BTRBK" || { log_error "Failed to create $SNAP_DIR_BTRBK"; return 1; }
+    mkdir -p "$SNAP_DIR_BTRBK" || {
+        log_error "Failed to create $SNAP_DIR_BTRBK"
+        return 1
+    }
 
     # 3. Create the OS_Backup target directory on the backup drive:
     #    mkdir -p "$BACKUP_MOUNT/OS_Backup"
     log_info "Step 3: Ensuring backup target directory $backup_mount/OS_Backup exists..."
-    mkdir -p "$backup_mount/OS_Backup" || { log_error "Failed to create $backup_mount/OS_Backup"; return 1; }
+    mkdir -p "$backup_mount/OS_Backup" || {
+        log_error "Failed to create $backup_mount/OS_Backup"
+        return 1
+    }
 
     # 4. Write /etc/btrbk/btrbk.conf (back up existing one first with backup_file)
     log_info "Step 4: Writing /etc/btrbk/btrbk.conf..."
-    mkdir -p "$(dirname "$BTRBK_CONF")" || { log_error "Failed to create $(dirname "$BTRBK_CONF")"; return 1; }
+    mkdir -p "$(dirname "$BTRBK_CONF")" || {
+        log_error "Failed to create $(dirname "$BTRBK_CONF")"
+        return 1
+    }
     backup_file "$BTRBK_CONF" >/dev/null
 
-    cat <<EOF > "$BTRBK_CONF"
+    cat <<EOF >"$BTRBK_CONF"
 transaction_log            /var/log/btrbk.log
 snapshot_dir               ${SNAP_DIR_BTRBK#/}
 snapshot_preserve_min      ${BTRBK_SNAP_MIN}
@@ -60,10 +66,13 @@ EOF
     local override_dir="$BTRBK_OVERRIDE_DIR"
     local override_conf="$override_dir/override.conf"
 
-    mkdir -p "$override_dir" || { log_error "Failed to create $override_dir"; return 1; }
+    mkdir -p "$override_dir" || {
+        log_error "Failed to create $override_dir"
+        return 1
+    }
     backup_file "$override_conf" >/dev/null
 
-    cat <<EOF > "$override_conf"
+    cat <<EOF >"$override_conf"
 [Unit]
 RequiresMountsFor=${backup_mount}
 
@@ -75,11 +84,17 @@ EOF
 
     # 6. Run systemctl daemon-reload
     log_info "Step 6: Reloading systemd daemon..."
-    systemctl daemon-reload >> "$LOG_FILE" 2>&1 || { log_error "systemctl daemon-reload failed"; return 1; }
+    systemctl daemon-reload >>"$LOG_FILE" 2>&1 || {
+        log_error "systemctl daemon-reload failed"
+        return 1
+    }
 
     # 7. Enable the timer: systemctl enable --now btrbk.timer
     log_info "Step 7: Enabling and starting btrbk.timer..."
-    systemctl enable --now btrbk.timer >> "$LOG_FILE" 2>&1 || { log_error "Failed to enable btrbk.timer"; return 1; }
+    systemctl enable --now btrbk.timer >>"$LOG_FILE" 2>&1 || {
+        log_error "Failed to enable btrbk.timer"
+        return 1
+    }
 
     # 8. Ask the user if they want to run the first backup now (ui_yesno). If yes:
     #    - Show ui_infobox saying backup is running
@@ -87,7 +102,7 @@ EOF
     #    - Show result
     log_info "Step 8: Checking if user wants to perform initial backup..."
     if ui_yesno "Run Initial Backup" \
-"Would you like to run the first btrbk backup now?
+        "Would you like to run the first btrbk backup now?
 
 This will create an initial root snapshot and clone it to:
   ${backup_mount}/OS_Backup
@@ -95,21 +110,21 @@ This will create an initial root snapshot and clone it to:
 Depending on the size of your root filesystem, this may take a few minutes."; then
         log_info "User requested immediate backup run."
         ui_infobox "Running Backup" \
-"Running initial btrbk OS clone to ${backup_mount}/OS_Backup...
+            "Running initial btrbk OS clone to ${backup_mount}/OS_Backup...
 
 This may take several minutes. Please wait..."
 
-        if btrbk run >> "$LOG_FILE" 2>&1; then
+        if btrbk run >>"$LOG_FILE" 2>&1; then
             log_success "Initial btrbk backup completed successfully."
             ui_msgbox "Backup Succeeded" \
-"The initial btrbk OS clone completed successfully!
+                "The initial btrbk OS clone completed successfully!
 
 Destination: ${backup_mount}/OS_Backup
 Details logged to: $LOG_FILE"
         else
             log_warn "Initial btrbk backup finished with warnings or errors."
             ui_msgbox "Backup Notice" \
-"Initial btrbk backup finished with warnings or errors.
+                "Initial btrbk backup finished with warnings or errors.
 
 Please check the log file for details:
   $LOG_FILE"
@@ -123,7 +138,7 @@ Please check the log file for details:
     if unit_is_active btrbk.timer; then
         log_success "Layer 2 setup completed: btrbk.timer is active."
         ui_msgbox "Layer 2 — Success" \
-"Layer 2 (btrbk) setup is complete and verified!
+            "Layer 2 (btrbk) setup is complete and verified!
 
   Status:    btrbk.timer is active
   Target:    ${backup_mount}/OS_Backup
@@ -133,7 +148,7 @@ Please check the log file for details:
     else
         log_error "Layer 2 verification failed: btrbk.timer is not active."
         ui_msgbox "Layer 2 — Verification Failed" \
-"Layer 2 configuration completed, but btrbk.timer is not active.
+            "Layer 2 configuration completed, but btrbk.timer is not active.
 
 Please verify systemd timer status manually:
   systemctl status btrbk.timer
@@ -143,4 +158,3 @@ Log details:
         return 1
     fi
 }
-

@@ -6,9 +6,6 @@
 
 # ── Backend detection ─────────────────────────────────────────────────────────
 
-
-set -euo pipefail
-
 DIALOG_CMD=""
 
 detect_dialog() {
@@ -27,7 +24,7 @@ detect_dialog() {
 
 DLG_H=20
 DLG_W=72
-DLG_LIST_H=10   # inner list height for menus/checklists
+DLG_LIST_H=10 # inner list height for menus/checklists
 
 # ── Primitive wrappers ────────────────────────────────────────────────────────
 
@@ -46,7 +43,8 @@ ui_yesno() {
 # Single-selection menu.  Returns selected tag on stdout.
 # Extra args: tag1 label1 tag2 label2 …
 ui_menu() {
-    local title="$1" text="$2"; shift 2
+    local title="$1" text="$2"
+    shift 2
     $DIALOG_CMD --title "$title" --menu "$text" \
         $DLG_H $DLG_W $DLG_LIST_H "$@" 3>&1 1>&2 2>&3
 }
@@ -54,7 +52,8 @@ ui_menu() {
 # Multi-selection checklist.  Returns space-separated tags on stdout.
 # Extra args: tag1 label1 on/off  tag2 label2 on/off …
 ui_checklist() {
-    local title="$1" text="$2"; shift 2
+    local title="$1" text="$2"
+    shift 2
     $DIALOG_CMD --title "$title" --checklist "$text" \
         $DLG_H $DLG_W $DLG_LIST_H "$@" 3>&1 1>&2 2>&3
 }
@@ -62,7 +61,8 @@ ui_checklist() {
 # Single-selection radio list.  Returns selected tag on stdout.
 # Extra args: tag1 label1 on/off  tag2 label2 on/off …
 ui_radiolist() {
-    local title="$1" text="$2"; shift 2
+    local title="$1" text="$2"
+    shift 2
     $DIALOG_CMD --title "$title" --radiolist "$text" \
         $DLG_H $DLG_W $DLG_LIST_H "$@" 3>&1 1>&2 2>&3
 }
@@ -104,7 +104,8 @@ ui_confirm_destructive() {
 # Show a brief "working" message, run a command, then dismiss
 # Usage: ui_run_with_status "Installing packages..." pacman -S --noconfirm snapper
 ui_run_with_status() {
-    local msg="$1"; shift
+    local msg="$1"
+    shift
     ui_infobox "Working" "$msg"
-    "$@" >> "$LOG_FILE" 2>&1
+    "$@" >>"$LOG_FILE" 2>&1
 }

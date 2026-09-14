@@ -5,15 +5,8 @@
 
 # Check if a package is installed
 
-set -euo pipefail
-
 pkg_is_installed() {
     pacman -Qi "$1" &>/dev/null
-}
-
-# Check if a package exists in the official repos
-pkg_in_repos() {
-    pacman -Si "$1" &>/dev/null
 }
 
 # ── Install from official repos ───────────────────────────────────────────────
@@ -37,7 +30,7 @@ pkg_install() {
     log_info "Installing via pacman: ${to_install[*]}"
     ui_infobox "Installing Packages" "Installing: ${to_install[*]}..."
 
-    if ! pacman -S --noconfirm --needed "${to_install[@]}" >> "$LOG_FILE" 2>&1; then
+    if ! pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "pacman install failed: ${to_install[*]}"
         ui_msgbox "Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
@@ -55,7 +48,7 @@ aur_install() {
 
     if [[ -z "${DETECTED_AUR_HELPER:-}" ]]; then
         ui_msgbox "AUR Helper Required" \
-"No AUR helper (paru, yay) was detected on this system.
+            "No AUR helper (paru, yay) was detected on this system.
 
 Please install one first:
   sudo pacman -S paru
@@ -82,7 +75,7 @@ Then re-run this wizard."
 
     # AUR helpers must NOT be run as root
     if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed \
-            "${to_install[@]}" >> "$LOG_FILE" 2>&1; then
+        "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "AUR install failed: ${to_install[*]}"
         ui_msgbox "AUR Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
@@ -100,18 +93,18 @@ get_layer_packages() {
     local layer="$1"
 
     case "$layer" in
-        1)
-            echo "snapper snap-pac"
-            case "${DETECTED_BOOTLOADER:-}" in
-                grub)   echo "grub-btrfs" ;;
-                limine) echo "AUR:limine-snapper-sync" ;;
-                # systemd-boot has no snapshot integration package
-            esac
-            ;;
-        2)  echo "btrbk" ;;
-        3)  echo "pika-backup" ;;
-        4)  echo "rclone pv zstd zenity" ;;
-        5)  ;; # No packages needed
+    1)
+        echo "snapper snap-pac"
+        case "${DETECTED_BOOTLOADER:-}" in
+        grub) echo "grub-btrfs" ;;
+        limine) echo "AUR:limine-snapper-sync" ;;
+            # systemd-boot has no snapshot integration package
+        esac
+        ;;
+    2) echo "btrbk" ;;
+    3) echo "pika-backup" ;;
+    4) echo "rclone pv zstd zenity" ;;
+    5) ;; # No packages needed
     esac
 }
 
@@ -149,7 +142,7 @@ install_layer_packages() {
 ensure_dialog() {
     if ! cmd_exists dialog && ! cmd_exists whiptail; then
         echo "Installing 'dialog' (required for the wizard UI)..."
-        pacman -S --noconfirm dialog >> "$LOG_FILE" 2>&1 || {
+        pacman -S --noconfirm dialog >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
             exit 1
         }

@@ -4,10 +4,7 @@
 # Generates personalized, step-by-step disaster recovery runbooks with
 # the user's actual UUIDs, paths, and system configuration baked in.
 
-
 # Generate personalized recovery runbooks based on configured layers
-
-set -euo pipefail
 
 generate_runbooks() {
     log_info "── Generating Personalized Recovery Runbooks ──"
@@ -22,7 +19,10 @@ generate_runbooks() {
     fi
 
     if [[ ! -d "$BACKUP_MOUNT" ]]; then
-        mkdir -p "$BACKUP_MOUNT"
+        mkdir -p "$BACKUP_MOUNT" || {
+            log_error "Failed to create $BACKUP_MOUNT"
+            return 1
+        }
     fi
 
     # 1. Set up all template variables that the runbook templates need.
@@ -164,4 +164,3 @@ generate_runbooks() {
     ui_msgbox "Recovery Runbooks" "$summary"
     log_info "Runbook summary displayed to user."
 }
-
