@@ -239,11 +239,16 @@ Would you like to re-run 'rclone config' to retry?
     esac
 
     mkdir -p "$(dirname "$rc_file")"
-    if [[ -f "$rc_file" ]] && grep -Fq ".os_clone_nag.sh" "$rc_file"; then
+    if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
         log_info "Nag script already configured in $rc_file"
     else
         backup_file "$rc_file" >/dev/null
-        printf '\n# Arch Backup Wizard OS Clone Nag\n%s\n' "$nag_line" >> "$rc_file"
+        cat >> "$rc_file" << EOF
+
+# Arch Backup Wizard OS Clone Nag BEGIN
+$nag_line
+# Arch Backup Wizard OS Clone Nag END
+EOF
         chown "$target_user:$target_user" "$rc_file"
         log_success "Added nag script invocation to $rc_file"
     fi

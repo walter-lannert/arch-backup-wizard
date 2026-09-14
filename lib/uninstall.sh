@@ -122,6 +122,8 @@ This will NOT remove:
             if grep -q "os_clone_nag" "$rc" 2>/dev/null; then
                 log_info "Removing nag script lines from $rc..."
                 backup_file "$rc" >/dev/null
+                sed -i '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' "$rc"
+                # Fallback for older installs without the END sentinel
                 sed -i '/Arch Backup Wizard OS Clone Nag/d' "$rc"
                 sed -i '/os_clone_nag/d' "$rc"
                 chown "$user:$user" "$rc" 2>/dev/null || true
