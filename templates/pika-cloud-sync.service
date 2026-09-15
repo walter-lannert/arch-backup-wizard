@@ -7,6 +7,6 @@ After=network-online.target
 Type=oneshot
 Nice=19
 IOSchedulingClass=idle
-# Note: 'rclone sync' will delete files on the remote that have been deleted locally,
-# keeping the cloud backup as an exact mirror of the local Pika repository.
-ExecStart=/usr/bin/rclone sync "{{BACKUP_MOUNT}}/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v
+# Note: 'rclone copy' is used instead of 'sync' for offsite backups to prevent
+# accidental local deletions or repo pruning from destroying cloud data.
+ExecStart=/usr/bin/rclone copy "{{BACKUP_MOUNT}}/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v

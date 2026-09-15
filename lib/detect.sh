@@ -35,7 +35,7 @@ detect_distro() {
 
 detect_aur_helper() {
     DETECTED_AUR_HELPER=""
-    for helper in paru yay pamac; do
+    for helper in paru yay; do
         if cmd_exists "$helper"; then
             DETECTED_AUR_HELPER="$helper"
             break
@@ -63,10 +63,10 @@ detect_bootloader() {
 # ── Root filesystem ───────────────────────────────────────────────────────────
 
 detect_root_filesystem() {
-    DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE /)
-    DETECTED_ROOT_DEV=$(findmnt -n -o SOURCE /)
-    DETECTED_ROOT_UUID=$(findmnt -n -o UUID /)
-    DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / | grep -oP 'subvol=\K[^,]+' || echo "")
+    DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE / 2>/dev/null || echo "")
+    DETECTED_ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
+    DETECTED_ROOT_UUID=$(findmnt -n -o UUID / 2>/dev/null || echo "")
+    DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / 2>/dev/null | grep -oP 'subvol=\K[^,]+' || echo "")
 
     log_info "Root: $DETECTED_ROOT_FS dev=$DETECTED_ROOT_DEV UUID=$DETECTED_ROOT_UUID subvol=$DETECTED_ROOT_SUBVOL"
 }
@@ -104,7 +104,7 @@ detect_btrfs_subvolumes() {
     if [[ "$DETECTED_ROOT_FS" == "btrfs" ]]; then
         # List top-level subvolumes (those whose path starts with @)
         DETECTED_SUBVOLUMES=$(btrfs subvolume list / 2>/dev/null |
-            awk '{print $NF}' |
+            sed -n 's/.* path //p' |
             grep '^@' |
             grep -v '\.snapshots' |
             sort || echo "")
@@ -119,12 +119,12 @@ detect_available_drives() {
     # Whole disks (for potential formatting)
     DETECTED_DRIVES=$(lsblk -dpno NAME,SIZE,TYPE 2>/dev/null |
         grep -E 'disk' |
-        grep -v 'loop\|rom\|sr0' || echo "")
+        grep -vE 'loop|rom|sr0' || echo "")
 
     # Partitions with filesystem info
-    DETECTED_PARTITIONS=$(lsblk -l -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null |
-        grep 'part' |
-        grep -v 'loop\|rom' || echo "")
+    DETECTED_PARTITIONS=$(lsblk -P -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null |
+        grep 'TYPE="part"' |
+        grep -vE 'loop|rom' || echo "")
 
     log_info "Drive scan complete"
 }
@@ -140,6 +140,7 @@ detect_existing_backup_drive() {
     while IFS= read -r line; do
         local mnt
         mnt=$(echo "$line" | awk '{print $2}')
+        mnt=$(printf '%b' "$mnt")
         if echo "$mnt" | grep -qi 'backup'; then
             DETECTED_BACKUP_MOUNT="$mnt"
             DETECTED_BACKUP_UUID=$(echo "$line" | grep -oP 'UUID=\K\S+' || echo "")
@@ -192,23 +193,13 @@ detect_terminal() {
 # ── Existing tool installations ───────────────────────────────────────────────
 
 detect_existing_setup() {
-    DETECTED_HAS_SNAPPER=false
-    DETECTED_HAS_BTRBK=false
-    DETECTED_HAS_PIKA=false
-    DETECTED_HAS_RCLONE=false
-    DETECTED_HAS_SNAP_PAC=false
 
-    pacman -Qi snapper &>/dev/null && DETECTED_HAS_SNAPPER=true
-    pacman -Qi btrbk &>/dev/null && DETECTED_HAS_BTRBK=true
-    pacman -Qi pika-backup &>/dev/null && DETECTED_HAS_PIKA=true
-    pacman -Qi rclone &>/dev/null && DETECTED_HAS_RCLONE=true
-    pacman -Qi snap-pac &>/dev/null && DETECTED_HAS_SNAP_PAC=true
 
     # Config file existence
     DETECTED_SNAPPER_CONFIG_EXISTS=false
     [[ -f /etc/snapper/configs/root ]] && DETECTED_SNAPPER_CONFIG_EXISTS=true
 
-    log_info "Existing tools: snapper=$DETECTED_HAS_SNAPPER btrbk=$DETECTED_HAS_BTRBK pika=$DETECTED_HAS_PIKA rclone=$DETECTED_HAS_RCLONE snap-pac=$DETECTED_HAS_SNAP_PAC"
+    log_info "Existing tools: snapper-config=$DETECTED_SNAPPER_CONFIG_EXISTS"
 }
 
 # ── Master detection ──────────────────────────────────────────────────────────

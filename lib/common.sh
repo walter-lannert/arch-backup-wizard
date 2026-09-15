@@ -6,11 +6,7 @@ _ARCH_BACKUP_COMMON_LOADED=1
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 readonly CLR_RED='\033[0;31m'
-readonly CLR_GREEN='\033[0;32m'
-readonly CLR_YELLOW='\033[0;33m'
-readonly CLR_BLUE='\033[0;34m'
-readonly CLR_CYAN='\033[0;36m'
-readonly CLR_BOLD='\033[1m'
+
 readonly CLR_NC='\033[0m'
 
 # ── Layer ID constants ────────────────────────────────────────────────────────
@@ -22,17 +18,7 @@ readonly LAYER_PIKA=3
 readonly LAYER_CLOUD=4
 readonly LAYER_DEEP=5
 
-# Human-readable name for a layer ID (1..5 → string label).
-layer_name() {
-    case "$1" in
-    1) echo "Snapper" ;;
-    2) echo "btrbk" ;;
-    3) echo "Pika Backup" ;;
-    4) echo "Cloud Offsite" ;;
-    5) echo "Deep Storage" ;;
-    *) echo "Layer $1" ;;
-    esac
-}
+
 
 # ── Configuration defaults ────────────────────────────────────────────────────
 # All tunable defaults live here. Changing a value in this block is the single
@@ -121,7 +107,7 @@ backup_file() {
     if [[ -f "$file" ]]; then
         local backup
         backup="${file}.bak.$(date +%s)"
-        cp "$file" "$backup"
+        cp -p "$file" "$backup"
         log_info "Backed up $file → $backup"
         echo "$backup"
     fi
@@ -142,10 +128,26 @@ template_render() {
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
         local value="${!var:-}"
+        
+        if [[ "$output" == *.sh ]]; then
+            # For shell scripts, escape the value to be safely injected inside double quotes
+            # We escape \, $, `, and " so they are treated as literal characters inside "..."
+            value="${value//\\/\\\\}"
+            value="${value//\$/\\\$}"
+            value="${value//\`/\\\`}"
+            value="${value//\"/\\\"}"
+        else
+            # For systemd or other files, we just prevent breaking out of double quotes
+            value="${value//\"/\\\"}"
+        fi
+        
         content="${content//\{\{${var}\}\}/${value}}"
     done <<<"$vars"
 
-    echo "$content" >"$output"
+    local temp_file
+    temp_file=$(mktemp)
+    printf "%s\n" "$content" >"$temp_file"
+    mv -T "$temp_file" "$output"
     log_info "Rendered template $(basename "$template") → $output"
 }
 

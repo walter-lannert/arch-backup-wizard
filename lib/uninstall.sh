@@ -47,6 +47,10 @@ This will NOT remove:
         log_info "Snapper root configuration not found ($snapper_cfg); skipping."
     fi
 
+    if [[ -f /etc/conf.d/snapper ]]; then
+        sed -i 's/\broot\b//g; s/  */ /g; s/=" /="/; s/ "/"/' /etc/conf.d/snapper
+    fi
+
     # ── 3. Layer 2 cleanup (btrbk) ────────────────────────────────────────────
     log_info "── Layer 2 Cleanup: btrbk ──"
     log_info "Disabling btrbk.timer..."
@@ -64,7 +68,7 @@ This will NOT remove:
     local btrbk_override="$BTRBK_OVERRIDE_DIR/override.conf"
     if [[ -e "$btrbk_override" ]]; then
         log_info "Removing btrbk systemd override: $btrbk_override"
-        rm -rf "$btrbk_override"
+        rm -f "$btrbk_override"
         rmdir "$BTRBK_OVERRIDE_DIR" 2>/dev/null || true
         log_success "Removed $btrbk_override"
     else
@@ -84,7 +88,8 @@ This will NOT remove:
     log_info "Target user: $user (home: $home)"
 
     log_info "Disabling pika-cloud-sync.timer for user $user..."
-    run_as_user systemctl --user disable --now pika-cloud-sync.timer 2>/dev/null || true
+    local target_uid; target_uid=$(id -u "$user")
+    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user disable --now pika-cloud-sync.timer 2>/dev/null || true
 
     local cloud_files=(
         "$home/.os_cloud_backup.sh"
@@ -93,6 +98,11 @@ This will NOT remove:
         "$home/.config/systemd/user/pika-cloud-sync.service"
         "$home/.config/systemd/user/pika-cloud-sync.timer"
     )
+
+    # Also clean up any lingering local archives from interrupted backups
+    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
+        cloud_files+=("${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst")
+    fi
 
     for file in "${cloud_files[@]}"; do
         if [[ -e "$file" ]]; then
@@ -105,7 +115,7 @@ This will NOT remove:
     done
 
     log_info "Reloading user systemd daemon for user $user..."
-    run_as_user systemctl --user daemon-reload 2>/dev/null || true
+    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user daemon-reload 2>/dev/null || true
 
     log_info "Removing nag script lines from shell startup files..."
     local shell_files=(
@@ -119,11 +129,10 @@ This will NOT remove:
             if grep -q "os_clone_nag" "$rc" 2>/dev/null; then
                 log_info "Removing nag script lines from $rc..."
                 backup_file "$rc" >/dev/null
-                sed -i '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' "$rc"
-                # Fallback for older installs without the END sentinel
-                sed -i '/Arch Backup Wizard OS Clone Nag/d' "$rc"
-                sed -i '/os_clone_nag/d' "$rc"
-                chown "$user:$user" "$rc" 2>/dev/null || true
+                run_as_user sed -i \
+                    -e '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' \
+                    -e '/# Arch Backup Wizard OS Clone Nag/d' \
+                    "$rc"
                 log_success "Cleaned nag script lines from $rc"
             else
                 log_info "Nag script line not found in $rc (skipping)"

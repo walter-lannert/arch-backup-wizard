@@ -44,7 +44,7 @@ run_validation() {
             failure_issues+=("Layer 1: /etc/snapper/configs/root missing")
         fi
 
-        if [[ ! -f /usr/share/libalpm/hooks/05-snap-pac-pre.hook && ! -f /usr/share/libalpm/hooks/zz-snap-pac-post.hook ]]; then
+        if [[ ! -f /usr/share/libalpm/hooks/05-snap-pac-pre.hook || ! -f /usr/share/libalpm/hooks/zz-snap-pac-post.hook ]]; then
             l1_ok=false
             log_warn "Layer 1 check failed: snap-pac hooks (/usr/share/libalpm/hooks/05-snap-pac-pre.hook or zz-snap-pac-post.hook) do not exist"
             failure_issues+=("Layer 1: snap-pac hooks missing")
@@ -148,7 +148,7 @@ run_validation() {
             failure_issues+=("Layer 3: pika-backup package not installed")
         fi
 
-        if [[ ! -f "${user_home}/.config/pika-backup/backup.json" ]]; then
+        if [[ ! -f "${user_home}/.local/share/pika-backup/backup.json" && ! -f "${user_home}/.config/pika-backup/backup.json" ]]; then
             l3_ok=false
             log_warn "Layer 3 check failed: ${user_home}/.config/pika-backup/backup.json does not exist"
             failure_issues+=("Layer 3: Pika backup.json config missing")
@@ -217,16 +217,10 @@ run_validation() {
             hook_found=true
         fi
 
-        # Also check XDG Autostart desktop entry
-        if [[ -f "${user_home}/.config/autostart/os-clone-nag.desktop" ]] ||
-            grep -rFqs ".os_clone_nag.sh" "${user_home}/.config/autostart/" 2>/dev/null; then
-            hook_found=true
-        fi
-
         if ! $hook_found; then
             l4_ok=false
-            log_warn "Layer 4 check failed: nag script hook not found in $rc_file or ~/.config/autostart/"
-            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file") or ~/.config/autostart/")
+            log_warn "Layer 4 check failed: nag script hook not found in $rc_file"
+            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file")")
         fi
 
         if $l4_ok; then
@@ -271,9 +265,9 @@ run_validation() {
         log_info "Checking /etc/fstab for backup drive mount ($BACKUP_MOUNT)..."
         local fstab_line=""
         if [[ -f /etc/fstab ]]; then
-            fstab_line=$(grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -F "$BACKUP_MOUNT" | head -n 1 || true)
+            fstab_line=$(awk -v mnt="$BACKUP_MOUNT" '$1 !~ /^#/ && $2 == mnt {print; exit}' /etc/fstab 2>/dev/null || true)
             if [[ -z "$fstab_line" && -n "${BACKUP_UUID:-}" ]]; then
-                fstab_line=$(grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -F "$BACKUP_UUID" | head -n 1 || true)
+                fstab_line=$(awk -v uuid="UUID=$BACKUP_UUID" '$1 !~ /^#/ && $1 == uuid {print; exit}' /etc/fstab 2>/dev/null || true)
             fi
         fi
 
@@ -321,10 +315,10 @@ run_validation() {
     # ── 7. Build summary dashboard ────────────────────────────────────────────
     local dashboard=""
     dashboard+="Layer 1: Snapper .............. ${layer1_status}"$'\n'
-    dashboard+="Layer 2: btrbk ............... ${layer2_status}"$'\n'
-    dashboard+="Layer 3: Pika Backup ......... ${layer3_status}"$'\n'
-    dashboard+="Layer 4: Cloud Offsite ....... ${layer4_status}"$'\n'
-    dashboard+="Layer 5: Deep Storage ........ ${layer5_status}"$'\n\n'
+    dashboard+="Layer 2: btrbk ................ ${layer2_status}"$'\n'
+    dashboard+="Layer 3: Pika Backup .......... ${layer3_status}"$'\n'
+    dashboard+="Layer 4: Cloud Offsite ........ ${layer4_status}"$'\n'
+    dashboard+="Layer 5: Deep Storage ......... ${layer5_status}"$'\n\n'
     dashboard+="Backup drive in fstab: ${fstab_status}"$'\n'
     dashboard+="Recovery runbooks: ${runbook_count} found"$'\n\n'
 

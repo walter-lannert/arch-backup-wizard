@@ -73,9 +73,9 @@ Then re-run this wizard."
     ui_infobox "Installing AUR Packages" \
         "Installing via $DETECTED_AUR_HELPER: ${to_install[*]}..."
 
-    # AUR helpers must NOT be run as root
-    if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed \
-        "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
+    # Ensure the user has an active sudo token to prevent hidden prompts during UI execution
+    run_as_user sudo -v || true
+    if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "AUR install failed: ${to_install[*]}"
         ui_msgbox "AUR Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
@@ -118,6 +118,7 @@ install_layer_packages() {
     local pacman_pkgs=()
     local aur_pkgs=()
 
+    # shellcheck disable=SC2086    # intentional word-split of space-separated package list
     for pkg in $all_pkgs; do
         if [[ "$pkg" == AUR:* ]]; then
             aur_pkgs+=("${pkg#AUR:}")

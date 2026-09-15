@@ -15,10 +15,17 @@ source "$WIZARD_DIR/lib/common.sh"
 source "$WIZARD_DIR/lib/ui.sh"
 source "$WIZARD_DIR/lib/detect.sh"
 source "$WIZARD_DIR/lib/packages.sh"
+source "$WIZARD_DIR/lib/layer1_snapper.sh"
+source "$WIZARD_DIR/lib/layer2_btrbk.sh"
+source "$WIZARD_DIR/lib/layer3_pika.sh"
+source "$WIZARD_DIR/lib/layer4_cloud.sh"
+source "$WIZARD_DIR/lib/layer5_deep_storage.sh"
+source "$WIZARD_DIR/lib/runbooks.sh"
+source "$WIZARD_DIR/lib/validate.sh"
+source "$WIZARD_DIR/lib/uninstall.sh"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
-VERBOSE=false
 UNINSTALL=false
 DRY_RUN=false
 VALIDATE=false
@@ -53,10 +60,6 @@ parse_args() {
             DRY_RUN=true
             shift
             ;;
-        --verbose | -v)
-            VERBOSE=true
-            shift
-            ;;
         --help | -h)
             cat <<EOF
 Arch Backup Wizard v${WIZARD_VERSION}
@@ -69,7 +72,6 @@ Options:
   --help, -h       Show this help message
   --validate [L]   Run health checks on backup configuration (all or specified layers: 1,2)
   --dry-run, -d    Simulate wizard actions without making system changes
-  --verbose, -v    Enable verbose output to terminal
   --uninstall      Remove all wizard-created configurations
 
 Layers:
@@ -135,21 +137,7 @@ $summary
 Is this correct?" || die "Aborted by user at detection review."
 }
 
-# ── BTRFS gate ────────────────────────────────────────────────────────────────
 
-check_btrfs() {
-    if [[ "$DETECTED_ROOT_FS" != "btrfs" ]]; then
-        ui_msgbox "BTRFS Required" \
-            "Your root filesystem is '$DETECTED_ROOT_FS'.
-
-Layers 1 (Snapper) and 2 (btrbk) require BTRFS.
-Most Arch-based installers (CachyOS, EndeavourOS,
-Garuda) offer BTRFS during installation.
-
-The wizard cannot continue."
-        die "Root filesystem is not BTRFS ($DETECTED_ROOT_FS)."
-    fi
-}
 
 # ── Layer selection ───────────────────────────────────────────────────────────
 
@@ -168,12 +156,16 @@ select_layers() {
     ) || die "Aborted by user at layer selection."
 
     SELECTED_LAYERS=()
+    # shellcheck disable=SC2086    # intentional word-split of a space-separated dialog output
     for tag in $result; do
         tag="${tag//\"/}"
         SELECTED_LAYERS+=("$tag")
     done
 
-    [[ ${#SELECTED_LAYERS[@]} -eq 0 ]] && die "No layers selected."
+    if [[ ${#SELECTED_LAYERS[@]} -eq 0 ]]; then
+        ui_msgbox "No Layers Selected" "You must select at least one layer to continue."
+        die "No layers selected."
+    fi
     log_info "Selected layers: ${SELECTED_LAYERS[*]}"
 }
 
@@ -196,6 +188,18 @@ Please also select at least one of:
             return 1
         fi
     fi
+
+    if layer_selected "$LAYER_SNAPPER" || layer_selected "$LAYER_BTRBK"; then
+        if [[ "$DETECTED_ROOT_FS" != "btrfs" ]]; then
+            ui_msgbox "BTRFS Required" \
+                "Your root filesystem is '$DETECTED_ROOT_FS'.
+
+Layers 1 (Snapper) and 2 (btrbk) require BTRFS.
+Please deselect these layers to continue with other backups."
+            return 1
+        fi
+    fi
+    return 0
 }
 
 # ── Backup drive selection ────────────────────────────────────────────────────
@@ -227,8 +231,11 @@ Use this drive?"; then
     local choices=()
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        local dev size _type fstype mountpoint
-        read -r dev size _type fstype mountpoint <<<"$line"
+        [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\".*MOUNTPOINT=\"([^\"]*)\" ]] || true
+        local dev="${BASH_REMATCH[1]:-}"
+        local size="${BASH_REMATCH[2]:-}"
+        local fstype="${BASH_REMATCH[4]:-}"
+        local mountpoint="${BASH_REMATCH[5]:-}"
 
         # Skip root and EFI
         [[ "$dev" == "$DETECTED_ROOT_DEV" ]] && continue
@@ -250,8 +257,8 @@ Use this drive?"; then
 
         # Skip if any partition from this disk is already in the list
         local dominated=false
-        for c in "${choices[@]}"; do
-            [[ "$c" == "${dev}"* ]] && dominated=true && break
+        for ((i=0; i<${#choices[@]}; i+=3)); do
+            [[ "${choices[i]}" == "${dev}"* ]] && dominated=true && break
         done
 
         # Offer the whole disk as a "format new" option
@@ -272,6 +279,7 @@ Please connect a secondary drive and re-run the wizard."
         "${choices[@]}") || die "Aborted at drive selection."
 
     selected="${selected//\"/}"
+    [[ -z "$selected" ]] && die "No backup drive selected."
     BACKUP_DEV="$selected"
 
     # Determine if this needs formatting
@@ -329,12 +337,13 @@ No partitions or data were modified."
         parted -s "$dev" mkpart primary btrfs 1MiB 100% >>"$LOG_FILE" 2>&1
 
         # Determine the new partition name
-        if [[ "$dev" =~ nvme ]]; then
+        if [[ "$dev" =~ [0-9]$ ]]; then
             BACKUP_DEV="${dev}p1"
         else
             BACKUP_DEV="${dev}1"
         fi
-        sleep 1 # wait for udev
+        partprobe "$dev" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
     fi
 
     log_info "Formatting $BACKUP_DEV as BTRFS with zstd compression"
@@ -352,7 +361,7 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT"
 
     # Add to fstab if not already present
-    if ! grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" /etc/fstab 2>/dev/null; then
+    if ! grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" 2>/dev/null; then
         backup_file /etc/fstab
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
         printf '\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n' \
@@ -369,6 +378,9 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT/OS_Backup"
     mkdir -p "$BACKUP_MOUNT/Personal"
     mkdir -p "$BACKUP_MOUNT/Deep Storage"
+    if [[ ! -L "$BACKUP_MOUNT/Personal" && ! -L "$BACKUP_MOUNT/Deep Storage" ]]; then
+        chown "$(effective_user):" "$BACKUP_MOUNT/Personal" "$BACKUP_MOUNT/Deep Storage" 2>/dev/null || true
+    fi
 
     log_info "Backup mount ready at $BACKUP_MOUNT"
 }
@@ -381,6 +393,7 @@ run_dry_run_simulation() {
     local preview_dir
     preview_dir="$(effective_home)/arch-backup-wizard-preview"
     mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
+    chown -R "$(effective_user):" "$preview_dir" 2>/dev/null || true
 
     # 1. Collect packages
     local pkg_info=""
@@ -433,7 +446,6 @@ run_dry_run_simulation() {
     # 3. Generate preview runbooks into preview sandbox
     local orig_mount="$BACKUP_MOUNT"
     BACKUP_MOUNT="$preview_dir/runbooks"
-    source "$WIZARD_DIR/lib/runbooks.sh"
 
     # Temporarily silence UI dialogs during preview generation
     local _saved_ui_msgbox
@@ -477,7 +489,7 @@ NO SYSTEM FILES, DRIVES, OR PACKAGES WERE MODIFIED."
     fi
 
     # Run validation in read-only mode to show current system status
-    source "$WIZARD_DIR/lib/validate.sh"
+
     run_validation || true
 
     log_info "══════ Dry run simulation finished cleanly ══════"
@@ -489,20 +501,22 @@ main() {
     parse_args "$@"
     require_root
 
-    # Set up log file under the real user's home
-    LOG_FILE="$(effective_home)/arch-backup-wizard.log"
+    # Set up global wizard log file
+    LOG_FILE="/var/log/arch-backup-wizard.log"
+    touch "$LOG_FILE" 2>/dev/null || true
+    chown "$(effective_user):" "$LOG_FILE" 2>/dev/null || true
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
 
     # Handle --uninstall mode
     if $UNINSTALL; then
-        source "$WIZARD_DIR/lib/uninstall.sh"
+
         run_uninstall
     fi
 
     # Handle --validate mode
     if $VALIDATE; then
         run_detection
-        source "$WIZARD_DIR/lib/validate.sh"
+
         if [[ ${#VALIDATE_LAYERS[@]} -gt 0 ]]; then
             SELECTED_LAYERS=("${VALIDATE_LAYERS[@]}")
         else
@@ -525,8 +539,6 @@ main() {
     ui_infobox "Scanning" "Detecting your system configuration..."
     run_detection
 
-    # BTRFS gate
-    check_btrfs
 
     # Show results
     show_detection_results
@@ -549,13 +561,6 @@ main() {
     fi
 
     # ── Run layer setup modules ──────────────────────────────────────────
-    source "$WIZARD_DIR/lib/layer1_snapper.sh"
-    source "$WIZARD_DIR/lib/layer2_btrbk.sh"
-    source "$WIZARD_DIR/lib/layer3_pika.sh"
-    source "$WIZARD_DIR/lib/layer4_cloud.sh"
-    source "$WIZARD_DIR/lib/layer5_deep_storage.sh"
-    source "$WIZARD_DIR/lib/runbooks.sh"
-    source "$WIZARD_DIR/lib/validate.sh"
 
     # run_layer — invoke a setup function for a selected layer.
     #
@@ -571,7 +576,11 @@ main() {
         local layer_id="$1"
         local fn="$2"
         if layer_selected "$layer_id"; then
-            if ! "$fn"; then
+            set +e
+            "$fn"
+            local ret=$?
+            set -e
+            if [[ $ret -ne 0 ]]; then
                 log_error "Layer $layer_id setup encountered errors — continuing to next layer."
                 ui_msgbox "Layer $layer_id Warning" \
                     "Layer $layer_id setup encountered errors and could not complete fully.

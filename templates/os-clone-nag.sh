@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -euo pipefail
 # Only run if inside a graphical desktop session
 if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
     exit 0
@@ -41,6 +41,6 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
         --ok-label="Run Now" \
         --cancel-label="Later"; then
 
-        {{DETECTED_TERMINAL_CMD}} bash -c "{{DETECTED_HOME}}/.os_cloud_backup.sh && echo \"$CURRENT_TARGET\" > \"$LAST_RUN_FILE\""
+        {{DETECTED_TERMINAL_CMD}} bash -c "\"{{DETECTED_HOME}}/.os_cloud_backup.sh\" && echo \"$CURRENT_TARGET\" > \"{{DETECTED_HOME}}/.last_cloud_run\""
     fi
 fi
