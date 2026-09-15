@@ -98,7 +98,8 @@ Check $LOG_FILE for details."
 
     local -a selected_exclusions=()
     if [[ -n "$raw_exclusions" ]]; then
-        read -ra selected_exclusions <<<"$raw_exclusions"
+        # Dialog outputs space-separated quoted tags. Use eval to safely parse them into a bash array.
+        eval "selected_exclusions=($raw_exclusions)"
     fi
     log_info "Selected exclusions: ${selected_exclusions[*]:-(none)}"
 
@@ -168,8 +169,10 @@ $formatted_exclusions
 
     # 8. Validate: check if ~/.config/pika-backup/backup.json exists ($DETECTED_HOME/.config/pika-backup/backup.json)
     log_info "Step 8: Validating Pika Backup configuration..."
-    local config_file="${target_home}/.config/pika-backup/backup.json"
-
+    local config_file="${target_home}/.local/share/pika-backup/backup.json"
+    if [[ ! -f "$config_file" ]]; then
+        config_file="${target_home}/.config/pika-backup/backup.json"
+    fi
     if [[ -f "$config_file" ]]; then
         log_success "Pika Backup configuration verified: $config_file"
         ui_msgbox "Pika Backup — Success" \

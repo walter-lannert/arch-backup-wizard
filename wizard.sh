@@ -344,12 +344,13 @@ No partitions or data were modified."
         parted -s "$dev" mkpart primary btrfs 1MiB 100% >>"$LOG_FILE" 2>&1
 
         # Determine the new partition name
-        if [[ "$dev" =~ nvme ]]; then
+        if [[ "$dev" =~ [0-9]$ ]]; then
             BACKUP_DEV="${dev}p1"
         else
             BACKUP_DEV="${dev}1"
         fi
-        sleep 1 # wait for udev
+        partprobe "$dev" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
     fi
 
     log_info "Formatting $BACKUP_DEV as BTRFS with zstd compression"
