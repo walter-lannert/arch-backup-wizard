@@ -79,7 +79,7 @@ setup_layer3() {
         ".wine" "Wine prefixes" "off" \
         ".local/share/bottles" "Bottles (Wine manager)" "off" \
         ".local/share/waydroid" "Waydroid (Android emulator)" "off" \
-        ".config/borg" "Borg cache (internal)" "on" \
+        ".cache/borg" "Borg cache (internal)" "on" \
         "VirtualBox VMs" "VirtualBox virtual machines" "off"); then
         log_warn "Backup exclusion checklist was cancelled by user; continuing without exclusions."
         raw_exclusions=""

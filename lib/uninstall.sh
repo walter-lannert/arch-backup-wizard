@@ -47,6 +47,10 @@ This will NOT remove:
         log_info "Snapper root configuration not found ($snapper_cfg); skipping."
     fi
 
+    if [[ -f /etc/conf.d/snapper ]]; then
+        sed -i 's/\broot\b//g; s/  */ /g; s/=" /="/; s/ "/"/' /etc/conf.d/snapper
+    fi
+
     # ── 3. Layer 2 cleanup (btrbk) ────────────────────────────────────────────
     log_info "── Layer 2 Cleanup: btrbk ──"
     log_info "Disabling btrbk.timer..."
@@ -95,6 +99,11 @@ This will NOT remove:
         "$home/.config/systemd/user/pika-cloud-sync.timer"
     )
 
+    # Also clean up any lingering local archives from interrupted backups
+    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
+        cloud_files+=("${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst")
+    fi
+
     for file in "${cloud_files[@]}"; do
         if [[ -e "$file" ]]; then
             log_info "Removing $file"
@@ -120,11 +129,10 @@ This will NOT remove:
             if grep -q "os_clone_nag" "$rc" 2>/dev/null; then
                 log_info "Removing nag script lines from $rc..."
                 backup_file "$rc" >/dev/null
-                sed -i \
+                run_as_user sed -i \
                     -e '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' \
                     -e '/# Arch Backup Wizard OS Clone Nag/d' \
                     "$rc"
-                chown "$user:" "$rc" 2>/dev/null || true
                 log_success "Cleaned nag script lines from $rc"
             else
                 log_info "Nag script line not found in $rc (skipping)"
