@@ -79,9 +79,11 @@ EOF
     }
     backup_file "$override_conf" >/dev/null
 
+    local systemd_mount
+    systemd_mount=$(systemd-escape -p "$backup_mount")
     cat <<EOF >"$override_conf"
 [Unit]
-RequiresMountsFor="${backup_mount}"
+RequiresMountsFor=${systemd_mount}
 
 [Service]
 Nice=19

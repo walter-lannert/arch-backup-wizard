@@ -38,6 +38,37 @@ setup_layer4() {
     fi
     log_success "Layer 4 packages installed successfully."
 
+    # ── 1.5 Generate Age Encryption Key ─────────────────────────────────────────
+    log_info "Step 1.5: Setting up Age encryption for OS stream..."
+    local age_key_dir="${target_home}/.config/arch-backup-wizard"
+    local age_key_file="${age_key_dir}/cloud_os.key"
+    
+    run_as_user mkdir -p "$age_key_dir" || return 1
+    
+    if [[ ! -f "$age_key_file" ]]; then
+        run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1
+        run_as_user chmod 600 "$age_key_file"
+        log_info "Generated new age key at $age_key_file"
+    else
+        log_info "Using existing age key at $age_key_file"
+    fi
+    
+    local age_pubkey
+    age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file")
+    export AGE_PUBKEY="$age_pubkey"
+    export AGE_KEYFILE="$age_key_file"
+    
+    ui_msgbox "Encryption Key Generated" \
+        "A new Age encryption key has been generated to encrypt your OS backups before uploading to the cloud.
+
+PUBLIC KEY:
+$age_pubkey
+
+The private key is saved at:
+$age_key_file
+
+[!] CRITICAL: Back up this private key to a password manager IMMEDIATELY. Without it, you cannot restore your OS from the cloud."
+
     # ── 2. Cloud provider selection menu ──────────────────────────────────────
     log_info "Step 2: Selecting cloud storage provider..."
     local cloud_type

@@ -129,33 +129,38 @@ STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
      rclone config
      Create a new remote matching: {{CLOUD_REMOTE}} (without trailing colon)
 
-3. Verify access to the cloud OS backup directory:
+3. Restore your Age private key:
+   Retrieve your saved `cloud_os.key` from your password manager and save it:
+     nano /root/cloud_os.key
+     chmod 600 /root/cloud_os.key
+
+4. Verify access to the cloud OS backup directory:
 
    rclone lsf {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/
 
-   You should see: Cloud_Archive.btrfs.zst
+   You should see: Cloud_Archive.btrfs.zst.age
 
-4. Stream download, decompress, and receive directly to BTRFS:
+5. Stream download, decrypt, decompress, and receive directly to BTRFS:
    [CRITICAL: In-flight streaming avoids requiring double disk space]
 
-   rclone cat {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/Cloud_Archive.btrfs.zst | zstdcat | btrfs receive /mnt/new_os/
+   rclone cat {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/Cloud_Archive.btrfs.zst.age | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/
 
    (Optional: To view live transfer rate with 'pv' if installed:
-    rclone cat {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/Cloud_Archive.btrfs.zst | pv | zstdcat | btrfs receive /mnt/new_os/ )
+    rclone cat {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/Cloud_Archive.btrfs.zst.age | pv | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/ )
 
-5. Inspect the received subvolume name:
+6. Inspect the received subvolume name:
 
    ls -ld /mnt/new_os/*
 
-   Identify the received subvolume name (usually Cloud_Archive or similar).
+   Identify the received subvolume name.
    In the following steps, let this be <RECEIVED_NAME>
 
 --------------------------------------------------------------------------------
-STEP 3: DECOMPRESS AND RECEIVE BTRFS STREAM
+STEP 3: LOCAL DECRYPT, DECOMPRESS AND RECEIVE (IF NOT STREAMED)
 --------------------------------------------------------------------------------
-Stream the ZSTD archive directly into a BTRFS receive operation:
+If you downloaded the archive locally instead of streaming it, process it now:
 
-  zstd -d -c Cloud_Archive.btrfs.zst | btrfs receive /mnt/new_os
+  age -d -i /root/cloud_os.key Cloud_Archive.btrfs.zst.age | zstd -d -c | btrfs receive /mnt/new_os
 
 BTRFS preserve the original snapshot name. Find the name of the newly received subvolume:
 
@@ -313,9 +318,9 @@ The OS clone restored the base system and applications. Personal data
 
    borg list "$REPO_PATH"
 
-4. Extract files into the target home directory:
+4. Extract files into the target root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
 
-   cd /mnt/target/home/{{USERNAME}} 2>/dev/null || cd /home/{{USERNAME}}
+   cd /mnt/target 2>/dev/null || cd /
    borg extract --progress "$REPO_PATH::<ARCHIVE_NAME>"
 
 5. Restore correct user ownership:

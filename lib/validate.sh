@@ -178,10 +178,17 @@ run_validation() {
         log_info "Validating Layer 4 (Cloud Offsite)..."
         local l4_ok=true
 
-        if ! pkg_is_installed rclone; then
+        if ! pkg_is_installed rclone || ! pkg_is_installed age; then
             l4_ok=false
-            log_warn "Layer 4 check failed: package 'rclone' is not installed"
-            failure_issues+=("Layer 4: rclone package not installed")
+            log_warn "Layer 4 check failed: packages 'rclone' or 'age' are not installed"
+            failure_issues+=("Layer 4: rclone or age package not installed")
+        fi
+
+        local age_key_file="${user_home}/.config/arch-backup-wizard/cloud_os.key"
+        if [[ ! -f "$age_key_file" ]]; then
+            l4_ok=false
+            log_warn "Layer 4 check failed: Age encryption key $age_key_file is missing"
+            failure_issues+=("Layer 4: Age encryption key missing")
         fi
 
         if [[ ! -f "${user_home}/.os_cloud_backup.sh" || ! -x "${user_home}/.os_cloud_backup.sh" ]]; then

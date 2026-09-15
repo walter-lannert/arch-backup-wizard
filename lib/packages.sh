@@ -103,7 +103,7 @@ get_layer_packages() {
         ;;
     2) echo "btrbk" ;;
     3) echo "pika-backup" ;;
-    4) echo "rclone pv zstd zenity" ;;
+    4) echo "rclone pv zstd zenity age" ;;
     5) ;; # No packages needed
     esac
 }

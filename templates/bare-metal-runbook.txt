@@ -287,9 +287,9 @@ Repository path on backup drive:
 
 2. Select the latest archive name from the list (referred to as <ARCHIVE_NAME>).
 
-3. Extract files into the user home directory:
+3. Extract files into the root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
 
-     cd /home/{{USERNAME}}
+     cd /
      borg extract --progress /mnt/backup/Personal/backup-{{HOSTNAME_VAL}}-{{USERNAME}}::<ARCHIVE_NAME>
 
 4. Restore proper user ownership and permissions:
