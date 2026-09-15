@@ -80,12 +80,6 @@ ui_infobox() {
     $DIALOG_CMD --title "$title" --infobox "$text" 8 $DLG_W
 }
 
-# Progress gauge.  Reads percentage from stdin.
-# Usage:  (for i in 10 50 100; do echo $i; sleep 1; done) | ui_gauge "Title" "Working..."
-ui_gauge() {
-    local title="$1" text="$2"
-    $DIALOG_CMD --title "$title" --gauge "$text" 8 $DLG_W 0
-}
 
 # ── Compound helpers ──────────────────────────────────────────────────────────
 
@@ -99,13 +93,4 @@ ui_textbox() {
 ui_confirm_destructive() {
     local title="$1" text="$2"
     $DIALOG_CMD --title "$title" --defaultno --yesno "$text" $DLG_H $DLG_W
-}
-
-# Show a brief "working" message, run a command, then dismiss
-# Usage: ui_run_with_status "Installing packages..." pacman -S --noconfirm snapper
-ui_run_with_status() {
-    local msg="$1"
-    shift
-    ui_infobox "Working" "$msg"
-    "$@" >>"$LOG_FILE" 2>&1
 }

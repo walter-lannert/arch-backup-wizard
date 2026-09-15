@@ -47,6 +47,10 @@ This will NOT remove:
         log_info "Snapper root configuration not found ($snapper_cfg); skipping."
     fi
 
+    if [[ -f /etc/conf.d/snapper ]]; then
+        sed -i 's/\broot\b//g; s/  */ /g; s/=" /="/; s/ "/"/' /etc/conf.d/snapper
+    fi
+
     # ── 3. Layer 2 cleanup (btrbk) ────────────────────────────────────────────
     log_info "── Layer 2 Cleanup: btrbk ──"
     log_info "Disabling btrbk.timer..."
