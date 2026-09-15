@@ -32,13 +32,13 @@ setup_layer2() {
         return 1
     }
 
-    # 4. Write /etc/btrbk/btrbk.conf (back up existing one first with backup_file)
+    # 4. Write /etc/btrbk/btrbk.conf (back up existing one first with backup_file) || return 1
     log_info "Step 4: Writing /etc/btrbk/btrbk.conf..."
     mkdir -p "$(dirname "$BTRBK_CONF")" || {
         log_error "Failed to create $(dirname "$BTRBK_CONF")"
         return 1
     }
-    backup_file "$BTRBK_CONF" >/dev/null
+    backup_file "$BTRBK_CONF" >/dev/null || return 1
 
     record_manifest "$BTRBK_CONF"
     cat <<EOF >"$BTRBK_CONF"
@@ -78,7 +78,7 @@ EOF
         log_error "Failed to create $override_dir"
         return 1
     }
-    backup_file "$override_conf" >/dev/null
+    backup_file "$override_conf" >/dev/null || return 1
 
     record_manifest "$override_conf"
     local systemd_mount

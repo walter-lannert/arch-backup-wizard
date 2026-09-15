@@ -35,18 +35,18 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
         --uninstall)
+            if $DRY_RUN || $VALIDATE; then die "Error: --uninstall cannot be combined with other modes."; fi
             UNINSTALL=true
             shift
             ;;
         --validate)
+            if $UNINSTALL; then die "Error: --validate cannot be combined with --uninstall."; fi
             VALIDATE=true
             shift
             if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
                 IFS=',' read -ra VALIDATE_LAYERS <<<"$1"
                 shift
-                # Validate each token — case literals are intentional here;
-                # bash case patterns don't expand variables so LAYER_* can't
-                # be used in pattern position.
+                # Validate each token
                 local _l
                 for _l in "${VALIDATE_LAYERS[@]}"; do
                     case "$_l" in
@@ -57,7 +57,12 @@ parse_args() {
             fi
             ;;
         --dry-run | -d)
+            if $UNINSTALL; then die "Error: --dry-run cannot be combined with --uninstall."; fi
             DRY_RUN=true
+            shift
+            ;;
+        -v | --verbose)
+            set -x
             shift
             ;;
         --help | -h)
@@ -470,9 +475,8 @@ run_dry_run_simulation() {
     log_info "══════ Running Wizard Simulation (Dry Run) ══════"
 
     local preview_dir
-    preview_dir="$(effective_home)/arch-backup-wizard-preview"
+    preview_dir=$(mktemp -d /tmp/arch-backup-wizard-preview.XXXXXX)
     mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
-    chown -R "$(effective_user):" "$preview_dir" 2>/dev/null || true
 
     # 1. Collect packages
     local pkg_info=""
@@ -656,7 +660,10 @@ main() {
         local fn="$2"
         if layer_selected "$layer_id"; then
             set +e
-            "$fn"
+            (
+                set -e
+                "$fn"
+            )
             local ret=$?
             set -e
             if [[ $ret -ne 0 ]]; then

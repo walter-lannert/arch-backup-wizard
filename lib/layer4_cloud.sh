@@ -204,7 +204,7 @@ Would you like to re-run 'rclone config' to retry?
     export CLOUD_OS_DIR="$cloud_os_dir"
 
     local os_backup_script="${target_home}/.os_cloud_backup.sh"
-    backup_file "$os_backup_script" >/dev/null
+    backup_file "$os_backup_script" >/dev/null || return 1
 
     template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"
     chmod 700 "$os_backup_script"
@@ -224,7 +224,7 @@ Would you like to re-run 'rclone config' to retry?
     export DETECTED_TERMINAL_CMD="$term_cmd"
 
     local os_nag_script="${target_home}/.os_clone_nag.sh"
-    backup_file "$os_nag_script" >/dev/null
+    backup_file "$os_nag_script" >/dev/null || return 1
 
     template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"
     chmod 700 "$os_nag_script"
@@ -247,11 +247,11 @@ Would you like to re-run 'rclone config' to retry?
     local service_file="${user_systemd_dir}/pika-cloud-sync.service"
     local timer_file="${user_systemd_dir}/pika-cloud-sync.timer"
 
-    backup_file "$service_file" >/dev/null
+    backup_file "$service_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
     record_manifest "$service_file"
 
-    backup_file "$timer_file" >/dev/null
+    backup_file "$timer_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
     record_manifest "$timer_file"
 
@@ -297,7 +297,7 @@ Would you like to re-run 'rclone config' to retry?
     if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
         log_info "Nag script already configured in $rc_file"
     else
-        backup_file "$rc_file" >/dev/null
+        backup_file "$rc_file" >/dev/null || return 1
         # shellcheck disable=SC2016
         run_as_user bash -c 'cat >> "$1"' -- "$rc_file" <<EOF
 

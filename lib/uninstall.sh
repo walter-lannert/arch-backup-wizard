@@ -108,7 +108,7 @@ This will NOT remove:
         if [[ -f "$rc" ]]; then
             if grep -q "os_clone_nag" "$rc" 2>/dev/null; then
                 log_info "Removing nag script lines from $rc..."
-                backup_file "$rc" >/dev/null
+                backup_file "$rc" >/dev/null || continue
                 run_as_user sed -i \
                     -e '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' \
                     -e '/# Arch Backup Wizard OS Clone Nag/d' \

@@ -111,7 +111,7 @@ generate_runbooks() {
         if [[ -f "$tpl1" ]]; then
             log_info "Generating Layer 1 Rollback Runbook..."
             if [[ -f "$out1" ]]; then
-                backup_file "$out1" >/dev/null
+                backup_file "$out1" >/dev/null || return 1
             fi
             template_render "$tpl1" "$out1"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
@@ -133,7 +133,7 @@ generate_runbooks() {
         if [[ -f "$tpl2" ]]; then
             log_info "Generating Bare-Metal Recovery Runbook..."
             if [[ -f "$out2" ]]; then
-                backup_file "$out2" >/dev/null
+                backup_file "$out2" >/dev/null || return 1
             fi
             template_render "$tpl2" "$out2"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
@@ -155,7 +155,7 @@ generate_runbooks() {
         if [[ -f "$tpl4" ]]; then
             log_info "Generating Cloud Recovery Runbook..."
             if [[ -f "$out4" ]]; then
-                backup_file "$out4" >/dev/null
+                backup_file "$out4" >/dev/null || return 1
             fi
             template_render "$tpl4" "$out4"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then

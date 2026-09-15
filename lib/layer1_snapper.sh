@@ -102,7 +102,7 @@ setup_layer1() {
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
-                backup_file /etc/fstab
+                backup_file /etc/fstab || return 1
                 printf '\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n' \
                     "$root_uuid" "$existing_subvol" >>/etc/fstab
                 mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
@@ -124,7 +124,7 @@ setup_layer1() {
         log_error "Failed to create /etc/snapper/configs"
         return 1
     }
-    backup_file /etc/snapper/configs/root
+    backup_file /etc/snapper/configs/root || return 1
 
     record_manifest /etc/snapper/configs/root
     cat >/etc/snapper/configs/root <<'EOF'
@@ -186,7 +186,7 @@ EOF
     # Ensure /etc/conf.d/snapper includes root config if the file exists
     if [[ -f /etc/conf.d/snapper ]]; then
         if ! grep -qE '^SNAPPER_CONFIGS=.*root' /etc/conf.d/snapper; then
-            backup_file /etc/conf.d/snapper
+            backup_file /etc/conf.d/snapper || return 1
             if grep -q '^SNAPPER_CONFIGS=' /etc/conf.d/snapper; then
                 if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper; then
                     sed -i 's/^SNAPPER_CONFIGS=""/SNAPPER_CONFIGS="root"/' /etc/conf.d/snapper

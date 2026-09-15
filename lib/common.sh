@@ -112,9 +112,22 @@ record_manifest() {
 }
 
 # Back up a file before modifying it (timestamped .bak copy)
+# Prompts for confirmation if the file already exists but is NOT tracked in the manifest
 backup_file() {
     local file="$1"
     if [[ -f "$file" ]]; then
+        # Check if we own this file
+        if [[ ! -f "$MANIFEST_FILE" ]] || ! grep -Fxq "$file" "$MANIFEST_FILE" 2>/dev/null; then
+            if ! ui_yesno "Overwrite Existing Configuration?" \
+                "The file '$file' already exists and was not created by the wizard.
+
+Overwriting it may destroy your custom settings (a backup will be saved).
+Do you want to proceed and overwrite it?"; then
+                log_warn "User aborted overwrite of unmanaged file: $file"
+                return 1
+            fi
+        fi
+
         local backup
         backup="${file}.bak.$(date +%s)"
         cp -p "$file" "$backup"
