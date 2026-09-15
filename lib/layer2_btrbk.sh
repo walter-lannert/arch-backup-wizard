@@ -56,7 +56,7 @@ target_preserve            ${BTRBK_TARGET}
 
 volume /
   subvolume .
-  target send-receive      ${backup_mount}/OS_Backup
+  target send-receive      "${backup_mount}/OS_Backup"
 EOF
     log_success "Created $BTRBK_CONF"
 
@@ -74,7 +74,7 @@ EOF
 
     cat <<EOF >"$override_conf"
 [Unit]
-RequiresMountsFor=${backup_mount}
+RequiresMountsFor="${backup_mount}"
 
 [Service]
 Nice=19

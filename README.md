@@ -154,7 +154,7 @@ Run the wizard safely without making any system changes by using the `--dry-run`
 ### Validation Checks (`--validate`)
 Run post-setup health checks using the `--validate` flag. By default, it validates all 5 layers. You can pass a comma-separated list of valid layer IDs (1 through 5) to restrict validation to specific layers:
 ```bash
-./wizard.sh --validate 1,3,4
+sudo ./wizard.sh --validate 1,3,4
 ```
 
 ### Uninstalling (`--uninstall`)

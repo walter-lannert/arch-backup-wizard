@@ -48,11 +48,11 @@ setup_layer3() {
         return 1
     }
     chown "$target_user:" "${backup_mount}/Personal" 2>/dev/null || true
-    mkdir -p "$repo_path" || {
-        log_error "Failed to create $repo_path"
+    
+    run_as_user mkdir -p "$repo_path" || {
+        log_error "Failed to create $repo_path as user $target_user"
         return 1
     }
-    chown -R "$target_user:" "$repo_path" 2>/dev/null || true
 
     # 3. Initialize the Borg repository if it doesn't already exist:
     #    - Check if $repo_path/config exists (indicates initialized repo)
@@ -61,18 +61,7 @@ setup_layer3() {
     if [[ -f "$repo_path/config" ]]; then
         log_info "Borg repository already initialized at $repo_path"
     else
-        log_info "Initializing Borg repository at $repo_path..."
-        ui_infobox "Borg Repository" "Initializing Borg repository at:\n$repo_path..."
-        if ! run_as_user borg init --encryption=none "$repo_path" >>"$LOG_FILE" 2>&1; then
-            log_error "Failed to initialize Borg repository at $repo_path"
-            ui_msgbox "Borg Init Error" \
-                "Failed to initialize Borg repository at:
-  $repo_path
-
-Check $LOG_FILE for details."
-            return 1
-        fi
-        log_success "Initialized Borg repository at $repo_path"
+        log_info "Repository directory created at $repo_path. Initialization deferred to Pika Backup GUI to ensure proper encryption."
     fi
 
     # 4. Show a smart exclusion checklist using ui_checklist
@@ -98,7 +87,8 @@ Check $LOG_FILE for details."
 
     local -a selected_exclusions=()
     if [[ -n "$raw_exclusions" ]]; then
-        read -ra selected_exclusions <<<"$raw_exclusions"
+        # Dialog outputs space-separated quoted tags. Use eval to safely parse them into a bash array.
+        eval "selected_exclusions=($raw_exclusions)"
     fi
     log_info "Selected exclusions: ${selected_exclusions[*]:-(none)}"
 
@@ -155,7 +145,7 @@ $formatted_exclusions
     log_info "Step 6: Asking user to launch Pika Backup..."
     if ui_yesno "Launch Pika Backup" "Would you like to launch Pika Backup now?"; then
         log_info "Launching Pika Backup in background for user $target_user..."
-        run_as_user pika-backup >>"$LOG_FILE" 2>&1 &
+        run_as_user env DISPLAY="${DISPLAY:-:0}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" pika-backup >>"$LOG_FILE" 2>&1 &
     fi
 
     # 7. Ask the user to confirm when they've finished configuring Pika
@@ -168,8 +158,10 @@ $formatted_exclusions
 
     # 8. Validate: check if ~/.config/pika-backup/backup.json exists ($DETECTED_HOME/.config/pika-backup/backup.json)
     log_info "Step 8: Validating Pika Backup configuration..."
-    local config_file="${target_home}/.config/pika-backup/backup.json"
-
+    local config_file="${target_home}/.local/share/pika-backup/backup.json"
+    if [[ ! -f "$config_file" ]]; then
+        config_file="${target_home}/.config/pika-backup/backup.json"
+    fi
     if [[ -f "$config_file" ]]; then
         log_success "Pika Backup configuration verified: $config_file"
         ui_msgbox "Pika Backup — Success" \

@@ -63,10 +63,10 @@ detect_bootloader() {
 # ── Root filesystem ───────────────────────────────────────────────────────────
 
 detect_root_filesystem() {
-    DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE /)
-    DETECTED_ROOT_DEV=$(findmnt -n -o SOURCE /)
-    DETECTED_ROOT_UUID=$(findmnt -n -o UUID /)
-    DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / | grep -oP 'subvol=\K[^,]+' || echo "")
+    DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE / 2>/dev/null || echo "")
+    DETECTED_ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
+    DETECTED_ROOT_UUID=$(findmnt -n -o UUID / 2>/dev/null || echo "")
+    DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / 2>/dev/null | grep -oP 'subvol=\K[^,]+' || echo "")
 
     log_info "Root: $DETECTED_ROOT_FS dev=$DETECTED_ROOT_DEV UUID=$DETECTED_ROOT_UUID subvol=$DETECTED_ROOT_SUBVOL"
 }
@@ -104,7 +104,7 @@ detect_btrfs_subvolumes() {
     if [[ "$DETECTED_ROOT_FS" == "btrfs" ]]; then
         # List top-level subvolumes (those whose path starts with @)
         DETECTED_SUBVOLUMES=$(btrfs subvolume list / 2>/dev/null |
-            awk '{print $NF}' |
+            sed -n 's/.* path //p' |
             grep '^@' |
             grep -v '\.snapshots' |
             sort || echo "")
@@ -122,8 +122,8 @@ detect_available_drives() {
         grep -v 'loop\|rom\|sr0' || echo "")
 
     # Partitions with filesystem info
-    DETECTED_PARTITIONS=$(lsblk -l -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null |
-        grep 'part' |
+    DETECTED_PARTITIONS=$(lsblk -P -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null |
+        grep 'TYPE="part"' |
         grep -v 'loop\|rom' || echo "")
 
     log_info "Drive scan complete"
@@ -140,6 +140,7 @@ detect_existing_backup_drive() {
     while IFS= read -r line; do
         local mnt
         mnt=$(echo "$line" | awk '{print $2}')
+        mnt=$(printf '%b' "$mnt")
         if echo "$mnt" | grep -qi 'backup'; then
             DETECTED_BACKUP_MOUNT="$mnt"
             DETECTED_BACKUP_UUID=$(echo "$line" | grep -oP 'UUID=\K\S+' || echo "")

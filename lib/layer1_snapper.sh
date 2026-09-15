@@ -66,16 +66,16 @@ setup_layer1() {
         local existing_subvol=""
         local candidate
         for candidate in "@snapshots" "@.snapshots"; do
-            if btrfs subvolume list / 2>/dev/null | awk '{print $NF}' | grep -qx "$candidate"; then
+            if btrfs subvolume list / 2>/dev/null | sed -n 's/.* path //p' | grep -qx "$candidate"; then
                 existing_subvol="$candidate"
                 break
             fi
         done
 
         # Also check /etc/fstab for pre-existing @snapshots / @.snapshots entry
-        if [[ -z "$existing_subvol" ]] && grep -qE '[[:space:]]+/\.snapshots[[:space:]]+' /etc/fstab 2>/dev/null; then
+        if [[ -z "$existing_subvol" ]] && grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -qE '[[:space:]]+/\.snapshots[[:space:]]+'; then
             local fstab_subvol
-            fstab_subvol=$(grep -E '[[:space:]]+/\.snapshots[[:space:]]+' /etc/fstab | grep -oP 'subvol=\K[^, \t]+' || echo "")
+            fstab_subvol=$(grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -E '[[:space:]]+/\.snapshots[[:space:]]+' | grep -oP 'subvol=\K[^, \t]+' || echo "")
             fstab_subvol="${fstab_subvol#/}"
             if [[ "$fstab_subvol" == "@snapshots" || "$fstab_subvol" == "@.snapshots" ]]; then
                 existing_subvol="$fstab_subvol"
@@ -93,7 +93,7 @@ setup_layer1() {
                 return 1
             }
 
-            if grep -qE '[[:space:]]+/\.snapshots[[:space:]]+' /etc/fstab 2>/dev/null; then
+            if grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -qE '[[:space:]]+/\.snapshots[[:space:]]+'; then
                 log_info "Mounting /.snapshots from /etc/fstab..."
                 mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to mount $SNAP_DIR from /etc/fstab"
@@ -187,8 +187,11 @@ EOF
         if ! grep -qE '^SNAPPER_CONFIGS=.*root' /etc/conf.d/snapper; then
             backup_file /etc/conf.d/snapper
             if grep -q '^SNAPPER_CONFIGS=' /etc/conf.d/snapper; then
-                sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper
-                sed -i 's/^SNAPPER_CONFIGS=""/SNAPPER_CONFIGS="root"/' /etc/conf.d/snapper
+                if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper; then
+                    sed -i 's/^SNAPPER_CONFIGS=""/SNAPPER_CONFIGS="root"/' /etc/conf.d/snapper
+                else
+                    sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper
+                fi
             else
                 echo 'SNAPPER_CONFIGS="root"' >>/etc/conf.d/snapper
             fi

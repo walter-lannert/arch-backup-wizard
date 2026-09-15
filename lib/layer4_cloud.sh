@@ -162,8 +162,8 @@ Would you like to re-run 'rclone config' to retry?
     backup_file "$os_backup_script" >/dev/null
 
     template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"
-    chmod +x "$os_backup_script"
-    chown "$target_user:$target_user" "$os_backup_script"
+    chmod 700 "$os_backup_script"
+    chown "$target_user:" "$os_backup_script"
     log_success "Generated OS cloud backup script at $os_backup_script"
 
     # ── 6. Generate nag script ────────────────────────────────────────────────
@@ -181,8 +181,8 @@ Would you like to re-run 'rclone config' to retry?
     backup_file "$os_nag_script" >/dev/null
 
     template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"
-    chmod +x "$os_nag_script"
-    chown "$target_user:$target_user" "$os_nag_script"
+    chmod 700 "$os_nag_script"
+    chown "$target_user:" "$os_nag_script"
     log_success "Generated OS clone nag script at $os_nag_script"
 
     # ── 7. Generate and install Pika cloud sync service and timer ─────────────
@@ -206,13 +206,14 @@ Would you like to re-run 'rclone config' to retry?
     backup_file "$timer_file" >/dev/null
     template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
 
-    chown "$target_user:$target_user" "$service_file" "$timer_file"
+    chown "$target_user:" "$service_file" "$timer_file"
     log_success "Installed user systemd units: $service_file and $timer_file"
 
     log_info "Reloading user systemd daemon and enabling pika-cloud-sync.timer..."
-    run_as_user systemctl --user daemon-reload >>"$LOG_FILE" 2>&1 || true
+    local target_uid; target_uid=$(id -u "$target_user")
+    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user daemon-reload >>"$LOG_FILE" 2>&1 || true
 
-    if run_as_user systemctl --user enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
+    if run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
         log_success "Enabled and started pika-cloud-sync.timer"
     else
         log_warn "systemctl --user enable --now pika-cloud-sync.timer exited with warning. It will activate upon user desktop session login."
@@ -240,38 +241,26 @@ Would you like to re-run 'rclone config' to retry?
         ;;
     esac
 
-    mkdir -p "$(dirname "$rc_file")" || {
-        log_error "Failed to create $(dirname "$rc_file")"
+    run_as_user mkdir -p "$(dirname "$rc_file")" || {
+        log_error "Failed to create $(dirname "$rc_file") as user $target_user"
         return 1
     }
     if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
         log_info "Nag script already configured in $rc_file"
     else
         backup_file "$rc_file" >/dev/null
-        cat >>"$rc_file" <<EOF
+        # shellcheck disable=SC2016
+        run_as_user bash -c 'cat >> "$1"' -- "$rc_file" <<EOF
 
 # Arch Backup Wizard OS Clone Nag BEGIN
 $nag_line
 # Arch Backup Wizard OS Clone Nag END
 EOF
-        chown "$target_user:$target_user" "$rc_file"
+        # chown is no longer needed since it's written as the user
         log_success "Added nag script invocation to $rc_file"
     fi
 
-    # ── 9. Upload recovery runbook to cloud (if it exists) ────────────────────
-    log_info "Step 9: Checking for recovery runbook to upload..."
-    local runbook_path="${backup_mount}/Cloud_Recovery_Runbook.txt"
-    if [[ -f "$runbook_path" ]]; then
-        log_info "Uploading $runbook_path to ${rclone_remote}${cloud_os_dir}/..."
-        ui_infobox "Cloud Upload" "Uploading recovery runbook to cloud storage...\nPlease wait."
-        if run_as_user rclone copy "$runbook_path" "${rclone_remote}${cloud_os_dir}/" >>"$LOG_FILE" 2>&1; then
-            log_success "Uploaded recovery runbook to ${rclone_remote}${cloud_os_dir}/"
-        else
-            log_warn "Failed to upload recovery runbook to ${rclone_remote}${cloud_os_dir}/"
-        fi
-    else
-        log_info "No recovery runbook found at $runbook_path; skipping upload."
-    fi
+
 
     # ── 10. Completion summary dialog ────────────────────────────────────────
     log_info "Step 10: Showing completion summary..."
