@@ -143,21 +143,7 @@ $summary
 Is this correct?" || die "Aborted by user at detection review."
 }
 
-# ── BTRFS gate ────────────────────────────────────────────────────────────────
 
-check_btrfs() {
-    if [[ "$DETECTED_ROOT_FS" != "btrfs" ]]; then
-        ui_msgbox "BTRFS Required" \
-            "Your root filesystem is '$DETECTED_ROOT_FS'.
-
-Layers 1 (Snapper) and 2 (btrbk) require BTRFS.
-Most Arch-based installers (CachyOS, EndeavourOS,
-Garuda) offer BTRFS during installation.
-
-The wizard cannot continue."
-        die "Root filesystem is not BTRFS ($DETECTED_ROOT_FS)."
-    fi
-}
 
 # ── Layer selection ───────────────────────────────────────────────────────────
 
@@ -205,6 +191,17 @@ check_layer_deps() {
 Please also select at least one of:
   • Layer 2 (btrbk OS clones)
   • Layer 3 (Pika home backups)"
+            return 1
+        fi
+    fi
+
+    if layer_selected "$LAYER_SNAPPER" || layer_selected "$LAYER_BTRBK"; then
+        if [[ "$DETECTED_ROOT_FS" != "btrfs" ]]; then
+            ui_msgbox "BTRFS Required" \
+                "Your root filesystem is '$DETECTED_ROOT_FS'.
+
+Layers 1 (Snapper) and 2 (btrbk) require BTRFS.
+Please deselect these layers to continue with other backups."
             return 1
         fi
     fi
@@ -387,7 +384,9 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT/OS_Backup"
     mkdir -p "$BACKUP_MOUNT/Personal"
     mkdir -p "$BACKUP_MOUNT/Deep Storage"
-    chown "$(effective_user):" "$BACKUP_MOUNT/Personal" "$BACKUP_MOUNT/Deep Storage" 2>/dev/null || true
+    if [[ ! -L "$BACKUP_MOUNT/Personal" && ! -L "$BACKUP_MOUNT/Deep Storage" ]]; then
+        chown "$(effective_user):" "$BACKUP_MOUNT/Personal" "$BACKUP_MOUNT/Deep Storage" 2>/dev/null || true
+    fi
 
     log_info "Backup mount ready at $BACKUP_MOUNT"
 }
@@ -508,7 +507,7 @@ main() {
     parse_args "$@"
     require_root
 
-    # Set up log file under the real user's home
+    # Set up global wizard log file
     LOG_FILE="/var/log/arch-backup-wizard.log"
     touch "$LOG_FILE" 2>/dev/null || true
     chown "$(effective_user):" "$LOG_FILE" 2>/dev/null || true
@@ -546,8 +545,6 @@ main() {
     ui_infobox "Scanning" "Detecting your system configuration..."
     run_detection
 
-    # BTRFS gate
-    check_btrfs
 
     # Show results
     show_detection_results
