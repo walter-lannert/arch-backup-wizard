@@ -209,6 +209,7 @@ Would you like to re-run 'rclone config' to retry?
     template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"
     chmod 700 "$os_backup_script"
     chown "$target_user:" "$os_backup_script"
+    record_manifest "$os_backup_script"
     log_success "Generated OS cloud backup script at $os_backup_script"
 
     # ── 6. Generate nag script ────────────────────────────────────────────────
@@ -228,6 +229,7 @@ Would you like to re-run 'rclone config' to retry?
     template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"
     chmod 700 "$os_nag_script"
     chown "$target_user:" "$os_nag_script"
+    record_manifest "$os_nag_script"
     log_success "Generated OS clone nag script at $os_nag_script"
 
     # ── 7. Generate and install Pika cloud sync service and timer ─────────────
@@ -247,9 +249,11 @@ Would you like to re-run 'rclone config' to retry?
 
     backup_file "$service_file" >/dev/null
     template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
+    record_manifest "$service_file"
 
     backup_file "$timer_file" >/dev/null
     template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
+    record_manifest "$timer_file"
 
     chown "$target_user:" "$service_file" "$timer_file"
     log_success "Installed user systemd units: $service_file and $timer_file"

@@ -40,6 +40,7 @@ setup_layer2() {
     }
     backup_file "$BTRBK_CONF" >/dev/null
 
+    record_manifest "$BTRBK_CONF"
     cat <<EOF >"$BTRBK_CONF"
 transaction_log            /var/log/btrbk.log
 snapshot_preserve_min      ${BTRBK_SNAP_MIN}
@@ -79,6 +80,7 @@ EOF
     }
     backup_file "$override_conf" >/dev/null
 
+    record_manifest "$override_conf"
     local systemd_mount
     systemd_mount=$(systemd-escape -p "$backup_mount")
     cat <<EOF >"$override_conf"

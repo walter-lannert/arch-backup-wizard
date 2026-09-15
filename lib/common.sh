@@ -100,6 +100,16 @@ die() {
 }
 
 # ── File helpers ──────────────────────────────────────────────────────────────
+MANIFEST_FILE="/var/lib/arch-backup-wizard/manifest.txt"
+
+# Record a file created by the wizard for uninstallation
+record_manifest() {
+    local file="$1"
+    mkdir -p "$(dirname "$MANIFEST_FILE")"
+    if ! grep -Fxq "$file" "$MANIFEST_FILE" 2>/dev/null; then
+        echo "$file" >> "$MANIFEST_FILE"
+    fi
+}
 
 # Back up a file before modifying it (timestamped .bak copy)
 backup_file() {

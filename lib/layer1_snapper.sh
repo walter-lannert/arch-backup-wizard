@@ -126,6 +126,7 @@ setup_layer1() {
     }
     backup_file /etc/snapper/configs/root
 
+    record_manifest /etc/snapper/configs/root
     cat >/etc/snapper/configs/root <<'EOF'
 # subvolume to snapshot
 SUBVOLUME="/"

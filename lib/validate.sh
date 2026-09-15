@@ -124,6 +124,12 @@ run_validation() {
             failure_issues+=("Layer 2: ${BACKUP_MOUNT:-}/OS_Backup directory missing")
         fi
 
+        if $l2_ok && ! btrbk -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
+            l2_ok=false
+            log_warn "Layer 2 check failed: btrbk.conf failed to parse or dryrun"
+            failure_issues+=("Layer 2: btrbk configuration invalid (fails dryrun)")
+        fi
+
         if $l2_ok; then
             layer2_status="✓ OK"
             log_success "Layer 2 (btrbk): All checks passed"
@@ -158,6 +164,16 @@ run_validation() {
             l3_ok=false
             log_warn "Layer 3 check failed: directory '${BACKUP_MOUNT:-}/Personal' does not exist"
             failure_issues+=("Layer 3: ${BACKUP_MOUNT:-}/Personal directory missing")
+        else
+            local host_name="${DETECTED_HOSTNAME:-$(cat /etc/hostname 2>/dev/null || uname -n)}"
+            local target_user
+            target_user="$(effective_user)"
+            local repo_path="${BACKUP_MOUNT}/Personal/backup-${host_name}-${target_user}"
+            if [[ ! -f "$repo_path/config" ]]; then
+                l3_ok=false
+                log_warn "Layer 3 check failed: Borg repository not initialized at $repo_path"
+                failure_issues+=("Layer 3: Borg repository not initialized in Pika Backup")
+            fi
         fi
 
         if $l3_ok; then
@@ -207,6 +223,15 @@ run_validation() {
             l4_ok=false
             log_warn "Layer 4 check failed: ${user_home}/.config/systemd/user/pika-cloud-sync.timer does not exist"
             failure_issues+=("Layer 4: pika-cloud-sync.timer missing")
+        else
+            local target_user
+            target_user="$(effective_user)"
+            local target_uid; target_uid=$(id -u "$target_user")
+            if ! env XDG_RUNTIME_DIR="/run/user/$target_uid" run_as_user systemctl --user is-enabled pika-cloud-sync.timer >/dev/null 2>&1; then
+                l4_ok=false
+                log_warn "Layer 4 check failed: pika-cloud-sync.timer is not enabled"
+                failure_issues+=("Layer 4: pika-cloud-sync.timer not enabled")
+            fi
         fi
 
         # Check nag script hook in shell startup file or XDG autostart

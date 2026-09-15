@@ -34,85 +34,61 @@ This will NOT remove:
     fi
 
     # ── 2. Layer 1 cleanup (Snapper) ──────────────────────────────────────────
-    log_info "── Layer 1 Cleanup: Snapper ──"
+    log_info "── System Service Cleanup ──"
     log_info "Disabling snapper-cleanup.timer..."
     systemctl disable --now snapper-cleanup.timer >>"$LOG_FILE" 2>&1 || true
 
-    local snapper_cfg="/etc/snapper/configs/root"
-    if [[ -f "$snapper_cfg" ]]; then
-        log_info "Removing Snapper root configuration: $snapper_cfg"
-        rm -f "$snapper_cfg"
-        log_success "Removed $snapper_cfg"
-    else
-        log_info "Snapper root configuration not found ($snapper_cfg); skipping."
-    fi
+    log_info "Disabling btrbk.timer..."
+    systemctl disable --now btrbk.timer >>"$LOG_FILE" 2>&1 || true
+
+    local user
+    user="$(effective_user)"
+    local target_uid; target_uid=$(id -u "$user")
+    log_info "Disabling pika-cloud-sync.timer for user $user..."
+    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user disable --now pika-cloud-sync.timer 2>/dev/null || true
 
     if [[ -f /etc/conf.d/snapper ]]; then
         sed -i 's/\broot\b//g; s/  */ /g; s/=" /="/; s/ "/"/' /etc/conf.d/snapper
     fi
 
-    # ── 3. Layer 2 cleanup (btrbk) ────────────────────────────────────────────
-    log_info "── Layer 2 Cleanup: btrbk ──"
-    log_info "Disabling btrbk.timer..."
-    systemctl disable --now btrbk.timer >>"$LOG_FILE" 2>&1 || true
-
-    local btrbk_cfg="$BTRBK_CONF"
-    if [[ -f "$btrbk_cfg" ]]; then
-        log_info "Removing btrbk configuration: $btrbk_cfg"
-        rm -f "$btrbk_cfg"
-        log_success "Removed $btrbk_cfg"
+    local manifest_file="/var/lib/arch-backup-wizard/manifest.txt"
+    if [[ ! -f "$manifest_file" ]]; then
+        log_warn "Manifest file not found at $manifest_file. No generated files to remove."
     else
-        log_info "btrbk configuration not found ($btrbk_cfg); skipping."
+        log_info "Reading manifest file: $manifest_file"
+        while IFS= read -r file; do
+            if [[ -e "$file" ]]; then
+                log_info "Removing $file"
+                rm -f "$file"
+                log_success "Removed $file"
+                
+                # Clean up empty parent directories like /etc/systemd/system/btrbk.service.d
+                local parent_dir
+                parent_dir=$(dirname "$file")
+                if [[ -d "$parent_dir" ]]; then
+                    rmdir "$parent_dir" 2>/dev/null || true
+                fi
+            else
+                log_info "File not found: $file (skipping)"
+            fi
+        done < "$manifest_file"
+        rm -f "$manifest_file"
     fi
 
-    local btrbk_override="$BTRBK_OVERRIDE_DIR/override.conf"
-    if [[ -e "$btrbk_override" ]]; then
-        log_info "Removing btrbk systemd override: $btrbk_override"
-        rm -f "$btrbk_override"
-        rmdir "$BTRBK_OVERRIDE_DIR" 2>/dev/null || true
-        log_success "Removed $btrbk_override"
-    else
-        log_info "btrbk systemd override not found ($btrbk_override); skipping."
+    local user
+    user="$(effective_user)"
+    local target_uid; target_uid=$(id -u "$user")
+    local home
+    home="$(effective_home)"
+
+    # Also clean up any lingering local archives from interrupted backups
+    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
+        rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst" 2>/dev/null || true
+        rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst.age" 2>/dev/null || true
     fi
 
     log_info "Reloading systemd daemon..."
     systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
-
-    # ── 4. Layer 4 cleanup (Cloud & Nag Scripts) ──────────────────────────────
-    log_info "── Layer 4 Cleanup: Cloud Offsite & Nag Scripts ──"
-    local user
-    user="$(effective_user)"
-    local home
-    home="$(effective_home)"
-
-    log_info "Target user: $user (home: $home)"
-
-    log_info "Disabling pika-cloud-sync.timer for user $user..."
-    local target_uid; target_uid=$(id -u "$user")
-    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user disable --now pika-cloud-sync.timer 2>/dev/null || true
-
-    local cloud_files=(
-        "$home/.os_cloud_backup.sh"
-        "$home/.os_clone_nag.sh"
-        "$home/.last_cloud_run"
-        "$home/.config/systemd/user/pika-cloud-sync.service"
-        "$home/.config/systemd/user/pika-cloud-sync.timer"
-    )
-
-    # Also clean up any lingering local archives from interrupted backups
-    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
-        cloud_files+=("${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst")
-    fi
-
-    for file in "${cloud_files[@]}"; do
-        if [[ -e "$file" ]]; then
-            log_info "Removing $file"
-            rm -f "$file"
-            log_success "Removed $file"
-        else
-            log_info "File not found: $file (skipping)"
-        fi
-    done
 
     log_info "Reloading user systemd daemon for user $user..."
     run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user daemon-reload 2>/dev/null || true

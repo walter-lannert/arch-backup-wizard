@@ -133,7 +133,7 @@ Please follow these steps:
 2. Click 'Setup Backup' or the + button
 3. Select 'Local Folder' and browse to:
    $repo_path
-4. Pika will detect the existing Borg repository
+4. Pika will initialize a NEW encrypted repository in this folder. Enter a strong password!
 5. Go to the Exclude tab and add these paths:
 $formatted_exclusions
 6. Set the schedule to 'Hourly'
