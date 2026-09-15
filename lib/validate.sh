@@ -315,10 +315,10 @@ run_validation() {
     # ── 7. Build summary dashboard ────────────────────────────────────────────
     local dashboard=""
     dashboard+="Layer 1: Snapper .............. ${layer1_status}"$'\n'
-    dashboard+="Layer 2: btrbk ............... ${layer2_status}"$'\n'
-    dashboard+="Layer 3: Pika Backup ......... ${layer3_status}"$'\n'
-    dashboard+="Layer 4: Cloud Offsite ....... ${layer4_status}"$'\n'
-    dashboard+="Layer 5: Deep Storage ........ ${layer5_status}"$'\n\n'
+    dashboard+="Layer 2: btrbk ................ ${layer2_status}"$'\n'
+    dashboard+="Layer 3: Pika Backup .......... ${layer3_status}"$'\n'
+    dashboard+="Layer 4: Cloud Offsite ........ ${layer4_status}"$'\n'
+    dashboard+="Layer 5: Deep Storage ......... ${layer5_status}"$'\n\n'
     dashboard+="Backup drive in fstab: ${fstab_status}"$'\n'
     dashboard+="Recovery runbooks: ${runbook_count} found"$'\n\n'
 

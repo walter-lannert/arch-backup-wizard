@@ -26,7 +26,6 @@ source "$WIZARD_DIR/lib/uninstall.sh"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
-VERBOSE=false
 UNINSTALL=false
 DRY_RUN=false
 VALIDATE=false
@@ -61,10 +60,6 @@ parse_args() {
             DRY_RUN=true
             shift
             ;;
-        --verbose | -v)
-            VERBOSE=true
-            shift
-            ;;
         --help | -h)
             cat <<EOF
 Arch Backup Wizard v${WIZARD_VERSION}
@@ -77,7 +72,6 @@ Options:
   --help, -h       Show this help message
   --validate [L]   Run health checks on backup configuration (all or specified layers: 1,2)
   --dry-run, -d    Simulate wizard actions without making system changes
-  --verbose, -v    Enable verbose output to terminal
   --uninstall      Remove all wizard-created configurations
 
 Layers:
