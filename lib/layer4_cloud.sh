@@ -238,14 +238,11 @@ Would you like to re-run 'rclone config' to retry?
     export CLOUD_REMOTE="$rclone_remote"
     export CLOUD_PIKA_DIR="$cloud_pika_dir"
 
-    local user_systemd_dir="${target_home}/.config/systemd/user"
-    run_as_user mkdir -p "$user_systemd_dir" || {
-        log_error "Failed to create $user_systemd_dir"
-        return 1
-    }
+    local systemd_dir="/etc/systemd/system"
+    mkdir -p "$systemd_dir"
 
-    local service_file="${user_systemd_dir}/pika-cloud-sync.service"
-    local timer_file="${user_systemd_dir}/pika-cloud-sync.timer"
+    local service_file="${systemd_dir}/pika-cloud-sync.service"
+    local timer_file="${systemd_dir}/pika-cloud-sync.timer"
 
     backup_file "$service_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
@@ -255,17 +252,15 @@ Would you like to re-run 'rclone config' to retry?
     template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
     record_manifest "$timer_file"
 
-    chown "$target_user:" "$service_file" "$timer_file"
-    log_success "Installed user systemd units: $service_file and $timer_file"
+    log_success "Installed systemd units: $service_file and $timer_file"
 
-    log_info "Reloading user systemd daemon and enabling pika-cloud-sync.timer..."
-    local target_uid; target_uid=$(id -u "$target_user")
-    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user daemon-reload >>"$LOG_FILE" 2>&1 || true
+    log_info "Reloading systemd daemon and enabling pika-cloud-sync.timer..."
+    systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
 
-    if run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
+    if systemctl enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
         log_success "Enabled and started pika-cloud-sync.timer"
     else
-        log_warn "systemctl --user enable --now pika-cloud-sync.timer exited with warning. It will activate upon user desktop session login."
+        log_error "Failed to enable pika-cloud-sync.timer"
     fi
 
     # ── 8. Add nag script to user's shell startup ─────────────────────────────

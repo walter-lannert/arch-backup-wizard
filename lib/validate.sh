@@ -190,6 +190,12 @@ run_validation() {
                 l3_ok=false
                 log_warn "Layer 3 check failed: Borg repository not initialized at $repo_path"
                 failure_issues+=("Layer 3: Borg repository not initialized in Pika Backup")
+            else
+                if ! run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes borg info "$repo_path" >/dev/null 2>&1; then
+                    l3_ok=false
+                    log_warn "Layer 3 check failed: 'borg info' failed on $repo_path"
+                    failure_issues+=("Layer 3: borg info check failed (is the repository accessible/unencrypted?)")
+                fi
             fi
         fi
 
@@ -228,6 +234,15 @@ run_validation() {
             l4_ok=false
             log_warn "Layer 4 check failed: ${user_home}/.os_cloud_backup.sh does not exist or is not executable"
             failure_issues+=("Layer 4: ~/.os_cloud_backup.sh missing or not executable")
+        else
+            # Extract the remote from the script and test it
+            local cloud_remote
+            cloud_remote=$(grep -oP 'rclone copy.*"\K[^"]+(?=")' "${user_home}/.os_cloud_backup.sh" | awk -F':' '{print $1":"}' | head -n 1 || true)
+            if [[ -n "$cloud_remote" ]] && ! run_as_user rclone lsd "$cloud_remote" >/dev/null 2>&1; then
+                l4_ok=false
+                log_warn "Layer 4 check failed: 'rclone lsd $cloud_remote' failed"
+                failure_issues+=("Layer 4: rclone connection test failed for $cloud_remote")
+            fi
         fi
 
         if [[ ! -f "${user_home}/.os_clone_nag.sh" || ! -x "${user_home}/.os_clone_nag.sh" ]]; then
@@ -236,15 +251,12 @@ run_validation() {
             failure_issues+=("Layer 4: ~/.os_clone_nag.sh missing or not executable")
         fi
 
-        if [[ ! -f "${user_home}/.config/systemd/user/pika-cloud-sync.timer" ]]; then
+        if [[ ! -f "/etc/systemd/system/pika-cloud-sync.timer" ]]; then
             l4_ok=false
-            log_warn "Layer 4 check failed: ${user_home}/.config/systemd/user/pika-cloud-sync.timer does not exist"
+            log_warn "Layer 4 check failed: /etc/systemd/system/pika-cloud-sync.timer does not exist"
             failure_issues+=("Layer 4: pika-cloud-sync.timer missing")
         else
-            local target_user
-            target_user="$(effective_user)"
-            local target_uid; target_uid=$(id -u "$target_user")
-            if ! env XDG_RUNTIME_DIR="/run/user/$target_uid" run_as_user systemctl --user is-enabled pika-cloud-sync.timer >/dev/null 2>&1; then
+            if ! systemctl is-enabled pika-cloud-sync.timer >/dev/null 2>&1; then
                 l4_ok=false
                 log_warn "Layer 4 check failed: pika-cloud-sync.timer is not enabled"
                 failure_issues+=("Layer 4: pika-cloud-sync.timer not enabled")

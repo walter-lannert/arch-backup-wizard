@@ -163,10 +163,14 @@ generate_runbooks() {
             fi
             generated_runbooks+=("Layer 4: Cloud Recovery Runbook (Cloud_Recovery_Runbook.txt)")
             log_success "Generated Cloud Recovery Runbook: $out4"
-            if [[ -n "${CLOUD_REMOTE:-}" && -n "${CLOUD_OS_DIR:-}" ]]; then
+        if [[ -n "${CLOUD_REMOTE:-}" && -n "${CLOUD_OS_DIR:-}" ]]; then
+            if [[ "${DRY_RUN:-false}" == "true" ]]; then
+                log_info "DRY-RUN: Skipping rclone upload of $out4 to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/"
+            else
                 log_info "Uploading $out4 to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/..."
                 run_as_user rclone copy "$out4" "${CLOUD_REMOTE}${CLOUD_OS_DIR}/" >>"$LOG_FILE" 2>&1 || true
             fi
+        fi
         else
             log_warn "Template not found: $tpl4 — skipping Layer 4 runbook generation"
             missing_templates+=("cloud-recovery-runbook.txt (Layer 4)")

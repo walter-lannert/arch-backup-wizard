@@ -45,11 +45,8 @@ This will NOT remove:
     systemctl disable --now grub-btrfsd >>"$LOG_FILE" 2>&1 || true
     systemctl disable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || true
 
-    local user
-    user="$(effective_user)"
-    local target_uid; target_uid=$(id -u "$user")
-    log_info "Disabling pika-cloud-sync.timer for user $user..."
-    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user disable --now pika-cloud-sync.timer 2>/dev/null || true
+    log_info "Disabling pika-cloud-sync.timer..."
+    systemctl disable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1 || true
 
     if [[ -f /etc/conf.d/snapper ]]; then
         sed -i 's/\broot\b//g; s/  */ /g; s/=" /="/; s/ "/"/' /etc/conf.d/snapper

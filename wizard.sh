@@ -585,7 +585,11 @@ main() {
     require_root
 
     # Set up global wizard log file
-    LOG_FILE="/var/log/arch-backup-wizard.log"
+    if $DRY_RUN; then
+        LOG_FILE="/tmp/arch-backup-wizard-dryrun.log"
+    else
+        LOG_FILE="/var/log/arch-backup-wizard.log"
+    fi
     touch "$LOG_FILE" 2>/dev/null || true
     chown "$(effective_user):" "$LOG_FILE" 2>/dev/null || true
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
