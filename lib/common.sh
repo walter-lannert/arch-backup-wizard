@@ -142,10 +142,26 @@ template_render() {
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
         local value="${!var:-}"
+        
+        if [[ "$output" == *.sh ]]; then
+            # For shell scripts, escape the value to be safely injected inside double quotes
+            # We escape \, $, `, and " so they are treated as literal characters inside "..."
+            value="${value//\\/\\\\}"
+            value="${value//\$/\\\$}"
+            value="${value//\`/\\\`}"
+            value="${value//\"/\\\"}"
+        else
+            # For systemd or other files, we just prevent breaking out of double quotes
+            value="${value//\"/\\\"}"
+        fi
+        
         content="${content//\{\{${var}\}\}/${value}}"
     done <<<"$vars"
 
-    echo "$content" >"$output"
+    local temp_file
+    temp_file=$(mktemp)
+    printf "%s\n" "$content" >"$temp_file"
+    mv -T "$temp_file" "$output"
     log_info "Rendered template $(basename "$template") → $output"
 }
 

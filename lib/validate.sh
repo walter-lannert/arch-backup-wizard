@@ -44,7 +44,7 @@ run_validation() {
             failure_issues+=("Layer 1: /etc/snapper/configs/root missing")
         fi
 
-        if [[ ! -f /usr/share/libalpm/hooks/05-snap-pac-pre.hook && ! -f /usr/share/libalpm/hooks/zz-snap-pac-post.hook ]]; then
+        if [[ ! -f /usr/share/libalpm/hooks/05-snap-pac-pre.hook || ! -f /usr/share/libalpm/hooks/zz-snap-pac-post.hook ]]; then
             l1_ok=false
             log_warn "Layer 1 check failed: snap-pac hooks (/usr/share/libalpm/hooks/05-snap-pac-pre.hook or zz-snap-pac-post.hook) do not exist"
             failure_issues+=("Layer 1: snap-pac hooks missing")

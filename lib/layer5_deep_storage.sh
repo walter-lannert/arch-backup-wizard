@@ -23,7 +23,7 @@ setup_layer5() {
     local target_user
     target_user="$(effective_user)"
     if [[ -n "$target_user" && "$target_user" != "root" ]]; then
-        chown "$target_user:$target_user" "$deep_storage_dir" 2>/dev/null || true
+        chown "$target_user:" "$deep_storage_dir" 2>/dev/null || true
     fi
 
     ui_msgbox "Layer 5: Deep Storage" \

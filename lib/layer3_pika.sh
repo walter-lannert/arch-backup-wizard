@@ -48,11 +48,11 @@ setup_layer3() {
         return 1
     }
     chown "$target_user:" "${backup_mount}/Personal" 2>/dev/null || true
-    mkdir -p "$repo_path" || {
-        log_error "Failed to create $repo_path"
+    
+    run_as_user mkdir -p "$repo_path" || {
+        log_error "Failed to create $repo_path as user $target_user"
         return 1
     }
-    chown -R "$target_user:" "$repo_path" 2>/dev/null || true
 
     # 3. Initialize the Borg repository if it doesn't already exist:
     #    - Check if $repo_path/config exists (indicates initialized repo)
@@ -155,7 +155,7 @@ $formatted_exclusions
     log_info "Step 6: Asking user to launch Pika Backup..."
     if ui_yesno "Launch Pika Backup" "Would you like to launch Pika Backup now?"; then
         log_info "Launching Pika Backup in background for user $target_user..."
-        run_as_user pika-backup >>"$LOG_FILE" 2>&1 &
+        run_as_user env DISPLAY="${DISPLAY:-:0}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" pika-backup >>"$LOG_FILE" 2>&1 &
     fi
 
     # 7. Ask the user to confirm when they've finished configuring Pika

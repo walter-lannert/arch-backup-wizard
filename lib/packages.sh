@@ -118,6 +118,7 @@ install_layer_packages() {
     local pacman_pkgs=()
     local aur_pkgs=()
 
+    # shellcheck disable=SC2086    # intentional word-split of space-separated package list
     for pkg in $all_pkgs; do
         if [[ "$pkg" == AUR:* ]]; then
             aur_pkgs+=("${pkg#AUR:}")

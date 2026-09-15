@@ -1,9 +1,10 @@
 #!/bin/bash
+set -euo pipefail
 
 echo "Starting Bare-Metal OS Cloud Backup..."
 
 # Automatically find the name of the newest system snapshot
-LATEST_SNAP=$(ls -t {{BACKUP_MOUNT}}/OS_Backup | head -n 1)
+LATEST_SNAP=$(ls -t "{{BACKUP_MOUNT}}/OS_Backup" 2>/dev/null | head -n 1 || true)
 if [[ -z "$LATEST_SNAP" ]]; then
     echo "Error: No snapshots found in {{BACKUP_MOUNT}}/OS_Backup"
     read -p "Press Enter to close this window..."
@@ -12,7 +13,7 @@ fi
 echo "Found latest snapshot: $LATEST_SNAP"
 
 # Authenticate sudo cleanly first so the password prompt isn't overwritten by pv
-sudo -v
+sudo -v || { echo "Error: sudo authentication failed."; read -p "Press Enter to close this window..."; exit 1; }
 
 # Package and compress the snapshot
 echo "Compressing snapshot (showing raw data processed)..."

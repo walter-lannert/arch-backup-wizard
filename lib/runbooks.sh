@@ -77,7 +77,7 @@ generate_runbooks() {
             fi
             template_render "$tpl1" "$out1"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
-                chown "$target_user:$target_user" "$out1" 2>/dev/null || true
+                chown "$target_user:" "$out1" 2>/dev/null || true
             fi
             generated_runbooks+=("Layer 1: Snapper Rollback Runbook (Layer1_Snapper_Rollback_Runbook.txt)")
             log_success "Generated Layer 1 Rollback Runbook: $out1"
@@ -99,7 +99,7 @@ generate_runbooks() {
             fi
             template_render "$tpl2" "$out2"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
-                chown "$target_user:$target_user" "$out2" 2>/dev/null || true
+                chown "$target_user:" "$out2" 2>/dev/null || true
             fi
             generated_runbooks+=("Layer 2: Bare-Metal Recovery Runbook (Bare_Metal_Recovery_Runbook.txt)")
             log_success "Generated Bare-Metal Recovery Runbook: $out2"
@@ -121,7 +121,7 @@ generate_runbooks() {
             fi
             template_render "$tpl4" "$out4"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
-                chown "$target_user:$target_user" "$out4" 2>/dev/null || true
+                chown "$target_user:" "$out4" 2>/dev/null || true
             fi
             generated_runbooks+=("Layer 4: Cloud Recovery Runbook (Cloud_Recovery_Runbook.txt)")
             log_success "Generated Cloud Recovery Runbook: $out4"
