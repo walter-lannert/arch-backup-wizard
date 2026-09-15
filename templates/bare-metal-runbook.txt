@@ -240,16 +240,18 @@ Repository path on backup drive:
 
 2. Select the latest archive name from the list (referred to as <ARCHIVE_NAME>).
 
-3. Extract files into the root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
+3. Ensure you have exited the chroot environment (type 'exit' if still inside).
 
-     cd /
+4. Extract files into the new root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
+
+     cd /mnt/target
      borg extract --progress /mnt/backup/Personal/backup-{{HOSTNAME_VAL}}-{{USERNAME}}::<ARCHIVE_NAME>
 
-4. Restore proper user ownership and permissions:
+5. Restore proper user ownership and permissions:
 
-     chown -R {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}
+     chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}}
 
-5. Note on Deep Storage (Layer 5):
+6. Note on Deep Storage (Layer 5):
    If you had archives in '/mnt/backup/Deep Storage/', they remain safe on
    your backup drive and can be accessed directly whenever needed.
 

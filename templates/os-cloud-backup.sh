@@ -7,10 +7,11 @@ echo "Starting Bare-Metal OS Cloud Backup..."
 sudo -v || { echo "Error: sudo authentication failed."; read -p "Press Enter to close this window..."; exit 1; }
 
 for sub in {{DETECTED_SUBVOLUMES}}; do
+    sub_safe="${sub//\//_}"
     # Automatically find the name of the newest snapshot for this subvolume
-    LATEST_SNAP=$(basename "$(ls -td "{{BACKUP_MOUNT}}/OS_Backup/${sub}."* 2>/dev/null | head -n 1)" || true)
+    LATEST_SNAP=$(basename "$(ls -td "{{BACKUP_MOUNT}}/OS_Backup/${sub_safe}."* 2>/dev/null | head -n 1)" || true)
     if [[ -z "$LATEST_SNAP" || "$LATEST_SNAP" == "*" ]]; then
-        echo "Warning: No snapshots found for $sub in {{BACKUP_MOUNT}}/OS_Backup"
+        echo "Warning: No snapshots found for $sub_safe in {{BACKUP_MOUNT}}/OS_Backup"
         continue
     fi
     echo "Found latest snapshot for $sub: $LATEST_SNAP"

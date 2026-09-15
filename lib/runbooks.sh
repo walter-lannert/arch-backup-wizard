@@ -53,15 +53,18 @@ generate_runbooks() {
     restore_script+="#!/bin/bash"$'\n'
     restore_script+="set -e"$'\n'
     for sub in $DETECTED_SUBVOLUMES; do
+        local sub_safe="${sub//\//_}"
         restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        restore_script+="SNAP=\$(ls -1td /mnt/backup/OS_Backup/${sub}.* 2>/dev/null | head -n 1 || true)"$'\n'
+        restore_script+="SNAP=\$(ls -1td /mnt/backup/OS_Backup/${sub_safe}.* 2>/dev/null | head -n 1 || true)"$'\n'
         restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
         restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'
+        restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$(basename \"\$SNAP\")\" \"/mnt/new_os/$sub\""$'\n'
         restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$(basename \"\$SNAP\")\""$'\n'
         restore_script+="else"$'\n'
         restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
+        restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
         restore_script+="fi"$'\n'
     done
@@ -80,16 +83,19 @@ generate_runbooks() {
     cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'
     
     for sub in $DETECTED_SUBVOLUMES; do
+        local sub_safe="${sub//\//_}"
         cloud_restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep \"^${sub}\\.\" | sort -r | head -n 1 || true)"$'\n'
+        cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep \"^${sub_safe}\\.\" | sort -r | head -n 1 || true)"$'\n'
         cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
         cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
         cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | pv | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
         cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/.btrfs.zst.age$//')"$'\n'
+        cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$RECEIVED_NAME\" \"/mnt/new_os/$sub\""$'\n'
         cloud_restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$RECEIVED_NAME\""$'\n'
         cloud_restore_script+="else"$'\n'
         cloud_restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
+        cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
         cloud_restore_script+="fi"$'\n'
     done

@@ -250,7 +250,9 @@ The OS clone restored the base system and applications. Personal data
 (/home/{{USERNAME}}) is stored in your cloud Borg repository at:
 {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}
 
-1. Outside or inside chroot, mount the cloud repository using rclone:
+1. Exit the chroot environment (type 'exit').
+
+2. Outside the chroot, mount the cloud repository using rclone:
 
    mkdir -p /mnt/cloud_repo
    rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon
@@ -259,25 +261,24 @@ The OS clone restored the base system and applications. Personal data
    sleep 3
    ls -la /mnt/cloud_repo
 
-2. Locate your Borg repository:
+3. Locate your Borg repository:
    Depending on whether the entire repository was synced or a subfolder:
    REPO_PATH="/mnt/cloud_repo"
    [ -d "/mnt/cloud_repo/backup-{{HOSTNAME_VAL}}-{{USERNAME}}" ] && \
      REPO_PATH="/mnt/cloud_repo/backup-{{HOSTNAME_VAL}}-{{USERNAME}}"
 
-3. List available archives in the Borg repository:
+4. List available archives in the Borg repository:
 
    borg list "$REPO_PATH"
 
-4. Extract files into the target root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
+5. Extract files into the new root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
 
-   cd /mnt/target 2>/dev/null || cd /
+   cd /mnt/target
    borg extract --progress "$REPO_PATH::<ARCHIVE_NAME>"
 
-5. Restore correct user ownership:
+6. Restore correct user ownership:
 
-   chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}} 2>/dev/null || \
-   chown -R {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}
+   chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}}
 
 6. Unmount the cloud repository:
 

@@ -49,7 +49,7 @@ This will NOT remove:
     systemctl disable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1 || true
 
     if [[ -f /etc/conf.d/snapper ]]; then
-        sed -i 's/\broot\b//g; s/  */ /g; s/=" /="/; s/ "/"/' /etc/conf.d/snapper
+        sed -i 's/\bSNAPPER_CONFIGS="root\b/SNAPPER_CONFIGS="/g; s/\bSNAPPER_CONFIGS="\(.*\) root\b/SNAPPER_CONFIGS="\1/g; s/\bSNAPPER_CONFIGS="root \([^"]*\)"/SNAPPER_CONFIGS="\1"/g' /etc/conf.d/snapper
     fi
 
     local manifest_file="/var/lib/arch-backup-wizard/manifest.txt"
@@ -60,8 +60,17 @@ This will NOT remove:
         while IFS= read -r file; do
             if [[ -e "$file" ]]; then
                 log_info "Removing $file"
-                rm -f "$file"
-                log_success "Removed $file"
+                if btrfs subvolume show "$file" &>/dev/null; then
+                    # Before deleting, check if this is the Snapper config
+                    if [[ "$file" == "/.snapshots" ]] && cmd_exists snapper; then
+                        snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
+                    fi
+                    btrfs subvolume delete "$file" >>"$LOG_FILE" 2>&1 || true
+                elif [[ -d "$file" ]]; then
+                    rmdir "$file" 2>/dev/null || true
+                else
+                    rm -f "$file"
+                fi
                 
                 # Clean up empty parent directories like /etc/systemd/system/btrbk.service.d
                 local parent_dir

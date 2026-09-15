@@ -60,6 +60,7 @@ setup_layer1() {
             log_error "snapper -c root create-config / failed. Check $LOG_FILE for details."
             return 1
         }
+        echo "/.snapshots" >> /var/lib/arch-backup-wizard/manifest.txt
 
         # Snapper creates its own .snapshots subvolume which conflicts with pre-existing ones.
         # Check if a top-level @.snapshots or @snapshots subvolume exists
