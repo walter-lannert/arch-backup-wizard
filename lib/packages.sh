@@ -142,6 +142,10 @@ install_layer_packages() {
 
 ensure_dialog() {
     if ! cmd_exists dialog && ! cmd_exists whiptail; then
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+            echo "FATAL: 'dialog' or 'whiptail' is required for the wizard UI. Since --dry-run is active, it will not be installed automatically. Please install it manually: sudo pacman -S dialog" >&2
+            exit 1
+        fi
         echo "Installing 'dialog' (required for the wizard UI)..."
         pacman -S --noconfirm dialog >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2

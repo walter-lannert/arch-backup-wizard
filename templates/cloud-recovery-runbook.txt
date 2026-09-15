@@ -81,31 +81,31 @@ STEP 2: PARTITION AND FORMAT NEW NVME / SSD
 
      lsblk -o NAME,SIZE,TYPE,FSTYPE,MODEL
 
-   (Assuming target is /dev/nvme0n1; adjust accordingly if /dev/sda or similar).
+   (Assuming target is /dev/NEW_DRIVE; adjust accordingly if /dev/sda or similar).
 
 2. Partition the new drive using cgdisk or parted:
 
    Option A — Interactive (cgdisk):
-     cgdisk /dev/nvme0n1
+     cgdisk /dev/NEW_DRIVE
      - Partition 1: Size: 4096M (4GB), Type: EF00 (EFI System Partition)
      - Partition 2: Size: Remaining space, Type: 8300 (Linux filesystem)
      - Write changes and exit.
 
    Option B — Scripted (parted):
-     parted -s /dev/nvme0n1 mklabel gpt
-     parted -s /dev/nvme0n1 mkpart "EFI" fat32 1MiB 4097MiB
-     parted -s /dev/nvme0n1 set 1 esp on
-     parted -s /dev/nvme0n1 mkpart "ROOT" btrfs 4097MiB 100%
+     parted -s /dev/NEW_DRIVE mklabel gpt
+     parted -s /dev/NEW_DRIVE mkpart "EFI" fat32 1MiB 4097MiB
+     parted -s /dev/NEW_DRIVE set 1 esp on
+     parted -s /dev/NEW_DRIVE mkpart "ROOT" btrfs 4097MiB 100%
 
 3. Format the partitions:
 
-   mkfs.fat -F 32 -n EFI /dev/nvme0n1p1
-   mkfs.btrfs -f -L ARCH_ROOT /dev/nvme0n1p2
+   mkfs.fat -F 32 -n EFI /dev/NEW_EFI_PARTITION
+   mkfs.btrfs -f -L ARCH_ROOT /dev/NEW_ROOT_PARTITION
 
 4. Capture new partition UUIDs:
 
-   NEW_EFI_UUID=$(blkid -s UUID -o value /dev/nvme0n1p1)
-   NEW_ROOT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p2)
+   NEW_EFI_UUID=$(blkid -s UUID -o value /dev/NEW_EFI_PARTITION)
+   NEW_ROOT_UUID=$(blkid -s UUID -o value /dev/NEW_ROOT_PARTITION)
 
    echo "New EFI UUID:  $NEW_EFI_UUID"
    echo "New Root UUID: $NEW_ROOT_UUID"
@@ -117,7 +117,7 @@ STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
 1. Mount the new drive's top-level BTRFS root:
 
    mkdir -p /mnt/new_os
-   mount -o subvol=/,compress=zstd /dev/nvme0n1p2 /mnt/new_os
+   mount -o subvol=/,compress=zstd /dev/NEW_ROOT_PARTITION /mnt/new_os
 
 2. Set up rclone:
 
@@ -175,7 +175,7 @@ STEP 5: MOUNT ALL SUBVOLUMES FOR CHROOT
 Mount '{{DETECTED_ROOT_SUBVOL_STR}}' as the root filesystem:
 
   mkdir -p /mnt/target
-  mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd /dev/nvme0n1p2 /mnt/target
+  mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd /dev/NEW_ROOT_PARTITION /mnt/target
 
 Create mount points for nested subvolumes:
 
@@ -186,7 +186,7 @@ Mount the corresponding subvolumes:
 Mount the new EFI partition:
 
   mkdir -p /mnt/target{{EFI_MOUNT_PATH}}
-  mount /dev/nvme0n1p1 /mnt/target{{EFI_MOUNT_PATH}} 2>/dev/null
+  mount /dev/NEW_EFI_PARTITION /mnt/target{{EFI_MOUNT_PATH}} 2>/dev/null
 
 
 --------------------------------------------------------------------------------

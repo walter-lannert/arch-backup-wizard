@@ -237,7 +237,7 @@ Use this drive?"; then
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\".*MOUNTPOINT=\"([^\"]*)\" ]] || true
-        local dev="/dev/${BASH_REMATCH[1]:-}"
+        local dev="${BASH_REMATCH[1]:-}"
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
         local mountpoint="${BASH_REMATCH[5]:-}"
@@ -263,7 +263,7 @@ Use this drive?"; then
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\" ]] || true
-        local dev="/dev/${BASH_REMATCH[1]:-}"
+        local dev="${BASH_REMATCH[1]:-}"
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
         

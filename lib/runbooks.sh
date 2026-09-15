@@ -110,7 +110,7 @@ generate_runbooks() {
         local sub="${mount_pair#*:}"
         if [[ "$mnt" != "/" ]]; then
             mkdir_cmds+="  mkdir -p /mnt/target${mnt}"$'\n'
-            mount_cmds+="  mount -o subvol=${sub},compress=zstd /dev/nvme0n1p2 /mnt/target${mnt}"$'\n'
+            mount_cmds+="  mount -o subvol=${sub},compress=zstd /dev/NEW_ROOT_PARTITION /mnt/target${mnt}"$'\n'
         fi
     done
     export SUBVOL_MKDIR_CMDS="$mkdir_cmds"

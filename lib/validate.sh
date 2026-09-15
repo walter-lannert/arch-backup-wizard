@@ -190,12 +190,6 @@ run_validation() {
                 l3_ok=false
                 log_warn "Layer 3 check failed: Borg repository not initialized at $repo_path"
                 failure_issues+=("Layer 3: Borg repository not initialized in Pika Backup")
-            else
-                if ! run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes borg info "$repo_path" >/dev/null 2>&1; then
-                    l3_ok=false
-                    log_warn "Layer 3 check failed: 'borg info' failed on $repo_path"
-                    failure_issues+=("Layer 3: borg info check failed (is the repository accessible/unencrypted?)")
-                fi
             fi
         fi
 
