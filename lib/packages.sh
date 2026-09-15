@@ -73,7 +73,8 @@ Then re-run this wizard."
     ui_infobox "Installing AUR Packages" \
         "Installing via $DETECTED_AUR_HELPER: ${to_install[*]}..."
 
-    # AUR helpers must NOT be run as root
+    # Ensure the user has an active sudo token to prevent hidden prompts during UI execution
+    run_as_user sudo -v || true
     if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed "${to_install[@]}"; then
         log_error "AUR install failed: ${to_install[*]}"
         ui_msgbox "AUR Package Error" \

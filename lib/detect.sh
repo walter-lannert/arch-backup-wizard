@@ -119,12 +119,12 @@ detect_available_drives() {
     # Whole disks (for potential formatting)
     DETECTED_DRIVES=$(lsblk -dpno NAME,SIZE,TYPE 2>/dev/null |
         grep -E 'disk' |
-        grep -v 'loop\|rom\|sr0' || echo "")
+        grep -vE 'loop|rom|sr0' || echo "")
 
     # Partitions with filesystem info
     DETECTED_PARTITIONS=$(lsblk -P -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null |
         grep 'TYPE="part"' |
-        grep -v 'loop\|rom' || echo "")
+        grep -vE 'loop|rom' || echo "")
 
     log_info "Drive scan complete"
 }

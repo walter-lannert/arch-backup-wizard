@@ -4,8 +4,8 @@ set -euo pipefail
 echo "Starting Bare-Metal OS Cloud Backup..."
 
 # Automatically find the name of the newest system snapshot
-LATEST_SNAP=$(ls -t "{{BACKUP_MOUNT}}/OS_Backup" 2>/dev/null | head -n 1 || true)
-if [[ -z "$LATEST_SNAP" ]]; then
+LATEST_SNAP=$(basename "$(ls -td "{{BACKUP_MOUNT}}/OS_Backup/"* 2>/dev/null | head -n 1)" || true)
+if [[ -z "$LATEST_SNAP" || "$LATEST_SNAP" == "*" ]]; then
     echo "Error: No snapshots found in {{BACKUP_MOUNT}}/OS_Backup"
     read -p "Press Enter to close this window..."
     exit 1

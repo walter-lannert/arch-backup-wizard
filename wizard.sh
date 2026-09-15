@@ -265,8 +265,8 @@ Use this drive?"; then
 
         # Skip if any partition from this disk is already in the list
         local dominated=false
-        for c in "${choices[@]}"; do
-            [[ "$c" == "${dev}"* ]] && dominated=true && break
+        for ((i=0; i<${#choices[@]}; i+=3)); do
+            [[ "${choices[i]}" == "${dev}"* ]] && dominated=true && break
         done
 
         # Offer the whole disk as a "format new" option

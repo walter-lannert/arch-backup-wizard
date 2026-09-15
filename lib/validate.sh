@@ -265,9 +265,9 @@ run_validation() {
         log_info "Checking /etc/fstab for backup drive mount ($BACKUP_MOUNT)..."
         local fstab_line=""
         if [[ -f /etc/fstab ]]; then
-            fstab_line=$(grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -F "$BACKUP_MOUNT" | head -n 1 || true)
+            fstab_line=$(awk -v mnt="$BACKUP_MOUNT" '$1 !~ /^#/ && $2 == mnt {print; exit}' /etc/fstab 2>/dev/null || true)
             if [[ -z "$fstab_line" && -n "${BACKUP_UUID:-}" ]]; then
-                fstab_line=$(grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -F "$BACKUP_UUID" | head -n 1 || true)
+                fstab_line=$(awk -v uuid="UUID=$BACKUP_UUID" '$1 !~ /^#/ && $1 == uuid {print; exit}' /etc/fstab 2>/dev/null || true)
             fi
         fi
 
