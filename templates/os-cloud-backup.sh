@@ -17,15 +17,15 @@ sudo -v || { echo "Error: sudo authentication failed."; read -p "Press Enter to 
 
 # Package and compress the snapshot
 echo "Compressing snapshot (showing raw data processed)..."
-sudo btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | zstd -T0 >"{{BACKUP_MOUNT}}/Cloud_Archive.btrfs.zst"
+sudo btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | zstd -T0 >"{{BACKUP_MOUNT}}/Personal/Cloud_Archive.btrfs.zst"
 
 # Sync to cloud storage
 echo "Uploading to cloud storage..."
-rclone copy "{{BACKUP_MOUNT}}/Cloud_Archive.btrfs.zst" "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}" -P
+rclone copy "{{BACKUP_MOUNT}}/Personal/Cloud_Archive.btrfs.zst" "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}" -P
 
 # Clean up the local file
 echo "Cleaning up local archive..."
-rm "{{BACKUP_MOUNT}}/Cloud_Archive.btrfs.zst"
+rm "{{BACKUP_MOUNT}}/Personal/Cloud_Archive.btrfs.zst"
 
 echo "Success! Your OS clone is safe in the cloud."
 read -p "Press Enter to close this window..."

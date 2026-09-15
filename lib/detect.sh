@@ -35,7 +35,7 @@ detect_distro() {
 
 detect_aur_helper() {
     DETECTED_AUR_HELPER=""
-    for helper in paru yay pamac; do
+    for helper in paru yay; do
         if cmd_exists "$helper"; then
             DETECTED_AUR_HELPER="$helper"
             break

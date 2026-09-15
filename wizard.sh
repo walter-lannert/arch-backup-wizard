@@ -208,6 +208,7 @@ Please also select at least one of:
             return 1
         fi
     fi
+    return 0
 }
 
 # ── Backup drive selection ────────────────────────────────────────────────────
@@ -287,6 +288,7 @@ Please connect a secondary drive and re-run the wizard."
         "${choices[@]}") || die "Aborted at drive selection."
 
     selected="${selected//\"/}"
+    [[ -z "$selected" ]] && die "No backup drive selected."
     BACKUP_DEV="$selected"
 
     # Determine if this needs formatting
