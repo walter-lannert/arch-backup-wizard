@@ -59,15 +59,29 @@ setup_layer4() {
     export AGE_KEYFILE="$age_key_file"
     
     ui_msgbox "Encryption Key Generated" \
-        "A new Age encryption key has been generated to encrypt your OS backups before uploading to the cloud.
+        "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
 
 PUBLIC KEY:
 $age_pubkey
 
-The private key is saved at:
+The private key is currently saved at:
 $age_key_file
 
-[!] CRITICAL: Back up this private key to a password manager IMMEDIATELY. Without it, you cannot restore your OS from the cloud."
+[!] CRITICAL WARNING [!]
+If your computer is destroyed or stolen, you WILL need this private key to decrypt your cloud backup.
+
+You MUST back up this private key to an external USB drive, another computer, or a secure Password Manager RIGHT NOW."
+
+    while true; do
+        if ui_yesno "Confirm Key Backup" \
+            "Have you successfully backed up your Age private key to an external USB drive or password manager?
+
+Without this key, your cloud backups are completely unrecoverable in a bare-metal disaster."; then
+            break
+        else
+            ui_msgbox "Action Required" "Please back up the file:\n$age_key_file\n\nTake your time, then press OK to verify again."
+        fi
+    done
 
     # ── 2. Cloud provider selection menu ──────────────────────────────────────
     log_info "Step 2: Selecting cloud storage provider..."
