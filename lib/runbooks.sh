@@ -44,17 +44,62 @@ generate_runbooks() {
     export CLOUD_OS_DIR="${CLOUD_OS_DIR:-${LAYER4_CLOUD_OS_DIR:-}}"
     export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-${LAYER4_CLOUD_PIKA_DIR:-}}"
 
-    # Generate dynamic subvolume creation commands for runbooks
-    local subvol_cmds=""
+    # Generate dynamic subvolume recovery script block for runbooks
+    local restore_script=""
     local snap_root_subvol="${DETECTED_ROOT_SUBVOL:-@}"
     snap_root_subvol="${snap_root_subvol#/}"
+
+    restore_script+="cat << 'EOF' > /tmp/restore_subvols.sh"$'\n'
+    restore_script+="#!/bin/bash"$'\n'
+    restore_script+="set -e"$'\n'
+    for sub in $DETECTED_SUBVOLUMES; do
+        restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
+        restore_script+="SNAP=\$(ls -1td /mnt/backup/OS_Backup/${sub}.* 2>/dev/null | head -n 1 || true)"$'\n'
+        restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
+        restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
+        restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'
+        restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$(basename \"\$SNAP\")\" \"/mnt/new_os/$sub\""$'\n'
+        restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$(basename \"\$SNAP\")\""$'\n'
+        restore_script+="else"$'\n'
+        restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
+        restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        restore_script+="fi"$'\n'
+    done
+    restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
+    restore_script+="EOF"$'\n'
+    restore_script+="chmod +x /tmp/restore_subvols.sh"$'\n'
+    restore_script+="/tmp/restore_subvols.sh"$'\n'
+    
+    # Generate dynamic cloud recovery script block for runbooks
+    local cloud_restore_script=""
+    cloud_restore_script+="cat << 'EOF' > /tmp/cloud_restore_subvols.sh"$'\n'
+    cloud_restore_script+="#!/bin/bash"$'\n'
+    cloud_restore_script+="set -e"$'\n'
+    cloud_restore_script+="echo \"Fetching list of cloud archives...\""$'\n'
+    cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$')"$'\n'
+    cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'
     
     for sub in $DETECTED_SUBVOLUMES; do
-        if [[ "$sub" != "$snap_root_subvol" ]]; then
-            subvol_cmds+="  btrfs subvolume create /mnt/new_os/$sub"$'\n'
-        fi
+        cloud_restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
+        cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep \"^${sub}\\.\" | sort -r | head -n 1 || true)"$'\n'
+        cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
+        cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
+        cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | pv | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/.btrfs.zst.age$//')"$'\n'
+        cloud_restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$RECEIVED_NAME\" \"/mnt/new_os/$sub\""$'\n'
+        cloud_restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$RECEIVED_NAME\""$'\n'
+        cloud_restore_script+="else"$'\n'
+        cloud_restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
+        cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        cloud_restore_script+="fi"$'\n'
     done
-    export SUBVOL_CREATION_CMDS="$subvol_cmds"
+    cloud_restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
+    cloud_restore_script+="EOF"$'\n'
+    cloud_restore_script+="chmod +x /tmp/cloud_restore_subvols.sh"$'\n'
+    cloud_restore_script+="/tmp/cloud_restore_subvols.sh"$'\n'
+    
+    export CLOUD_RECOVERY_SCRIPT="$cloud_restore_script"
+    export SUBVOL_RECOVERY_SCRIPT="$restore_script"
     export DETECTED_ROOT_SUBVOL_STR="$snap_root_subvol"
     
     # Generate dynamic mount commands

@@ -111,61 +111,14 @@ STEP 3: MOUNT BOTH DRIVES AND IDENTIFY LATEST CLONE
    mkdir -p /mnt/new_os
    mount -o subvol=/,compress=zstd /dev/nvme0n1p2 /mnt/new_os
 
-3. Identify the latest OS clone created by btrbk:
+3. Restore all subvolumes from the OS clone.
 
-   ls -lt /mnt/backup/OS_Backup/
+We have generated an automated script that will find the latest clone for each
+of your system subvolumes ({{SUBVOL_LAYOUT}}), transfer them, and set them up as writable subvolumes.
 
-   Note the filename of the most recent snapshot (e.g., ROOT.20260903T0000 or
-   @.20260903). In following steps, this is referred to as <LATEST_CLONE>.
-   Example:
-     LATEST_CLONE=$(ls -1t /mnt/backup/OS_Backup | head -n 1)
-     echo "Selected latest clone: $LATEST_CLONE"
+Run the following block of code in your terminal:
 
-
---------------------------------------------------------------------------------
-STEP 4: BTRFS SEND / RECEIVE THE CLONE
---------------------------------------------------------------------------------
-Transfer the full read-only snapshot from the backup drive to the new drive:
-
-  btrfs send "/mnt/backup/OS_Backup/$LATEST_CLONE" | btrfs receive /mnt/new_os/
-
-(Tip: If 'pv' is installed, monitor speed with:
- btrfs send "/mnt/backup/OS_Backup/$LATEST_CLONE" | pv | btrfs receive /mnt/new_os/ )
-
-Verify the clone was received on the new drive:
-
-  ls -ld "/mnt/new_os/$LATEST_CLONE"
-
-
---------------------------------------------------------------------------------
-STEP 5: SNAPSHOT READ-ONLY CLONE TO WRITABLE '@' SUBVOLUME
---------------------------------------------------------------------------------
-Received subvolumes are permanently read-only. Create a new writable root
-subvolume named '@' from the received clone:
-
-  btrfs subvolume snapshot "/mnt/new_os/$LATEST_CLONE" /mnt/new_os/@
-
-Verify that '@' now exists:
-
-  btrfs subvolume list /mnt/new_os
-
-
---------------------------------------------------------------------------------
-STEP 6: DELETE READ-ONLY RECEIVED SUBVOLUME
---------------------------------------------------------------------------------
-Delete the read-only received clone subvolume to free up disk space:
-
-  btrfs subvolume delete "/mnt/new_os/$LATEST_CLONE"
-
-
---------------------------------------------------------------------------------
-STEP 7: RECREATE SUBVOLUME LAYOUT BASED ON {{SUBVOL_LAYOUT}}
---------------------------------------------------------------------------------
-Your original system used the layout: {{SUBVOL_LAYOUT}}
-
-Recreate all required standard subvolumes on the new drive:
-
-{{SUBVOL_CREATION_CMDS}}
+{{SUBVOL_RECOVERY_SCRIPT}}
 Create snapshot placeholder directories inside the new root:
 
   mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
@@ -174,7 +127,7 @@ Create snapshot placeholder directories inside the new root:
 
 
 --------------------------------------------------------------------------------
-STEP 8: SET '{{DETECTED_ROOT_SUBVOL_STR}}' AS BTRFS DEFAULT SUBVOLUME
+STEP 4: SET '{{DETECTED_ROOT_SUBVOL_STR}}' AS BTRFS DEFAULT SUBVOLUME
 --------------------------------------------------------------------------------
 Find the subvolume ID of '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as the default:
 
@@ -188,7 +141,7 @@ Unmount the top-level mount point:
 
 
 --------------------------------------------------------------------------------
-STEP 9: MOUNT ALL SUBVOLUMES FOR CHROOT
+STEP 5: MOUNT ALL SUBVOLUMES FOR CHROOT
 --------------------------------------------------------------------------------
 Mount the newly created subvolumes into /mnt/target:
 
@@ -208,7 +161,7 @@ Mount the new EFI partition:
 
 
 --------------------------------------------------------------------------------
-STEP 10: UPDATE ALL UUIDs IN CONFIGURATION FILES [CRITICAL]
+STEP 6: UPDATE ALL UUIDs IN CONFIGURATION FILES [CRITICAL]
 --------------------------------------------------------------------------------
 [CRITICAL WARNING: DRIVE UUID MISMATCH]
 The new NVMe drive has different UUIDs than the original drive!
@@ -245,7 +198,7 @@ into an emergency shell on boot!
 
 
 --------------------------------------------------------------------------------
-STEP 11: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
+STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 --------------------------------------------------------------------------------
 1. Enter the chroot environment:
 
@@ -273,7 +226,7 @@ STEP 11: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 
 
 --------------------------------------------------------------------------------
-STEP 12: RESTORE HOME DATA FROM PIKA / BORG BACKUP
+STEP 8: RESTORE HOME DATA FROM PIKA / BORG BACKUP
 --------------------------------------------------------------------------------
 The OS clone restored system files and software. Personal user data
 (/home/{{USERNAME}}) is stored in the Layer 3 Pika/Borg backup repository.
@@ -302,7 +255,7 @@ Repository path on backup drive:
 
 
 --------------------------------------------------------------------------------
-STEP 13: CLEANUP AND REBOOT
+STEP 9: CLEANUP AND REBOOT
 --------------------------------------------------------------------------------
 1. If still inside chroot, exit:
 

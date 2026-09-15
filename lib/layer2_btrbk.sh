@@ -51,6 +51,7 @@ EOF
 
     for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
         local mnt="${mount_pair%%:*}"
+        local subvol="${mount_pair##*:}"
         local snap_dir="${mnt%/}/${SNAP_DIR_BTRBK#/}"
         
         # Make sure the snapshot directory exists
@@ -62,6 +63,7 @@ EOF
 
 volume ${mnt}
   snapshot_dir               ${SNAP_DIR_BTRBK#/}
+  snapshot_name              ${subvol}
   subvolume .
   target send-receive      "${backup_mount}/OS_Backup"
 EOF
