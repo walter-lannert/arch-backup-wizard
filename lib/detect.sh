@@ -100,15 +100,35 @@ detect_efi() {
 detect_btrfs_subvolumes() {
     DETECTED_SUBVOLUMES=""
     DETECTED_SUBVOL_LAYOUT=""
+    DETECTED_SUBVOL_MOUNTS=()
 
     if [[ "$DETECTED_ROOT_FS" == "btrfs" ]]; then
-        # List top-level subvolumes (those whose path starts with @)
-        DETECTED_SUBVOLUMES=$(btrfs subvolume list / 2>/dev/null |
-            sed -n 's/.* path //p' |
-            grep '^@' |
-            grep -v '\.snapshots' |
-            sort || echo "")
-        DETECTED_SUBVOL_LAYOUT=$(echo "$DETECTED_SUBVOLUMES" | paste -sd',' - | sed 's/,/, /g')
+        local subvol_list=()
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            [[ $line =~ TARGET=\"([^\"]*)\".*UUID=\"([^\"]*)\".*OPTIONS=\"([^\"]*)\" ]] || continue
+            local target="${BASH_REMATCH[1]}"
+            local uuid="${BASH_REMATCH[2]}"
+            local opts="${BASH_REMATCH[3]}"
+            
+            if [[ "$uuid" == "$DETECTED_ROOT_UUID" ]]; then
+                if [[ "$opts" =~ subvol=([^,]+) ]]; then
+                    local subvol="${BASH_REMATCH[1]}"
+                    subvol="${subvol#/}"
+                    
+                    if [[ "$subvol" != *".snapshots"* ]]; then
+                        subvol_list+=("$subvol")
+                        DETECTED_SUBVOL_MOUNTS+=("$target:$subvol")
+                    fi
+                fi
+            fi
+        done < <(findmnt -n -t btrfs -P -o TARGET,UUID,OPTIONS 2>/dev/null)
+        
+        if (( ${#subvol_list[@]} > 0 )); then
+            mapfile -t subvol_list < <(printf "%s\n" "${subvol_list[@]}" | sort -u)
+            DETECTED_SUBVOLUMES=$(printf "%s\n" "${subvol_list[@]}")
+            DETECTED_SUBVOL_LAYOUT=$(paste -sd',' <<<"$DETECTED_SUBVOLUMES" | sed 's/,/, /g')
+        fi
         log_info "BTRFS layout: $DETECTED_SUBVOL_LAYOUT"
     fi
 }

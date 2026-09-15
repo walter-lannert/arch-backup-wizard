@@ -165,26 +165,20 @@ Your original system used the layout: {{SUBVOL_LAYOUT}}
 
 Recreate all required standard subvolumes on the new drive:
 
-  btrfs subvolume create /mnt/new_os/@home
-  btrfs subvolume create /mnt/new_os/@log
-  btrfs subvolume create /mnt/new_os/@cache
-  btrfs subvolume create /mnt/new_os/@tmp
-  btrfs subvolume create /mnt/new_os/@srv
-  btrfs subvolume create /mnt/new_os/@root
-
+{{SUBVOL_CREATION_CMDS}}
 Create snapshot placeholder directories inside the new root:
 
-  mkdir -p /mnt/new_os/@/.snapshots
-  mkdir -p /mnt/new_os/@/.snapshots_btrbk
-  chmod 750 /mnt/new_os/@/.snapshots
+  mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
+  chmod 750 /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
 
 
 --------------------------------------------------------------------------------
-STEP 8: SET '@' AS BTRFS DEFAULT SUBVOLUME
+STEP 8: SET '{{DETECTED_ROOT_SUBVOL_STR}}' AS BTRFS DEFAULT SUBVOLUME
 --------------------------------------------------------------------------------
-Find the subvolume ID of '@' and set it as the default:
+Find the subvolume ID of '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as the default:
 
-  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep ' path @$' | awk '{print $2}')
+  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep ' path {{DETECTED_ROOT_SUBVOL_STR}}$' | awk '{print $2}')
   echo "Setting default subvolume to ID: $ROOT_SUBVOL_ID"
   btrfs subvolume set-default "$ROOT_SUBVOL_ID" /mnt/new_os
 
@@ -199,27 +193,18 @@ STEP 9: MOUNT ALL SUBVOLUMES FOR CHROOT
 Mount the newly created subvolumes into /mnt/target:
 
   mkdir -p /mnt/target
-  mount -o subvol=@,compress=zstd /dev/nvme0n1p2 /mnt/target
+  mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd /dev/nvme0n1p2 /mnt/target
 
 Create mount points for nested subvolumes:
 
-  mkdir -p /mnt/target/{home,var/log,var/cache,tmp,srv,root}
-
+{{SUBVOL_MKDIR_CMDS}}
 Mount the corresponding subvolumes:
 
-  mount -o subvol=@home,compress=zstd /dev/nvme0n1p2 /mnt/target/home
-  mount -o subvol=@log,compress=zstd /dev/nvme0n1p2 /mnt/target/var/log
-  mount -o subvol=@cache,compress=zstd /dev/nvme0n1p2 /mnt/target/var/cache
-  mount -o subvol=@tmp,compress=zstd /dev/nvme0n1p2 /mnt/target/tmp
-  mount -o subvol=@srv,compress=zstd /dev/nvme0n1p2 /mnt/target/srv
-  mount -o subvol=@root,compress=zstd /dev/nvme0n1p2 /mnt/target/root
-
+{{SUBVOL_MOUNT_CMDS}}
 Mount the new EFI partition:
 
-  mkdir -p /mnt/target/boot /mnt/target/efi
-  # Mount to /boot (or /efi, matching original system):
-  mount /dev/nvme0n1p1 /mnt/target/boot 2>/dev/null || \
-  mount /dev/nvme0n1p1 /mnt/target/efi 2>/dev/null
+  mkdir -p /mnt/target{{EFI_MOUNT_PATH}}
+  mount /dev/nvme0n1p1 /mnt/target{{EFI_MOUNT_PATH}} 2>/dev/null
 
 
 --------------------------------------------------------------------------------

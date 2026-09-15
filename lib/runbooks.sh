@@ -44,6 +44,44 @@ generate_runbooks() {
     export CLOUD_OS_DIR="${CLOUD_OS_DIR:-${LAYER4_CLOUD_OS_DIR:-}}"
     export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-${LAYER4_CLOUD_PIKA_DIR:-}}"
 
+    # Generate dynamic subvolume creation commands for runbooks
+    local subvol_cmds=""
+    local snap_root_subvol="${DETECTED_ROOT_SUBVOL:-@}"
+    snap_root_subvol="${snap_root_subvol#/}"
+    
+    for sub in $DETECTED_SUBVOLUMES; do
+        if [[ "$sub" != "$snap_root_subvol" ]]; then
+            subvol_cmds+="  btrfs subvolume create /mnt/new_os/$sub"$'\n'
+        fi
+    done
+    export SUBVOL_CREATION_CMDS="$subvol_cmds"
+    export DETECTED_ROOT_SUBVOL_STR="$snap_root_subvol"
+    
+    # Generate dynamic mount commands
+    local mount_cmds=""
+    local mkdir_cmds=""
+    for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
+        local mnt="${mount_pair%%:*}"
+        local sub="${mount_pair#*:}"
+        if [[ "$mnt" != "/" ]]; then
+            mkdir_cmds+="  mkdir -p /mnt/target${mnt}"$'\n'
+            mount_cmds+="  mount -o subvol=${sub},compress=zstd /dev/nvme0n1p2 /mnt/target${mnt}"$'\n'
+        fi
+    done
+    export SUBVOL_MKDIR_CMDS="$mkdir_cmds"
+    export SUBVOL_MOUNT_CMDS="$mount_cmds"
+    
+    # EFI Mount Path
+    export EFI_MOUNT_PATH="${DETECTED_EFI_MOUNT:-/boot}"
+    
+    # Snapshot layout
+    local snap_layout="${snap_root_subvol}/.snapshots"
+    if [[ " $DETECTED_SUBVOLUMES " == *" @snapshots "* ]]; then
+        snap_layout="@snapshots"
+    elif [[ " $DETECTED_SUBVOLUMES " == *" @.snapshots "* ]]; then
+        snap_layout="@.snapshots"
+    fi
+    export SNAPSHOT_LAYOUT_PATH="$snap_layout"
     log_info "Exported template variables for runbook generation:"
     log_info "  ROOT_UUID=$ROOT_UUID"
     log_info "  EFI_UUID=$EFI_UUID"

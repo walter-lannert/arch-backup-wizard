@@ -22,13 +22,7 @@ setup_layer2() {
         return 1
     fi
 
-    # 2. Create the btrbk snapshot directory on root if it doesn't exist:
-    #    mkdir -p "$SNAP_DIR_BTRBK"
-    log_info "Step 2: Ensuring snapshot directory $SNAP_DIR_BTRBK exists..."
-    mkdir -p "$SNAP_DIR_BTRBK" || {
-        log_error "Failed to create $SNAP_DIR_BTRBK"
-        return 1
-    }
+
 
     # 3. Create the OS_Backup target directory on the backup drive:
     #    mkdir -p "$BACKUP_MOUNT/OS_Backup"
@@ -48,16 +42,29 @@ setup_layer2() {
 
     cat <<EOF >"$BTRBK_CONF"
 transaction_log            /var/log/btrbk.log
-snapshot_dir               ${SNAP_DIR_BTRBK#/}
 snapshot_preserve_min      ${BTRBK_SNAP_MIN}
 snapshot_preserve          ${BTRBK_SNAP}
 target_preserve_min        ${BTRBK_TARGET_MIN}
 target_preserve            ${BTRBK_TARGET}
+EOF
 
-volume /
+    for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
+        local mnt="${mount_pair%%:*}"
+        local snap_dir="${mnt%/}/${SNAP_DIR_BTRBK#/}"
+        
+        # Make sure the snapshot directory exists
+        if [[ ! -d "$snap_dir" ]]; then
+            mkdir -p "$snap_dir" 2>/dev/null || log_error "Failed to create snapshot directory: $snap_dir"
+        fi
+
+        cat <<EOF >>"$BTRBK_CONF"
+
+volume ${mnt}
+  snapshot_dir               ${SNAP_DIR_BTRBK#/}
   subvolume .
   target send-receive      "${backup_mount}/OS_Backup"
 EOF
+    done
     log_success "Created $BTRBK_CONF"
 
     # 5. Create systemd drop-in override at /etc/systemd/system/btrbk.service.d/override.conf:
