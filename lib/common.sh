@@ -18,17 +18,7 @@ readonly LAYER_PIKA=3
 readonly LAYER_CLOUD=4
 readonly LAYER_DEEP=5
 
-# Human-readable name for a layer ID (1..5 → string label).
-layer_name() {
-    case "$1" in
-    1) echo "Snapper" ;;
-    2) echo "btrbk" ;;
-    3) echo "Pika Backup" ;;
-    4) echo "Cloud Offsite" ;;
-    5) echo "Deep Storage" ;;
-    *) echo "Layer $1" ;;
-    esac
-}
+
 
 # ── Configuration defaults ────────────────────────────────────────────────────
 # All tunable defaults live here. Changing a value in this block is the single

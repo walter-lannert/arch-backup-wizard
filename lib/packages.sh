@@ -75,7 +75,7 @@ Then re-run this wizard."
 
     # Ensure the user has an active sudo token to prevent hidden prompts during UI execution
     run_as_user sudo -v || true
-    if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed "${to_install[@]}"; then
+    if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "AUR install failed: ${to_install[*]}"
         ui_msgbox "AUR Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
