@@ -44,6 +44,13 @@ generate_runbooks() {
     export CLOUD_OS_DIR="${CLOUD_OS_DIR:-${LAYER4_CLOUD_OS_DIR:-}}"
     export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-${LAYER4_CLOUD_PIKA_DIR:-}}"
 
+    # Dynamically detect kernel and microcode for bare-metal EFI restoration
+    local kernel_pkgs
+    kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | grep -E '^linux(-cachyos|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || echo "linux linux-headers")
+    local ucode_pkgs
+    ucode_pkgs=$(pacman -Qsq ucode 2>/dev/null | tr '\n' ' ' || echo "")
+    export KERNEL_PKGS="${kernel_pkgs} ${ucode_pkgs}"
+
     # Generate dynamic subvolume recovery script block for runbooks
     local restore_script=""
     local snap_root_subvol="${DETECTED_ROOT_SUBVOL:-@}"

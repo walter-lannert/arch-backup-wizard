@@ -204,11 +204,16 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 
      arch-chroot /mnt/target
 
-2. Regenerate initramfs image:
+2. Rebuild the EFI partition by reinstalling your kernel and microcode packages:
+   [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz), microcode, and automatically recreates systemd-boot loader entries via pacman hooks]
+
+     pacman -S --noconfirm {{KERNEL_PKGS}}
+
+3. Ensure initramfs is fully generated (pacman hooks usually do this, but force it to be safe):
 
      mkinitcpio -P
 
-3. Reinstall and configure bootloader according to: {{BOOTLOADER}}
+4. Rebuild bootloader according to: {{BOOTLOADER}}
 
    - If Limine:
        limine-mkinitcpio
