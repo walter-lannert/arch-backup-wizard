@@ -121,7 +121,7 @@ backup_file() {
     if [[ -f "$file" ]]; then
         local backup
         backup="${file}.bak.$(date +%s)"
-        cp "$file" "$backup"
+        cp -p "$file" "$backup"
         log_info "Backed up $file → $backup"
         echo "$backup"
     fi

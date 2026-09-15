@@ -385,6 +385,7 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT/OS_Backup"
     mkdir -p "$BACKUP_MOUNT/Personal"
     mkdir -p "$BACKUP_MOUNT/Deep Storage"
+    chown "$(effective_user):" "$BACKUP_MOUNT/Personal" "$BACKUP_MOUNT/Deep Storage" 2>/dev/null || true
 
     log_info "Backup mount ready at $BACKUP_MOUNT"
 }
@@ -397,6 +398,7 @@ run_dry_run_simulation() {
     local preview_dir
     preview_dir="$(effective_home)/arch-backup-wizard-preview"
     mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
+    chown -R "$(effective_user):" "$preview_dir" 2>/dev/null || true
 
     # 1. Collect packages
     local pkg_info=""
@@ -505,7 +507,9 @@ main() {
     require_root
 
     # Set up log file under the real user's home
-    LOG_FILE="$(effective_home)/arch-backup-wizard.log"
+    LOG_FILE="/var/log/arch-backup-wizard.log"
+    touch "$LOG_FILE" 2>/dev/null || true
+    chown "$(effective_user):" "$LOG_FILE" 2>/dev/null || true
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
 
     # Handle --uninstall mode
