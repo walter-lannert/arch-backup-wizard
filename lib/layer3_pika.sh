@@ -61,18 +61,7 @@ setup_layer3() {
     if [[ -f "$repo_path/config" ]]; then
         log_info "Borg repository already initialized at $repo_path"
     else
-        log_info "Initializing Borg repository at $repo_path..."
-        ui_infobox "Borg Repository" "Initializing Borg repository at:\n$repo_path..."
-        if ! run_as_user borg init --encryption=none "$repo_path" >>"$LOG_FILE" 2>&1; then
-            log_error "Failed to initialize Borg repository at $repo_path"
-            ui_msgbox "Borg Init Error" \
-                "Failed to initialize Borg repository at:
-  $repo_path
-
-Check $LOG_FILE for details."
-            return 1
-        fi
-        log_success "Initialized Borg repository at $repo_path"
+        log_info "Repository directory created at $repo_path. Initialization deferred to Pika Backup GUI to ensure proper encryption."
     fi
 
     # 4. Show a smart exclusion checklist using ui_checklist

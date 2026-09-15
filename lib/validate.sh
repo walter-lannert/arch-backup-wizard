@@ -217,16 +217,10 @@ run_validation() {
             hook_found=true
         fi
 
-        # Also check XDG Autostart desktop entry
-        if [[ -f "${user_home}/.config/autostart/os-clone-nag.desktop" ]] ||
-            grep -rFqs ".os_clone_nag.sh" "${user_home}/.config/autostart/" 2>/dev/null; then
-            hook_found=true
-        fi
-
         if ! $hook_found; then
             l4_ok=false
-            log_warn "Layer 4 check failed: nag script hook not found in $rc_file or ~/.config/autostart/"
-            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file") or ~/.config/autostart/")
+            log_warn "Layer 4 check failed: nag script hook not found in $rc_file"
+            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file")")
         fi
 
         if $l4_ok; then

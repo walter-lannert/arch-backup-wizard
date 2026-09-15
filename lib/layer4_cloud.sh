@@ -260,20 +260,7 @@ EOF
         log_success "Added nag script invocation to $rc_file"
     fi
 
-    # ── 9. Upload recovery runbook to cloud (if it exists) ────────────────────
-    log_info "Step 9: Checking for recovery runbook to upload..."
-    local runbook_path="${backup_mount}/Cloud_Recovery_Runbook.txt"
-    if [[ -f "$runbook_path" ]]; then
-        log_info "Uploading $runbook_path to ${rclone_remote}${cloud_os_dir}/..."
-        ui_infobox "Cloud Upload" "Uploading recovery runbook to cloud storage...\nPlease wait."
-        if run_as_user rclone copy "$runbook_path" "${rclone_remote}${cloud_os_dir}/" >>"$LOG_FILE" 2>&1; then
-            log_success "Uploaded recovery runbook to ${rclone_remote}${cloud_os_dir}/"
-        else
-            log_warn "Failed to upload recovery runbook to ${rclone_remote}${cloud_os_dir}/"
-        fi
-    else
-        log_info "No recovery runbook found at $runbook_path; skipping upload."
-    fi
+
 
     # ── 10. Completion summary dialog ────────────────────────────────────────
     log_info "Step 10: Showing completion summary..."
