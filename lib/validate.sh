@@ -76,6 +76,23 @@ run_validation() {
             failure_issues+=("Layer 1: snapper-cleanup.timer not enabled")
         fi
 
+        case "${DETECTED_BOOTLOADER:-}" in
+        grub)
+            if ! unit_is_enabled grub-btrfsd; then
+                l1_ok=false
+                log_warn "Layer 1 check failed: grub-btrfsd is not enabled"
+                failure_issues+=("Layer 1: grub-btrfsd not enabled")
+            fi
+            ;;
+        limine)
+            if ! unit_is_enabled limine-snapper-sync; then
+                l1_ok=false
+                log_warn "Layer 1 check failed: limine-snapper-sync is not enabled"
+                failure_issues+=("Layer 1: limine-snapper-sync not enabled")
+            fi
+            ;;
+        esac
+
         if $l1_ok; then
             layer1_status="✓ OK"
             log_success "Layer 1 (Snapper): All checks passed"

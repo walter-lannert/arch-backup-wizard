@@ -49,7 +49,7 @@ detect_aur_helper() {
 detect_bootloader() {
     DETECTED_BOOTLOADER="unknown"
 
-    if [[ -f /etc/default/limine ]] || cmd_exists limine-mkinitcpio; then
+    if [[ -f /etc/default/limine ]] || cmd_exists limine; then
         DETECTED_BOOTLOADER="limine"
     elif [[ -f /etc/default/grub ]] || [[ -d /boot/grub ]]; then
         DETECTED_BOOTLOADER="grub"

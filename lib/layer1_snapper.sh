@@ -223,14 +223,23 @@ EOF
             log_error "Failed to enable grub-btrfsd service"
             return 1
         }
+        log_info "Regenerating GRUB configuration to include snapshot menu..."
+        grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG_FILE" 2>&1 || {
+            log_error "Failed to regenerate grub.cfg"
+        }
         log_success "grub-btrfsd service enabled and started."
         ;;
     limine)
-        log_info "Limine bootloader detected; showing limine-snapper-sync info..."
+        log_info "Limine bootloader detected; enabling limine-snapper-sync..."
+        systemctl enable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || {
+            log_error "Failed to enable limine-snapper-sync service"
+            return 1
+        }
+        log_success "limine-snapper-sync service enabled and started."
         ui_msgbox "Limine Bootloader Integration" \
             "Limine snapshot integration is active.
 
-limine-snapper-sync is installed. Whenever a snapshot is created by Snapper or pacman, it will automatically appear in your Limine boot menu."
+limine-snapper-sync is installed and the service is enabled. Whenever a snapshot is created by Snapper or pacman, it will automatically appear in your Limine boot menu."
         ;;
     systemd-boot)
         log_info "systemd-boot detected; showing manual rollback notice..."

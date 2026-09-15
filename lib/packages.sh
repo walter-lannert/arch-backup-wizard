@@ -96,8 +96,8 @@ get_layer_packages() {
     1)
         echo "snapper snap-pac"
         case "${DETECTED_BOOTLOADER:-}" in
-        grub) echo "grub-btrfs" ;;
-        limine) echo "AUR:limine-snapper-sync" ;;
+        grub) echo "grub-btrfs inotify-tools" ;;
+        limine) echo "AUR:limine-snapper-sync inotify-tools" ;;
             # systemd-boot has no snapshot integration package
         esac
         ;;

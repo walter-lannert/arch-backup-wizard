@@ -41,6 +41,10 @@ This will NOT remove:
     log_info "Disabling btrbk.timer..."
     systemctl disable --now btrbk.timer >>"$LOG_FILE" 2>&1 || true
 
+    log_info "Disabling bootloader snapshot integrations if active..."
+    systemctl disable --now grub-btrfsd >>"$LOG_FILE" 2>&1 || true
+    systemctl disable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || true
+
     local user
     user="$(effective_user)"
     local target_uid; target_uid=$(id -u "$user")
