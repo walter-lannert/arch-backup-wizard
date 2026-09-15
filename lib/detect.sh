@@ -64,7 +64,7 @@ detect_bootloader() {
 
 detect_root_filesystem() {
     DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE / 2>/dev/null || echo "")
-    DETECTED_ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
+    DETECTED_ROOT_DEV=$(findmnt -n --nofsroot -o SOURCE / 2>/dev/null || echo "")
     DETECTED_ROOT_UUID=$(findmnt -n -o UUID / 2>/dev/null || echo "")
     DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / 2>/dev/null | grep -oP 'subvol=\K[^,]+' || echo "")
 
@@ -85,7 +85,7 @@ detect_efi() {
             fstype=$(findmnt -n -o FSTYPE "$mount")
             if [[ "$fstype" == "vfat" ]]; then
                 DETECTED_EFI_MOUNT="$mount"
-                DETECTED_EFI_DEV=$(findmnt -n -o SOURCE "$mount")
+                DETECTED_EFI_DEV=$(findmnt -n --nofsroot -o SOURCE "$mount")
                 DETECTED_EFI_UUID=$(findmnt -n -o UUID "$mount")
                 break
             fi
@@ -113,12 +113,46 @@ detect_btrfs_subvolumes() {
     fi
 }
 
+# ── System devices (for exclusion) ────────────────────────────────────────────
+
+detect_system_devices() {
+    DETECTED_SYSTEM_DEVS=()
+    local critical_mounts=(/ /boot /boot/efi /efi)
+    
+    for mnt in "${critical_mounts[@]}"; do
+        local dev
+        dev=$(findmnt -n --nofsroot -o SOURCE "$mnt" 2>/dev/null || true)
+        if [[ -n "$dev" ]]; then
+            local tree
+            tree=$(lsblk -s -nlo KNAME "$dev" 2>/dev/null || true)
+            for k in $tree; do
+                DETECTED_SYSTEM_DEVS+=("/dev/$k")
+            done
+        fi
+    done
+    
+    local swaps
+    swaps=$(swapon --show=NAME --noheadings 2>/dev/null || true)
+    for swp in $swaps; do
+        local tree
+        tree=$(lsblk -s -nlo KNAME "$swp" 2>/dev/null || true)
+        for k in $tree; do
+            DETECTED_SYSTEM_DEVS+=("/dev/$k")
+        done
+    done
+    
+    # Remove duplicates
+    if (( ${#DETECTED_SYSTEM_DEVS[@]} > 0 )); then
+        mapfile -t DETECTED_SYSTEM_DEVS < <(printf "%s\n" "${DETECTED_SYSTEM_DEVS[@]}" | sort -u)
+    fi
+}
+
 # ── Available drives (for backup target selection) ────────────────────────────
 
 detect_available_drives() {
     # Whole disks (for potential formatting)
-    DETECTED_DRIVES=$(lsblk -dpno NAME,SIZE,TYPE 2>/dev/null |
-        grep -E 'disk' |
+    DETECTED_DRIVES=$(lsblk -P -dpno NAME,SIZE,TYPE,FSTYPE 2>/dev/null |
+        grep 'TYPE="disk"' |
         grep -vE 'loop|rom|sr0' || echo "")
 
     # Partitions with filesystem info
@@ -136,18 +170,48 @@ detect_existing_backup_drive() {
     DETECTED_BACKUP_UUID=""
     DETECTED_BACKUP_DEV=""
 
-    # Scan fstab for anything mounted at a path containing "backup" (case-insensitive)
+    # Parse fstab explicitly with findmnt
+    local fstab_entries
+    fstab_entries=$(findmnt --fstab -P -o TARGET,UUID,FSTYPE 2>/dev/null || true)
+    
     while IFS= read -r line; do
-        local mnt
-        mnt=$(echo "$line" | awk '{print $2}')
-        mnt=$(printf '%b' "$mnt")
-        if echo "$mnt" | grep -qi 'backup'; then
-            DETECTED_BACKUP_MOUNT="$mnt"
-            DETECTED_BACKUP_UUID=$(echo "$line" | grep -oP 'UUID=\K\S+' || echo "")
-            DETECTED_BACKUP_DEV=$(findmnt -n -o SOURCE "$mnt" 2>/dev/null || echo "")
-            break
+        [[ -z "$line" ]] && continue
+        [[ $line =~ TARGET=\"([^\"]*)\".*UUID=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\" ]] || true
+        local target="${BASH_REMATCH[1]:-}"
+        local uuid="${BASH_REMATCH[2]:-}"
+        local fstype="${BASH_REMATCH[3]:-}"
+        
+        if echo "$target" | grep -qi 'backup'; then
+            # Must be a btrfs entry
+            [[ "$fstype" != "btrfs" ]] && continue
+            
+            # Check if it is on the root filesystem (ignore if it's the same device)
+            local target_dev
+            target_dev=$(findmnt -n --nofsroot -o SOURCE "$target" 2>/dev/null || echo "")
+            
+            # Allow fallback if the drive isn't currently mounted but has a UUID
+            if [[ -z "$target_dev" && -n "$uuid" ]]; then
+                target_dev=$(blkid -U "$uuid" 2>/dev/null || echo "")
+            fi
+
+            local is_system=false
+            if [[ -n "$target_dev" ]]; then
+                for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+                    if [[ "$target_dev" == "$sys_dev" ]]; then
+                        is_system=true
+                        break
+                    fi
+                done
+            fi
+
+            if [[ "$is_system" == false && -n "$target_dev" ]]; then
+                DETECTED_BACKUP_MOUNT="$target"
+                DETECTED_BACKUP_UUID="$uuid"
+                DETECTED_BACKUP_DEV="$target_dev"
+                break
+            fi
         fi
-    done < <(grep -v '^[[:space:]]*#' /etc/fstab | grep -v '^[[:space:]]*$')
+    done <<<"$fstab_entries"
 
     log_info "Backup drive: mount=$DETECTED_BACKUP_MOUNT UUID=$DETECTED_BACKUP_UUID"
 }
@@ -212,6 +276,7 @@ run_detection() {
     detect_root_filesystem
     detect_efi
     detect_btrfs_subvolumes
+    detect_system_devices
     detect_available_drives
     detect_existing_backup_drive
     detect_user_info

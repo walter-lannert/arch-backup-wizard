@@ -232,15 +232,20 @@ Use this drive?"; then
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\".*MOUNTPOINT=\"([^\"]*)\" ]] || true
-        local dev="${BASH_REMATCH[1]:-}"
+        local dev="/dev/${BASH_REMATCH[1]:-}"
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
         local mountpoint="${BASH_REMATCH[5]:-}"
 
-        # Skip root and EFI
-        [[ "$dev" == "$DETECTED_ROOT_DEV" ]] && continue
-        [[ "$dev" == "$DETECTED_EFI_DEV" ]] && continue
-        [[ "$fstype" == "swap" ]] && continue
+        # Skip system devices (root, EFI, swap, and all their parents/children)
+        local is_system=false
+        for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+            if [[ "$dev" == "$sys_dev" ]]; then
+                is_system=true
+                break
+            fi
+        done
+        [[ "$is_system" == true ]] && continue
 
         local label="${size}"
         [[ -n "$fstype" ]] && label+="  $fstype"
@@ -252,16 +257,28 @@ Use this drive?"; then
     # Also offer unformatted whole disks
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        local dev size _type
-        read -r dev size _type <<<"$line"
-
-        # Skip if any partition from this disk is already in the list
-        local dominated=false
-        for ((i=0; i<${#choices[@]}; i+=3)); do
-            [[ "${choices[i]}" == "${dev}"* ]] && dominated=true && break
+        [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\" ]] || true
+        local dev="/dev/${BASH_REMATCH[1]:-}"
+        local size="${BASH_REMATCH[2]:-}"
+        local fstype="${BASH_REMATCH[4]:-}"
+        
+        # Skip system devices
+        local is_system=false
+        for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+            if [[ "$dev" == "$sys_dev" ]]; then
+                is_system=true
+                break
+            fi
         done
+        [[ "$is_system" == true ]] && continue
 
-        # Offer the whole disk as a "format new" option
+        # Only label a disk unformatted if it has zero children and no filesystem
+        local children
+        children=$(lsblk -no NAME "$dev" 2>/dev/null | wc -l)
+        if (( children > 1 )) || [[ -n "$fstype" ]]; then
+            continue
+        fi
+
         choices+=("$dev" "${size}  (UNFORMATTED — will partition)" "off")
     done <<<"$DETECTED_DRIVES"
 
@@ -304,9 +321,59 @@ Continue?"; then
     BACKUP_UUID=$(blkid -s UUID -o value "$BACKUP_DEV")
 
     if [[ -z "$BACKUP_MOUNT" ]]; then
-        BACKUP_MOUNT=$(ui_inputbox "Mount Point" \
-            "Where should the backup drive be mounted?" \
-            "${DETECTED_HOME}/Backup") || die "Aborted at mount point input."
+        while true; do
+            BACKUP_MOUNT=$(ui_inputbox "Mount Point" \
+                "Where should the backup drive be mounted?\n(Must be an absolute path outside system dirs)" \
+                "${DETECTED_HOME}/Backup") || die "Aborted at mount point input."
+            
+            # Remove trailing slashes
+            BACKUP_MOUNT="${BACKUP_MOUNT%/}"
+            
+            if [[ -z "$BACKUP_MOUNT" ]]; then
+                ui_msgbox "Error" "Mount point cannot be empty."
+                continue
+            fi
+            
+            if [[ "$BACKUP_MOUNT" != /* ]]; then
+                ui_msgbox "Error" "Mount point must be an absolute path starting with '/'."
+                continue
+            fi
+            
+            if [[ "$BACKUP_MOUNT" == *$'\n'* || "$BACKUP_MOUNT" == *$'\t'* || "$BACKUP_MOUNT" == *\\* ]]; then
+                ui_msgbox "Error" "Mount point cannot contain newlines, tabs, or backslashes."
+                continue
+            fi
+            
+            if [[ "$BACKUP_MOUNT" == "/usr"* || "$BACKUP_MOUNT" == "/etc"* || "$BACKUP_MOUNT" == "/var"* || "$BACKUP_MOUNT" == "/boot"* || "$BACKUP_MOUNT" == "/" ]]; then
+                ui_msgbox "Error" "Mount point cannot be in a protected system directory."
+                continue
+            fi
+            
+            if [[ -L "$BACKUP_MOUNT" ]]; then
+                ui_msgbox "Error" "Mount point cannot be a symlink."
+                continue
+            fi
+            
+            if mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
+                local current_dev
+                current_dev=$(findmnt -n -o SOURCE "$BACKUP_MOUNT" 2>/dev/null || echo "")
+                if [[ "$current_dev" != "$BACKUP_DEV" ]]; then
+                    ui_msgbox "Error" "Path is already a mount point for a different device ($current_dev)."
+                    continue
+                fi
+            fi
+            
+            if [[ -d "$BACKUP_MOUNT" ]] && ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
+                local contents
+                contents=$(ls -A "$BACKUP_MOUNT" 2>/dev/null || echo "")
+                if [[ -n "$contents" ]]; then
+                    ui_msgbox "Error" "Directory exists and is not empty. Please choose an empty or new directory."
+                    continue
+                fi
+            fi
+            
+            break
+        done
     fi
 
     _ensure_backup_mounted
@@ -362,10 +429,22 @@ _ensure_backup_mounted() {
 
     # Add to fstab if not already present
     if ! grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" 2>/dev/null; then
-        backup_file /etc/fstab
+        local tmp_fstab
+        tmp_fstab=$(mktemp)
+        cp /etc/fstab "$tmp_fstab"
+        
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
         printf '\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n' \
-            "$BACKUP_UUID" "$fstab_mount" >>/etc/fstab
+            "$BACKUP_UUID" "$fstab_mount" >>"$tmp_fstab"
+        
+        if ! findmnt --verify --tab-file "$tmp_fstab" &>/dev/null; then
+            rm -f "$tmp_fstab"
+            die "Generated fstab entry failed verification. Aborting."
+        fi
+        
+        backup_file /etc/fstab
+        mv -T "$tmp_fstab" /etc/fstab
+        chmod 644 /etc/fstab
         log_info "Added backup drive to /etc/fstab"
     fi
 
