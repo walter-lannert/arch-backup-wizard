@@ -199,7 +199,7 @@ detect_existing_setup() {
     DETECTED_SNAPPER_CONFIG_EXISTS=false
     [[ -f /etc/snapper/configs/root ]] && DETECTED_SNAPPER_CONFIG_EXISTS=true
 
-    log_info "Existing tools: snapper=$DETECTED_HAS_SNAPPER btrbk=$DETECTED_HAS_BTRBK pika=$DETECTED_HAS_PIKA rclone=$DETECTED_HAS_RCLONE snap-pac=$DETECTED_HAS_SNAP_PAC"
+    log_info "Existing tools: snapper-config=$DETECTED_SNAPPER_CONFIG_EXISTS"
 }
 
 # ── Master detection ──────────────────────────────────────────────────────────

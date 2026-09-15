@@ -99,6 +99,11 @@ This will NOT remove:
         "$home/.config/systemd/user/pika-cloud-sync.timer"
     )
 
+    # Also clean up any lingering local archives from interrupted backups
+    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
+        cloud_files+=("${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst")
+    fi
+
     for file in "${cloud_files[@]}"; do
         if [[ -e "$file" ]]; then
             log_info "Removing $file"
