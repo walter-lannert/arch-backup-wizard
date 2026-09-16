@@ -192,11 +192,6 @@ get_real_user() {
     echo "${SUDO_USER:-$(logname 2>/dev/null || echo "$USER")}"
 }
 
-# Get the real user's home directory
-get_real_home() {
-    getent passwd "$(effective_user)" | cut -d: -f6
-}
-
 # Canonical user/home resolution for layer modules.
 # Prefers DETECTED_USER / DETECTED_HOME (set by detect.sh after run_detection),
 # falling back to the get_real_* helpers. Use these instead of spelling out the
@@ -205,7 +200,7 @@ effective_user() {
     echo "${DETECTED_USER:-$(get_real_user)}"
 }
 effective_home() {
-    echo "${DETECTED_HOME:-$(get_real_home 2>/dev/null || echo "${HOME:-/root}")}"
+    echo "${DETECTED_HOME:-$(getent passwd "$(effective_user)" | cut -d: -f6 2>/dev/null || echo "${HOME:-/root}")}"
 }
 
 # Run a command as the real (non-root) user

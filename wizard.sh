@@ -154,8 +154,6 @@ $summary
 Is this correct?" || die "Aborted by user at detection review."
 }
 
-
-
 # ── Layer selection ───────────────────────────────────────────────────────────
 
 NEEDS_BACKUP_DRIVE=false
@@ -638,7 +636,6 @@ main() {
     # Detect
     ui_infobox "Scanning" "Detecting your system configuration..."
     run_detection
-
 
     # Show results
     show_detection_results

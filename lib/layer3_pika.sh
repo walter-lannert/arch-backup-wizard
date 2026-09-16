@@ -2,15 +2,6 @@
 # arch-backup-wizard/lib/layer3_pika.sh — Layer 3: Pika Backup Setup
 #
 # Sets up Layer 3: Pika Backup (Borg-based hourly home directory backups).
-# 1. Installs pika-backup package (and borg dependency)
-# 2. Creates Borg repository directory on backup drive: Personal/backup-<host>-<user>
-# 3. Initializes Borg repository (unencrypted) if not already initialized
-# 4. Prompts user for backup exclusion directories via ui_checklist
-# 5. Displays guided setup instructions for configuring Pika Backup GUI
-# 6. Optionally launches Pika Backup in background
-# 7. Asks user to confirm completion
-# 8. Validates Pika Backup configuration file exists
-
 setup_layer3() {
     log_info "── Setting up Layer 3: Pika Backup (Borg home backups) ──"
 
@@ -36,9 +27,6 @@ setup_layer3() {
     fi
     log_success "Layer 3 packages installed successfully."
 
-    # 2. Create the Borg repository directory:
-    #    local repo_name="backup-${DETECTED_HOSTNAME}-${DETECTED_USER}"
-    #    local repo_path="${BACKUP_MOUNT}/Personal/${repo_name}"
     local repo_name="backup-${target_host}-${target_user}"
     local repo_path="${backup_mount}/Personal/${repo_name}"
 
@@ -54,9 +42,6 @@ setup_layer3() {
         return 1
     }
 
-    # 3. Initialize the Borg repository if it doesn't already exist:
-    #    - Check if $repo_path/config exists (indicates initialized repo)
-    #    - If not, run as the real user: run_as_user borg init --encryption=none "$repo_path"
     log_info "Step 3: Checking Borg repository initialization..."
     if [[ -f "$repo_path/config" ]]; then
         log_info "Borg repository already initialized at $repo_path"

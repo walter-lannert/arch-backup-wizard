@@ -10,7 +10,6 @@
 # 6. Generates the bi-weekly nag reminder script (~/.os_clone_nag.sh)
 # 7. Generates and enables Pika cloud sync user service and timer
 # 8. Adds the nag script to user's shell startup file (idempotent)
-# 9. Uploads Cloud_Recovery_Runbook.txt to cloud if it exists
 # 10. Displays completion summary dialog
 
 setup_layer4() {
@@ -317,8 +316,6 @@ EOF
         # chown is no longer needed since it's written as the user
         log_success "Added nag script invocation to $rc_file"
     fi
-
-
 
     # ── 10. Completion summary dialog ────────────────────────────────────────
     log_info "Step 10: Showing completion summary..."
