@@ -241,11 +241,11 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
        limine-mkinitcpio
 
    - If GRUB:
-       grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+       grub-install --target=x86_64-efi --efi-directory={{EFI_MOUNT_PATH}} --bootloader-id=GRUB --recheck
        grub-mkconfig -o /boot/grub/grub.cfg
 
    - If systemd-boot:
-       bootctl --path=/boot install
+       bootctl --path={{EFI_MOUNT_PATH}} install
 
 
 --------------------------------------------------------------------------------

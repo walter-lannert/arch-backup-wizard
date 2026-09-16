@@ -221,11 +221,11 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
        # limine-deploy /dev/NEW_DRIVE
 
    - If GRUB:
-       grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+       grub-install --target=x86_64-efi --efi-directory={{EFI_MOUNT_PATH}} --bootloader-id=GRUB --recheck
        grub-mkconfig -o /boot/grub/grub.cfg
 
    - If systemd-boot:
-       bootctl --path=/boot install
+       bootctl --path={{EFI_MOUNT_PATH}} install
 
 4. Keep the chroot open for Step 12, or exit if preferred.
 
