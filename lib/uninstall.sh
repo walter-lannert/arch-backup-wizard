@@ -52,6 +52,11 @@ This will NOT remove:
         sed -i 's/\bSNAPPER_CONFIGS="root\b/SNAPPER_CONFIGS="/g; s/\bSNAPPER_CONFIGS="\(.*\) root\b/SNAPPER_CONFIGS="\1/g; s/\bSNAPPER_CONFIGS="root \([^"]*\)"/SNAPPER_CONFIGS="\1"/g' /etc/conf.d/snapper
     fi
 
+    if grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
+        sed -i '/# Arch Backup Wizard Mount/{N;d;}' /etc/fstab
+        log_info "Removed managed entry from /etc/fstab"
+    fi
+
     local manifest_file="/var/lib/arch-backup-wizard/manifest.txt"
     if [[ ! -f "$manifest_file" ]]; then
         log_warn "Manifest file not found at $manifest_file. No generated files to remove."
@@ -70,6 +75,13 @@ This will NOT remove:
                     rmdir "$file" 2>/dev/null || true
                 else
                     rm -f "$file"
+                    local latest_bak
+                    # shellcheck disable=SC2012
+                    latest_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -r | head -n 1 || true)
+                    if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
+                        mv "$latest_bak" "$file"
+                        log_info "Restored previous state of $file from backup"
+                    fi
                 fi
                 
                 # Clean up empty parent directories like /etc/systemd/system/btrbk.service.d

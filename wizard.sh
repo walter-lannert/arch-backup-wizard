@@ -440,7 +440,7 @@ _ensure_backup_mounted() {
         cp /etc/fstab "$tmp_fstab"
         
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
-        printf '\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n' \
+        printf '\n# Arch Backup Wizard Mount\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n' \
             "$BACKUP_UUID" "$fstab_mount" >>"$tmp_fstab"
         
         if ! findmnt --verify --tab-file "$tmp_fstab" &>/dev/null; then

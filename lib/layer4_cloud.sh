@@ -247,7 +247,7 @@ Would you like to re-run 'rclone config' to retry?
     log_success "Generated OS clone nag script at $os_nag_script"
 
     # ── 7. Generate and install Pika cloud sync service and timer ─────────────
-    log_info "Step 7: Generating and installing Pika cloud sync systemd user units..."
+    log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
     export BACKUP_MOUNT="$backup_mount"
     export CLOUD_REMOTE="$rclone_remote"
     export CLOUD_PIKA_DIR="$cloud_pika_dir"
@@ -336,7 +336,7 @@ Installed Components:
   ${os_backup_script}
 • Bi-weekly Nag Script:
   ${os_nag_script} (added to $(basename "$rc_file"))
-• Pika Cloud Sync User Units:
+• Pika Cloud Sync System Units:
   ${timer_file} (weekly sync enabled)
 
 Your offsite cloud backup pipeline is ready."

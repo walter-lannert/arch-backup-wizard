@@ -137,7 +137,11 @@ detect_btrfs_subvolumes() {
 
 detect_system_devices() {
     DETECTED_SYSTEM_DEVS=()
-    local critical_mounts=(/ /boot /boot/efi /efi)
+    local critical_mounts=()
+    mapfile -t critical_mounts < <(lsblk -rno MOUNTPOINT 2>/dev/null | grep -v '^$' | grep -v '\[SWAP\]' || true)
+    
+    # Ensure standard mounts are checked even if unmounted currently (if they somehow exist)
+    critical_mounts+=(/ /boot /boot/efi /efi)
     
     for mnt in "${critical_mounts[@]}"; do
         local dev

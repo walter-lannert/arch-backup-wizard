@@ -59,7 +59,8 @@ generate_runbooks() {
     restore_script+="cat << 'EOF' > /tmp/restore_subvols.sh"$'\n'
     restore_script+="#!/bin/bash"$'\n'
     restore_script+="set -e"$'\n'
-    for sub in $DETECTED_SUBVOLUMES; do
+    while IFS= read -r sub; do
+        [[ -z "$sub" ]] && continue
         local sub_safe="${sub//\//_}"
         restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
         restore_script+="SNAP=\$(ls -1d /mnt/backup/OS_Backup/${sub_safe}.* 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
@@ -74,7 +75,7 @@ generate_runbooks() {
         restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
         restore_script+="fi"$'\n'
-    done
+    done <<< "$DETECTED_SUBVOLUMES"
     restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
     restore_script+="EOF"$'\n'
     restore_script+="chmod +x /tmp/restore_subvols.sh"$'\n'
@@ -89,7 +90,8 @@ generate_runbooks() {
     cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$')"$'\n'
     cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'
     
-    for sub in $DETECTED_SUBVOLUMES; do
+    while IFS= read -r sub; do
+        [[ -z "$sub" ]] && continue
         local sub_safe="${sub//\//_}"
         cloud_restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
         cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep \"^${sub_safe}\\.\" | sort -r | head -n 1 || true)"$'\n'
@@ -105,7 +107,7 @@ generate_runbooks() {
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
         cloud_restore_script+="fi"$'\n'
-    done
+    done <<< "$DETECTED_SUBVOLUMES"
     cloud_restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
     cloud_restore_script+="EOF"$'\n'
     cloud_restore_script+="chmod +x /tmp/cloud_restore_subvols.sh"$'\n'

@@ -8,6 +8,8 @@ Type=oneshot
 User={{DETECTED_USER}}
 Nice=19
 IOSchedulingClass=idle
+# Ensure any stale snapshots from previous hard crashes are destroyed first
+ExecStartPre=-+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Take a read-only snapshot of the backup drive to ensure Borg repo consistency
 ExecStartPre=+/usr/bin/btrfs subvolume snapshot -r "{{BACKUP_MOUNT}}" "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Note: 'rclone sync' is strictly required for Borg repositories to ensure 

@@ -3,10 +3,14 @@ set -euo pipefail
 
 echo "Starting Bare-Metal OS Cloud Backup..."
 
+# Ensure we always clean up the local archive even if a cloud upload fails
+trap 'rm -f "{{BACKUP_MOUNT}}/Personal/"*.btrfs.zst.age 2>/dev/null' EXIT
+
 # Authenticate sudo cleanly first so the password prompt isn't overwritten by pv
 sudo -v || { echo "Error: sudo authentication failed."; read -p "Press Enter to close this window..."; exit 1; }
 
-for sub in {{DETECTED_SUBVOLUMES}}; do
+while IFS= read -r sub; do
+    [[ -z "$sub" ]] && continue
     sub_safe="${sub//\//_}"
     # Automatically find the name of the newest snapshot for this subvolume (relying on btrbk's deterministic timestamp naming)
     LATEST_SNAP=$(basename "$(ls -d "{{BACKUP_MOUNT}}/OS_Backup/${sub_safe}."* 2>/dev/null | sort -r | head -n 1)" || true)
@@ -28,7 +32,7 @@ for sub in {{DETECTED_SUBVOLUMES}}; do
     
     # Clean up local encrypted copy
     rm -f "$ARCHIVE_PATH"
-done
+done <<< "{{DETECTED_SUBVOLUMES}}"
 
 echo "Success! Your OS clone is safe in the cloud."
 read -p "Press Enter to close this window..."
