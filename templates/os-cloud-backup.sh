@@ -8,8 +8,8 @@ sudo -v || { echo "Error: sudo authentication failed."; read -p "Press Enter to 
 
 for sub in {{DETECTED_SUBVOLUMES}}; do
     sub_safe="${sub//\//_}"
-    # Automatically find the name of the newest snapshot for this subvolume
-    LATEST_SNAP=$(basename "$(ls -td "{{BACKUP_MOUNT}}/OS_Backup/${sub_safe}."* 2>/dev/null | head -n 1)" || true)
+    # Automatically find the name of the newest snapshot for this subvolume (relying on btrbk's deterministic timestamp naming)
+    LATEST_SNAP=$(basename "$(ls -d "{{BACKUP_MOUNT}}/OS_Backup/${sub_safe}."* 2>/dev/null | sort -r | head -n 1)" || true)
     if [[ -z "$LATEST_SNAP" || "$LATEST_SNAP" == "*" ]]; then
         echo "Warning: No snapshots found for $sub_safe in {{BACKUP_MOUNT}}/OS_Backup"
         continue

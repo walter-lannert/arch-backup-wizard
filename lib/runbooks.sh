@@ -62,7 +62,7 @@ generate_runbooks() {
     for sub in $DETECTED_SUBVOLUMES; do
         local sub_safe="${sub//\//_}"
         restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        restore_script+="SNAP=\$(ls -1td /mnt/backup/OS_Backup/${sub_safe}.* 2>/dev/null | head -n 1 || true)"$'\n'
+        restore_script+="SNAP=\$(ls -1d /mnt/backup/OS_Backup/${sub_safe}.* 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
         restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
         restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'

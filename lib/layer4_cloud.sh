@@ -178,20 +178,34 @@ Would you like to re-run 'rclone config' to retry?
     distro_name="${distro_name// /_}"
 
     local default_os_dir="${distro_name}_BareMetal_Clones"
-    local cloud_os_dir
-    cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
-        "Enter cloud destination folder for bare-metal OS clones:" \
-        "$default_os_dir") || cloud_os_dir="$default_os_dir"
-    cloud_os_dir="${cloud_os_dir:-$default_os_dir}"
+    local cloud_os_dir="$default_os_dir"
+    while true; do
+        cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
+            "Enter cloud destination folder for bare-metal OS clones (a-z, 0-9, -, _, /):" \
+            "$cloud_os_dir") || cloud_os_dir="$default_os_dir"
+        cloud_os_dir="${cloud_os_dir:-$default_os_dir}"
+        if [[ "$cloud_os_dir" =~ ^[a-zA-Z0-9_/-]+$ ]]; then
+            break
+        else
+            ui_msgbox "Error" "Invalid folder name. Only alphanumeric, slashes, dashes, and underscores are allowed."
+        fi
+    done
     cloud_os_dir="${cloud_os_dir#/}"
     cloud_os_dir="${cloud_os_dir%/}"
 
     local default_pika_dir="${distro_name}_Pika_Backup"
-    local cloud_pika_dir
-    cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
-        "Enter cloud destination folder for Pika backups:" \
-        "$default_pika_dir") || cloud_pika_dir="$default_pika_dir"
-    cloud_pika_dir="${cloud_pika_dir:-$default_pika_dir}"
+    local cloud_pika_dir="$default_pika_dir"
+    while true; do
+        cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
+            "Enter cloud destination folder for Pika backups (a-z, 0-9, -, _, /):" \
+            "$cloud_pika_dir") || cloud_pika_dir="$default_pika_dir"
+        cloud_pika_dir="${cloud_pika_dir:-$default_pika_dir}"
+        if [[ "$cloud_pika_dir" =~ ^[a-zA-Z0-9_/-]+$ ]]; then
+            break
+        else
+            ui_msgbox "Error" "Invalid folder name. Only alphanumeric, slashes, dashes, and underscores are allowed."
+        fi
+    done
     cloud_pika_dir="${cloud_pika_dir#/}"
     cloud_pika_dir="${cloud_pika_dir%/}"
 

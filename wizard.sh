@@ -228,6 +228,7 @@ Use this drive?"; then
             BACKUP_UUID="$DETECTED_BACKUP_UUID"
             BACKUP_DEV="$DETECTED_BACKUP_DEV"
             log_info "Reusing existing backup drive: $BACKUP_MOUNT"
+            _ensure_backup_mounted || return 1
             return 0
         fi
     fi
