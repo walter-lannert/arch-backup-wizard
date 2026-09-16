@@ -134,6 +134,18 @@ show_detection_results() {
     local summary
     summary=$(format_detection_summary)
 
+    if [[ -n "${DETECTED_UNMOUNTED_SUBVOLS:-}" ]]; then
+        ui_msgbox "Warning: Unmounted Nested Subvolumes" \
+            "BTRFS nested subvolumes were detected that are not explicitly mounted in your fstab.
+
+Because BTRFS snapshots do not cross subvolume boundaries, these unmounted subvolumes (e.g. docker containers, libvirt images) will be SILENTLY OMITTED from your bare-metal backups and clones.
+
+Unmounted subvolumes:
+$DETECTED_UNMOUNTED_SUBVOLS
+
+If you need these backed up, you must mount them explicitly in /etc/fstab."
+    fi
+
     ui_yesno "System Detection" \
         "Your system was scanned. Please verify:
 

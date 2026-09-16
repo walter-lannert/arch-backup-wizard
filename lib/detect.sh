@@ -130,6 +130,28 @@ detect_btrfs_subvolumes() {
             DETECTED_SUBVOL_LAYOUT=$(paste -sd',' <<<"$DETECTED_SUBVOLUMES" | sed 's/,/, /g')
         fi
         log_info "BTRFS layout: $DETECTED_SUBVOL_LAYOUT"
+
+        # Check for unmounted nested subvolumes (Audit-036)
+        DETECTED_UNMOUNTED_SUBVOLS=""
+        local all_subvols
+        all_subvols=$(btrfs subvolume list -o / 2>/dev/null | sed -n 's/.* path //p' | grep -v '\.snapshots' || true)
+        local unmounted_subvols=()
+        for s in $all_subvols; do
+            local found=false
+            for m in "${subvol_list[@]}"; do
+                if [[ "$s" == "$m" ]]; then
+                    found=true
+                    break
+                fi
+            done
+            if [[ "$found" == false ]]; then
+                unmounted_subvols+=("$s")
+            fi
+        done
+        if (( ${#unmounted_subvols[@]} > 0 )); then
+            DETECTED_UNMOUNTED_SUBVOLS=$(printf "%s\n" "${unmounted_subvols[@]}")
+            log_warn "Detected unmounted nested subvolumes that will not be backed up."
+        fi
     fi
 }
 

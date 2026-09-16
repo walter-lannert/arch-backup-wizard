@@ -53,7 +53,7 @@ This will NOT remove:
     fi
 
     if grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
-        sed -i '/# Arch Backup Wizard Mount/{N;d;}' /etc/fstab
+        sed -i -z 's/\n# Arch Backup Wizard Mount\n[^\n]*\n//g' /etc/fstab
         log_info "Removed managed entry from /etc/fstab"
     fi
 

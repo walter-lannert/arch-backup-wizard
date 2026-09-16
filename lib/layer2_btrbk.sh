@@ -84,11 +84,10 @@ EOF
     backup_file "$override_conf" >/dev/null || return 1
 
     record_manifest "$override_conf"
-    local systemd_mount
-    systemd_mount=$(systemd-escape -p "$backup_mount")
+    local escaped_mount="${backup_mount// /\\x20}"
     cat <<EOF >"$override_conf"
 [Unit]
-RequiresMountsFor=${systemd_mount}
+RequiresMountsFor=${escaped_mount}
 
 [Service]
 Nice=19
