@@ -76,6 +76,23 @@ run_validation() {
             failure_issues+=("Layer 1: snapper-cleanup.timer not enabled")
         fi
 
+        case "${DETECTED_BOOTLOADER:-}" in
+        grub)
+            if ! unit_is_enabled grub-btrfsd; then
+                l1_ok=false
+                log_warn "Layer 1 check failed: grub-btrfsd is not enabled"
+                failure_issues+=("Layer 1: grub-btrfsd not enabled")
+            fi
+            ;;
+        limine)
+            if ! unit_is_enabled limine-snapper-sync; then
+                l1_ok=false
+                log_warn "Layer 1 check failed: limine-snapper-sync is not enabled"
+                failure_issues+=("Layer 1: limine-snapper-sync not enabled")
+            fi
+            ;;
+        esac
+
         if $l1_ok; then
             layer1_status="✓ OK"
             log_success "Layer 1 (Snapper): All checks passed"
@@ -124,6 +141,12 @@ run_validation() {
             failure_issues+=("Layer 2: ${BACKUP_MOUNT:-}/OS_Backup directory missing")
         fi
 
+        if $l2_ok && ! btrbk -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
+            l2_ok=false
+            log_warn "Layer 2 check failed: btrbk.conf failed to parse or dryrun"
+            failure_issues+=("Layer 2: btrbk configuration invalid (fails dryrun)")
+        fi
+
         if $l2_ok; then
             layer2_status="✓ OK"
             log_success "Layer 2 (btrbk): All checks passed"
@@ -148,16 +171,28 @@ run_validation() {
             failure_issues+=("Layer 3: pika-backup package not installed")
         fi
 
-        if [[ ! -f "${user_home}/.local/share/pika-backup/backup.json" && ! -f "${user_home}/.config/pika-backup/backup.json" ]]; then
-            l3_ok=false
-            log_warn "Layer 3 check failed: ${user_home}/.config/pika-backup/backup.json does not exist"
-            failure_issues+=("Layer 3: Pika backup.json config missing")
-        fi
+
 
         if [[ -z "${BACKUP_MOUNT:-}" || ! -d "${BACKUP_MOUNT}/Personal" ]]; then
             l3_ok=false
             log_warn "Layer 3 check failed: directory '${BACKUP_MOUNT:-}/Personal' does not exist"
             failure_issues+=("Layer 3: ${BACKUP_MOUNT:-}/Personal directory missing")
+        else
+            local host_name="${DETECTED_HOSTNAME:-$(cat /etc/hostname 2>/dev/null || uname -n)}"
+            local target_user
+            target_user="$(effective_user)"
+            local repo_path="${BACKUP_MOUNT}/Personal/backup-${host_name}-${target_user}"
+            if [[ ! -f "$repo_path/config" ]]; then
+                l3_ok=false
+                log_warn "Layer 3 check failed: Borg repository not initialized at $repo_path"
+                failure_issues+=("Layer 3: Borg repository not initialized in Pika Backup")
+            else
+                if ! run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes timeout 5 borg info "$repo_path" >/dev/null 2>&1; then
+                    log_warn "Layer 3: 'borg info' returned non-zero. Repository may be corrupted or encrypted."
+                    l3_ok=false
+                    failure_issues+=("Layer 3: Borg repository inaccessible (check 'borg info $repo_path')")
+                fi
+            fi
         fi
 
         if $l3_ok; then
@@ -178,16 +213,32 @@ run_validation() {
         log_info "Validating Layer 4 (Cloud Offsite)..."
         local l4_ok=true
 
-        if ! pkg_is_installed rclone; then
+        if ! pkg_is_installed rclone || ! pkg_is_installed age; then
             l4_ok=false
-            log_warn "Layer 4 check failed: package 'rclone' is not installed"
-            failure_issues+=("Layer 4: rclone package not installed")
+            log_warn "Layer 4 check failed: packages 'rclone' or 'age' are not installed"
+            failure_issues+=("Layer 4: rclone or age package not installed")
+        fi
+
+        local age_key_file="${user_home}/.config/arch-backup-wizard/cloud_os.key"
+        if [[ ! -f "$age_key_file" ]]; then
+            l4_ok=false
+            log_warn "Layer 4 check failed: Age encryption key $age_key_file is missing"
+            failure_issues+=("Layer 4: Age encryption key missing")
         fi
 
         if [[ ! -f "${user_home}/.os_cloud_backup.sh" || ! -x "${user_home}/.os_cloud_backup.sh" ]]; then
             l4_ok=false
             log_warn "Layer 4 check failed: ${user_home}/.os_cloud_backup.sh does not exist or is not executable"
             failure_issues+=("Layer 4: ~/.os_cloud_backup.sh missing or not executable")
+        else
+            # Extract the remote from the script and test it
+            local cloud_remote
+            cloud_remote=$(grep -oP 'rclone copy.*"\K[^"]+(?=")' "${user_home}/.os_cloud_backup.sh" | awk -F':' '{print $1":"}' | head -n 1 || true)
+            if [[ -n "$cloud_remote" ]] && ! run_as_user rclone lsd "$cloud_remote" >/dev/null 2>&1; then
+                l4_ok=false
+                log_warn "Layer 4 check failed: 'rclone lsd $cloud_remote' failed"
+                failure_issues+=("Layer 4: rclone connection test failed for $cloud_remote")
+            fi
         fi
 
         if [[ ! -f "${user_home}/.os_clone_nag.sh" || ! -x "${user_home}/.os_clone_nag.sh" ]]; then
@@ -196,10 +247,16 @@ run_validation() {
             failure_issues+=("Layer 4: ~/.os_clone_nag.sh missing or not executable")
         fi
 
-        if [[ ! -f "${user_home}/.config/systemd/user/pika-cloud-sync.timer" ]]; then
+        if [[ ! -f "/etc/systemd/system/pika-cloud-sync.timer" ]]; then
             l4_ok=false
-            log_warn "Layer 4 check failed: ${user_home}/.config/systemd/user/pika-cloud-sync.timer does not exist"
+            log_warn "Layer 4 check failed: /etc/systemd/system/pika-cloud-sync.timer does not exist"
             failure_issues+=("Layer 4: pika-cloud-sync.timer missing")
+        else
+            if ! systemctl is-enabled pika-cloud-sync.timer >/dev/null 2>&1; then
+                l4_ok=false
+                log_warn "Layer 4 check failed: pika-cloud-sync.timer is not enabled"
+                failure_issues+=("Layer 4: pika-cloud-sync.timer not enabled")
+            fi
         fi
 
         # Check nag script hook in shell startup file or XDG autostart

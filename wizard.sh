@@ -35,18 +35,18 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
         --uninstall)
+            if $DRY_RUN || $VALIDATE; then die "Error: --uninstall cannot be combined with other modes."; fi
             UNINSTALL=true
             shift
             ;;
         --validate)
+            if $UNINSTALL; then die "Error: --validate cannot be combined with --uninstall."; fi
             VALIDATE=true
             shift
             if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
                 IFS=',' read -ra VALIDATE_LAYERS <<<"$1"
                 shift
-                # Validate each token — case literals are intentional here;
-                # bash case patterns don't expand variables so LAYER_* can't
-                # be used in pattern position.
+                # Validate each token
                 local _l
                 for _l in "${VALIDATE_LAYERS[@]}"; do
                     case "$_l" in
@@ -57,7 +57,12 @@ parse_args() {
             fi
             ;;
         --dry-run | -d)
+            if $UNINSTALL; then die "Error: --dry-run cannot be combined with --uninstall."; fi
             DRY_RUN=true
+            shift
+            ;;
+        -v | --verbose)
+            set -x
             shift
             ;;
         --help | -h)
@@ -129,6 +134,18 @@ show_detection_results() {
     local summary
     summary=$(format_detection_summary)
 
+    if [[ -n "${DETECTED_UNMOUNTED_SUBVOLS:-}" ]]; then
+        ui_msgbox "Warning: Unmounted Nested Subvolumes" \
+            "BTRFS nested subvolumes were detected that are not explicitly mounted in your fstab.
+
+Because BTRFS snapshots do not cross subvolume boundaries, these unmounted subvolumes (e.g. docker containers, libvirt images) will be SILENTLY OMITTED from your bare-metal backups and clones.
+
+Unmounted subvolumes:
+$DETECTED_UNMOUNTED_SUBVOLS
+
+If you need these backed up, you must mount them explicitly in /etc/fstab."
+    fi
+
     ui_yesno "System Detection" \
         "Your system was scanned. Please verify:
 
@@ -136,8 +153,6 @@ $summary
 
 Is this correct?" || die "Aborted by user at detection review."
 }
-
-
 
 # ── Layer selection ───────────────────────────────────────────────────────────
 
@@ -223,6 +238,7 @@ Use this drive?"; then
             BACKUP_UUID="$DETECTED_BACKUP_UUID"
             BACKUP_DEV="$DETECTED_BACKUP_DEV"
             log_info "Reusing existing backup drive: $BACKUP_MOUNT"
+            _ensure_backup_mounted || return 1
             return 0
         fi
     fi
@@ -237,10 +253,15 @@ Use this drive?"; then
         local fstype="${BASH_REMATCH[4]:-}"
         local mountpoint="${BASH_REMATCH[5]:-}"
 
-        # Skip root and EFI
-        [[ "$dev" == "$DETECTED_ROOT_DEV" ]] && continue
-        [[ "$dev" == "$DETECTED_EFI_DEV" ]] && continue
-        [[ "$fstype" == "swap" ]] && continue
+        # Skip system devices (root, EFI, swap, and all their parents/children)
+        local is_system=false
+        for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+            if [[ "$dev" == "$sys_dev" ]]; then
+                is_system=true
+                break
+            fi
+        done
+        [[ "$is_system" == true ]] && continue
 
         local label="${size}"
         [[ -n "$fstype" ]] && label+="  $fstype"
@@ -252,16 +273,28 @@ Use this drive?"; then
     # Also offer unformatted whole disks
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        local dev size _type
-        read -r dev size _type <<<"$line"
-
-        # Skip if any partition from this disk is already in the list
-        local dominated=false
-        for ((i=0; i<${#choices[@]}; i+=3)); do
-            [[ "${choices[i]}" == "${dev}"* ]] && dominated=true && break
+        [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\" ]] || true
+        local dev="${BASH_REMATCH[1]:-}"
+        local size="${BASH_REMATCH[2]:-}"
+        local fstype="${BASH_REMATCH[4]:-}"
+        
+        # Skip system devices
+        local is_system=false
+        for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+            if [[ "$dev" == "$sys_dev" ]]; then
+                is_system=true
+                break
+            fi
         done
+        [[ "$is_system" == true ]] && continue
 
-        # Offer the whole disk as a "format new" option
+        # Only label a disk unformatted if it has zero children and no filesystem
+        local children
+        children=$(lsblk -no NAME "$dev" 2>/dev/null | wc -l)
+        if (( children > 1 )) || [[ -n "$fstype" ]]; then
+            continue
+        fi
+
         choices+=("$dev" "${size}  (UNFORMATTED — will partition)" "off")
     done <<<"$DETECTED_DRIVES"
 
@@ -304,9 +337,59 @@ Continue?"; then
     BACKUP_UUID=$(blkid -s UUID -o value "$BACKUP_DEV")
 
     if [[ -z "$BACKUP_MOUNT" ]]; then
-        BACKUP_MOUNT=$(ui_inputbox "Mount Point" \
-            "Where should the backup drive be mounted?" \
-            "${DETECTED_HOME}/Backup") || die "Aborted at mount point input."
+        while true; do
+            BACKUP_MOUNT=$(ui_inputbox "Mount Point" \
+                "Where should the backup drive be mounted?\n(Must be an absolute path outside system dirs)" \
+                "${DETECTED_HOME}/Backup") || die "Aborted at mount point input."
+            
+            # Remove trailing slashes
+            BACKUP_MOUNT="${BACKUP_MOUNT%/}"
+            
+            if [[ -z "$BACKUP_MOUNT" ]]; then
+                ui_msgbox "Error" "Mount point cannot be empty."
+                continue
+            fi
+            
+            if [[ "$BACKUP_MOUNT" != /* ]]; then
+                ui_msgbox "Error" "Mount point must be an absolute path starting with '/'."
+                continue
+            fi
+            
+            if [[ "$BACKUP_MOUNT" == *$'\n'* || "$BACKUP_MOUNT" == *$'\t'* || "$BACKUP_MOUNT" == *\\* ]]; then
+                ui_msgbox "Error" "Mount point cannot contain newlines, tabs, or backslashes."
+                continue
+            fi
+            
+            if [[ "$BACKUP_MOUNT" == "/usr"* || "$BACKUP_MOUNT" == "/etc"* || "$BACKUP_MOUNT" == "/var"* || "$BACKUP_MOUNT" == "/boot"* || "$BACKUP_MOUNT" == "/" ]]; then
+                ui_msgbox "Error" "Mount point cannot be in a protected system directory."
+                continue
+            fi
+            
+            if [[ -L "$BACKUP_MOUNT" ]]; then
+                ui_msgbox "Error" "Mount point cannot be a symlink."
+                continue
+            fi
+            
+            if mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
+                local current_dev
+                current_dev=$(findmnt -n -o SOURCE "$BACKUP_MOUNT" 2>/dev/null || echo "")
+                if [[ "$current_dev" != "$BACKUP_DEV" ]]; then
+                    ui_msgbox "Error" "Path is already a mount point for a different device ($current_dev)."
+                    continue
+                fi
+            fi
+            
+            if [[ -d "$BACKUP_MOUNT" ]] && ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
+                local contents
+                contents=$(ls -A "$BACKUP_MOUNT" 2>/dev/null || echo "")
+                if [[ -n "$contents" ]]; then
+                    ui_msgbox "Error" "Directory exists and is not empty. Please choose an empty or new directory."
+                    continue
+                fi
+            fi
+            
+            break
+        done
     fi
 
     _ensure_backup_mounted
@@ -362,10 +445,22 @@ _ensure_backup_mounted() {
 
     # Add to fstab if not already present
     if ! grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" 2>/dev/null; then
-        backup_file /etc/fstab
+        local tmp_fstab
+        tmp_fstab=$(mktemp)
+        cp /etc/fstab "$tmp_fstab"
+        
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
-        printf '\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n' \
-            "$BACKUP_UUID" "$fstab_mount" >>/etc/fstab
+        printf '\n# BEGIN Arch Backup Wizard Mount\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n# END Arch Backup Wizard Mount\n' \
+            "$BACKUP_UUID" "$fstab_mount" >>"$tmp_fstab"
+        
+        if ! findmnt --verify --tab-file "$tmp_fstab" &>/dev/null; then
+            rm -f "$tmp_fstab"
+            die "Generated fstab entry failed verification. Aborting."
+        fi
+        
+        backup_file /etc/fstab
+        mv -T "$tmp_fstab" /etc/fstab
+        chmod 644 /etc/fstab
         log_info "Added backup drive to /etc/fstab"
     fi
 
@@ -391,9 +486,8 @@ run_dry_run_simulation() {
     log_info "══════ Running Wizard Simulation (Dry Run) ══════"
 
     local preview_dir
-    preview_dir="$(effective_home)/arch-backup-wizard-preview"
+    preview_dir=$(mktemp -d /tmp/arch-backup-wizard-preview.XXXXXX)
     mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
-    chown -R "$(effective_user):" "$preview_dir" 2>/dev/null || true
 
     # 1. Collect packages
     local pkg_info=""
@@ -502,7 +596,11 @@ main() {
     require_root
 
     # Set up global wizard log file
-    LOG_FILE="/var/log/arch-backup-wizard.log"
+    if $DRY_RUN; then
+        LOG_FILE="/tmp/arch-backup-wizard-dryrun.log"
+    else
+        LOG_FILE="/var/log/arch-backup-wizard.log"
+    fi
     touch "$LOG_FILE" 2>/dev/null || true
     chown "$(effective_user):" "$LOG_FILE" 2>/dev/null || true
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
@@ -538,7 +636,6 @@ main() {
     # Detect
     ui_infobox "Scanning" "Detecting your system configuration..."
     run_detection
-
 
     # Show results
     show_detection_results
@@ -577,7 +674,10 @@ main() {
         local fn="$2"
         if layer_selected "$layer_id"; then
             set +e
-            "$fn"
+            (
+                set -e
+                "$fn"
+            )
             local ret=$?
             set -e
             if [[ $ret -ne 0 ]]; then

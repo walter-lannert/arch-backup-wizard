@@ -10,7 +10,6 @@
 # 6. Generates the bi-weekly nag reminder script (~/.os_clone_nag.sh)
 # 7. Generates and enables Pika cloud sync user service and timer
 # 8. Adds the nag script to user's shell startup file (idempotent)
-# 9. Uploads Cloud_Recovery_Runbook.txt to cloud if it exists
 # 10. Displays completion summary dialog
 
 setup_layer4() {
@@ -37,6 +36,51 @@ setup_layer4() {
         return 1
     fi
     log_success "Layer 4 packages installed successfully."
+
+    # ── 1.5 Generate Age Encryption Key ─────────────────────────────────────────
+    log_info "Step 1.5: Setting up Age encryption for OS stream..."
+    local age_key_dir="${target_home}/.config/arch-backup-wizard"
+    local age_key_file="${age_key_dir}/cloud_os.key"
+    
+    run_as_user mkdir -p "$age_key_dir" || return 1
+    
+    if [[ ! -f "$age_key_file" ]]; then
+        run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1
+        run_as_user chmod 600 "$age_key_file"
+        log_info "Generated new age key at $age_key_file"
+    else
+        log_info "Using existing age key at $age_key_file"
+    fi
+    
+    local age_pubkey
+    age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file")
+    export AGE_PUBKEY="$age_pubkey"
+    export AGE_KEYFILE="$age_key_file"
+    
+    ui_msgbox "Encryption Key Generated" \
+        "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
+
+PUBLIC KEY:
+$age_pubkey
+
+The private key is currently saved at:
+$age_key_file
+
+[!] CRITICAL WARNING [!]
+If your computer is destroyed or stolen, you WILL need this private key to decrypt your cloud backup.
+
+You MUST back up this private key to an external USB drive, another computer, or a secure Password Manager RIGHT NOW."
+
+    while true; do
+        if ui_yesno "Confirm Key Backup" \
+            "Have you successfully backed up your Age private key to an external USB drive or password manager?
+
+Without this key, your cloud backups are completely unrecoverable in a bare-metal disaster."; then
+            break
+        else
+            ui_msgbox "Action Required" "Please back up the file:\n$age_key_file\n\nTake your time, then press OK to verify again."
+        fi
+    done
 
     # ── 2. Cloud provider selection menu ──────────────────────────────────────
     log_info "Step 2: Selecting cloud storage provider..."
@@ -133,20 +177,34 @@ Would you like to re-run 'rclone config' to retry?
     distro_name="${distro_name// /_}"
 
     local default_os_dir="${distro_name}_BareMetal_Clones"
-    local cloud_os_dir
-    cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
-        "Enter cloud destination folder for bare-metal OS clones:" \
-        "$default_os_dir") || cloud_os_dir="$default_os_dir"
-    cloud_os_dir="${cloud_os_dir:-$default_os_dir}"
+    local cloud_os_dir="$default_os_dir"
+    while true; do
+        cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
+            "Enter cloud destination folder for bare-metal OS clones (a-z, 0-9, -, _, /):" \
+            "$cloud_os_dir") || cloud_os_dir="$default_os_dir"
+        cloud_os_dir="${cloud_os_dir:-$default_os_dir}"
+        if [[ "$cloud_os_dir" =~ ^[a-zA-Z0-9_/-]+$ ]]; then
+            break
+        else
+            ui_msgbox "Error" "Invalid folder name. Only alphanumeric, slashes, dashes, and underscores are allowed."
+        fi
+    done
     cloud_os_dir="${cloud_os_dir#/}"
     cloud_os_dir="${cloud_os_dir%/}"
 
     local default_pika_dir="${distro_name}_Pika_Backup"
-    local cloud_pika_dir
-    cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
-        "Enter cloud destination folder for Pika backups:" \
-        "$default_pika_dir") || cloud_pika_dir="$default_pika_dir"
-    cloud_pika_dir="${cloud_pika_dir:-$default_pika_dir}"
+    local cloud_pika_dir="$default_pika_dir"
+    while true; do
+        cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
+            "Enter cloud destination folder for Pika backups (a-z, 0-9, -, _, /):" \
+            "$cloud_pika_dir") || cloud_pika_dir="$default_pika_dir"
+        cloud_pika_dir="${cloud_pika_dir:-$default_pika_dir}"
+        if [[ "$cloud_pika_dir" =~ ^[a-zA-Z0-9_/-]+$ ]]; then
+            break
+        else
+            ui_msgbox "Error" "Invalid folder name. Only alphanumeric, slashes, dashes, and underscores are allowed."
+        fi
+    done
     cloud_pika_dir="${cloud_pika_dir#/}"
     cloud_pika_dir="${cloud_pika_dir%/}"
 
@@ -159,11 +217,12 @@ Would you like to re-run 'rclone config' to retry?
     export CLOUD_OS_DIR="$cloud_os_dir"
 
     local os_backup_script="${target_home}/.os_cloud_backup.sh"
-    backup_file "$os_backup_script" >/dev/null
+    backup_file "$os_backup_script" >/dev/null || return 1
 
     template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"
     chmod 700 "$os_backup_script"
     chown "$target_user:" "$os_backup_script"
+    record_manifest "$os_backup_script"
     log_success "Generated OS cloud backup script at $os_backup_script"
 
     # ── 6. Generate nag script ────────────────────────────────────────────────
@@ -178,45 +237,43 @@ Would you like to re-run 'rclone config' to retry?
     export DETECTED_TERMINAL_CMD="$term_cmd"
 
     local os_nag_script="${target_home}/.os_clone_nag.sh"
-    backup_file "$os_nag_script" >/dev/null
+    backup_file "$os_nag_script" >/dev/null || return 1
 
     template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"
     chmod 700 "$os_nag_script"
     chown "$target_user:" "$os_nag_script"
+    record_manifest "$os_nag_script"
     log_success "Generated OS clone nag script at $os_nag_script"
 
     # ── 7. Generate and install Pika cloud sync service and timer ─────────────
-    log_info "Step 7: Generating and installing Pika cloud sync systemd user units..."
+    log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
     export BACKUP_MOUNT="$backup_mount"
     export CLOUD_REMOTE="$rclone_remote"
     export CLOUD_PIKA_DIR="$cloud_pika_dir"
 
-    local user_systemd_dir="${target_home}/.config/systemd/user"
-    run_as_user mkdir -p "$user_systemd_dir" || {
-        log_error "Failed to create $user_systemd_dir"
-        return 1
-    }
+    local systemd_dir="/etc/systemd/system"
+    mkdir -p "$systemd_dir"
 
-    local service_file="${user_systemd_dir}/pika-cloud-sync.service"
-    local timer_file="${user_systemd_dir}/pika-cloud-sync.timer"
+    local service_file="${systemd_dir}/pika-cloud-sync.service"
+    local timer_file="${systemd_dir}/pika-cloud-sync.timer"
 
-    backup_file "$service_file" >/dev/null
+    backup_file "$service_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
+    record_manifest "$service_file"
 
-    backup_file "$timer_file" >/dev/null
+    backup_file "$timer_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
+    record_manifest "$timer_file"
 
-    chown "$target_user:" "$service_file" "$timer_file"
-    log_success "Installed user systemd units: $service_file and $timer_file"
+    log_success "Installed systemd units: $service_file and $timer_file"
 
-    log_info "Reloading user systemd daemon and enabling pika-cloud-sync.timer..."
-    local target_uid; target_uid=$(id -u "$target_user")
-    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user daemon-reload >>"$LOG_FILE" 2>&1 || true
+    log_info "Reloading systemd daemon and enabling pika-cloud-sync.timer..."
+    systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
 
-    if run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
+    if systemctl enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
         log_success "Enabled and started pika-cloud-sync.timer"
     else
-        log_warn "systemctl --user enable --now pika-cloud-sync.timer exited with warning. It will activate upon user desktop session login."
+        log_error "Failed to enable pika-cloud-sync.timer"
     fi
 
     # ── 8. Add nag script to user's shell startup ─────────────────────────────
@@ -248,7 +305,7 @@ Would you like to re-run 'rclone config' to retry?
     if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
         log_info "Nag script already configured in $rc_file"
     else
-        backup_file "$rc_file" >/dev/null
+        backup_file "$rc_file" >/dev/null || return 1
         # shellcheck disable=SC2016
         run_as_user bash -c 'cat >> "$1"' -- "$rc_file" <<EOF
 
@@ -259,8 +316,6 @@ EOF
         # chown is no longer needed since it's written as the user
         log_success "Added nag script invocation to $rc_file"
     fi
-
-
 
     # ── 10. Completion summary dialog ────────────────────────────────────────
     log_info "Step 10: Showing completion summary..."
@@ -278,7 +333,7 @@ Installed Components:
   ${os_backup_script}
 • Bi-weekly Nag Script:
   ${os_nag_script} (added to $(basename "$rc_file"))
-• Pika Cloud Sync User Units:
+• Pika Cloud Sync System Units:
   ${timer_file} (weekly sync enabled)
 
 Your offsite cloud backup pipeline is ready."

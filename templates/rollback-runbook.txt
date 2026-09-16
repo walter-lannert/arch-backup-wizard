@@ -114,37 +114,32 @@ Verify the top-level contents:
 
   ls -la /mnt/btrfs-top
 
-You should see '@', along with other top-level subvolumes (such as '@home',
-'@log', '@cache') and the snapshot directory.
+You should see '{{DETECTED_ROOT_SUBVOL_STR}}', along with other top-level subvolumes
+and the snapshot directory.
 
 --------------------------------------------------------------------------------
-STEP 3: CREATE NEW @ SUBVOLUME FROM SNAPSHOT
+STEP 3: CREATE NEW {{DETECTED_ROOT_SUBVOL_STR}} SUBVOLUME FROM SNAPSHOT
 --------------------------------------------------------------------------------
-Locate your chosen snapshot. Depending on your configuration, snapshots are
-stored at /mnt/btrfs-top/.snapshots/NNN/snapshot or /mnt/btrfs-top/@/.snapshots/NNN/snapshot.
+Locate your chosen snapshot. Based on your layout, snapshots are stored at:
+  /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot
 
 Verify the snapshot directory exists:
 
-  sudo ls -ld /mnt/btrfs-top/.snapshots/NNN/snapshot 2>/dev/null || \
-  sudo ls -ld /mnt/btrfs-top/@/.snapshots/NNN/snapshot
+  sudo ls -ld /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot
 
-Create a new writable subvolume '@.new' directly from the snapshot:
+Create a new writable subvolume '{{DETECTED_ROOT_SUBVOL_STR}}.new' directly from the snapshot:
 
-  # If snapshots are at /mnt/btrfs-top/.snapshots:
-  sudo btrfs subvolume snapshot /mnt/btrfs-top/.snapshots/NNN/snapshot /mnt/btrfs-top/@.new
-
-  # (OR if snapshots are inside /mnt/btrfs-top/@/.snapshots):
-  # sudo btrfs subvolume snapshot /mnt/btrfs-top/@/.snapshots/NNN/snapshot /mnt/btrfs-top/@.new
+  sudo btrfs subvolume snapshot /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new
 
 --------------------------------------------------------------------------------
-STEP 4: SWAP SUBVOLUMES (@ AND @.new)
+STEP 4: SWAP SUBVOLUMES ({{DETECTED_ROOT_SUBVOL_STR}} AND {{DETECTED_ROOT_SUBVOL_STR}}.new)
 --------------------------------------------------------------------------------
-Rename the current running '@' subvolume to '@.old', then move '@.new' to '@':
+Rename the current running '{{DETECTED_ROOT_SUBVOL_STR}}' subvolume to '{{DETECTED_ROOT_SUBVOL_STR}}.old', then move '{{DETECTED_ROOT_SUBVOL_STR}}.new' to '{{DETECTED_ROOT_SUBVOL_STR}}':
 
-  sudo mv /mnt/btrfs-top/@ /mnt/btrfs-top/@.old
-  sudo mv /mnt/btrfs-top/@.new /mnt/btrfs-top/@
+  sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}} /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old
+  sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}
 
-At this point, the directory name '@' points to your chosen snapshot.
+At this point, the directory name '{{DETECTED_ROOT_SUBVOL_STR}}' points to your chosen snapshot.
 
 --------------------------------------------------------------------------------
 STEP 5: MIGRATE NESTED SUBVOLUMES (.snapshots & .snapshots_btrbk) [CRITICAL]
@@ -152,42 +147,42 @@ STEP 5: MIGRATE NESTED SUBVOLUMES (.snapshots & .snapshots_btrbk) [CRITICAL]
 [CRITICAL WARNING]
 BTRFS snapshots are NOT recursive. The new '@' subvolume does not contain
 your existing snapshot databases. You MUST migrate .snapshots and .snapshots_btrbk
-from '@.old' into the new '@' so you do not lose snapshot history or break btrbk!
+from '{{DETECTED_ROOT_SUBVOL_STR}}.old' into the new '{{DETECTED_ROOT_SUBVOL_STR}}' so you do not lose snapshot history or break btrbk!
 
 Execute the following migration steps:
 
-1. Clean up empty placeholder directories in the new '@':
-  sudo rmdir /mnt/btrfs-top/@/.snapshots 2>/dev/null || sudo rm -rf /mnt/btrfs-top/@/.snapshots
-  sudo rm -rf /mnt/btrfs-top/@/.snapshots_btrbk && sudo mkdir -p /mnt/btrfs-top/@/.snapshots_btrbk
+1. Clean up empty placeholder directories in the new '{{DETECTED_ROOT_SUBVOL_STR}}':
+  sudo rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || sudo rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  sudo rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk && sudo mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
 
-2. Migrate Snapper's .snapshots subvolume from @.old to @:
-  sudo mv /mnt/btrfs-top/@.old/.snapshots /mnt/btrfs-top/@/.snapshots
+2. Migrate Snapper's .snapshots subvolume from {{DETECTED_ROOT_SUBVOL_STR}}.old to {{DETECTED_ROOT_SUBVOL_STR}}:
+  sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
 
-3. Migrate btrbk snapshots from @.old to @:
+3. Migrate btrbk snapshots from {{DETECTED_ROOT_SUBVOL_STR}}.old to {{DETECTED_ROOT_SUBVOL_STR}}:
   Btrbk snapshots are marked read-only by BTRFS. To move them cleanly,
   temporarily set each snapshot to read-write, move it, and restore read-only:
 
-  for snap in /mnt/btrfs-top/@.old/.snapshots_btrbk/*; do
+  for snap in /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots_btrbk/*; do
       if [ -d "$snap" ]; then
           sname=$(basename "$snap")
           echo "Migrating btrbk snapshot: $sname"
           sudo btrfs property set -ts "$snap" ro false
-          sudo mv "$snap" "/mnt/btrfs-top/@/.snapshots_btrbk/$sname"
-          sudo btrfs property set -ts "/mnt/btrfs-top/@/.snapshots_btrbk/$sname" ro true
+          sudo mv "$snap" "/mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk/$sname"
+          sudo btrfs property set -ts "/mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk/$sname" ro true
       fi
   done
 
-4. Delete any transient systemd container subvolumes if left in @.old:
-  sudo btrfs subvolume delete /mnt/btrfs-top/@.old/var/lib/portables 2>/dev/null || true
-  sudo btrfs subvolume delete /mnt/btrfs-top/@.old/var/lib/machines 2>/dev/null || true
+4. Delete any transient systemd container subvolumes if left in {{DETECTED_ROOT_SUBVOL_STR}}.old:
+  sudo btrfs subvolume delete /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/var/lib/portables 2>/dev/null || true
+  sudo btrfs subvolume delete /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/var/lib/machines 2>/dev/null || true
 
 --------------------------------------------------------------------------------
 STEP 6: SET BTRFS DEFAULT SUBVOLUME
 --------------------------------------------------------------------------------
-Query the subvolume ID of the new '@' and set it as the BTRFS default:
+Query the subvolume ID of the new '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as the BTRFS default:
 
-  NEW_SUBVOL_ID=$(sudo btrfs subvolume list /mnt/btrfs-top | grep ' path @$' | awk '{print $2}')
-  echo "Setting BTRFS default subvolume ID to: $NEW_SUBVOL_ID (@)"
+  NEW_SUBVOL_ID=$(sudo btrfs subvolume list /mnt/btrfs-top | grep ' path {{DETECTED_ROOT_SUBVOL_STR}}$' | awk '{print $2}')
+  echo "Setting BTRFS default subvolume ID to: $NEW_SUBVOL_ID ({{DETECTED_ROOT_SUBVOL_STR}})"
   sudo btrfs subvolume set-default "$NEW_SUBVOL_ID" /mnt/btrfs-top
 
 --------------------------------------------------------------------------------

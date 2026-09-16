@@ -96,14 +96,14 @@ get_layer_packages() {
     1)
         echo "snapper snap-pac"
         case "${DETECTED_BOOTLOADER:-}" in
-        grub) echo "grub-btrfs" ;;
-        limine) echo "AUR:limine-snapper-sync" ;;
+        grub) echo "grub-btrfs inotify-tools" ;;
+        limine) echo "AUR:limine-snapper-sync inotify-tools" ;;
             # systemd-boot has no snapshot integration package
         esac
         ;;
     2) echo "btrbk" ;;
     3) echo "pika-backup" ;;
-    4) echo "rclone pv zstd zenity" ;;
+    4) echo "rclone pv zstd zenity age" ;;
     5) ;; # No packages needed
     esac
 }
@@ -142,6 +142,10 @@ install_layer_packages() {
 
 ensure_dialog() {
     if ! cmd_exists dialog && ! cmd_exists whiptail; then
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+            echo "FATAL: 'dialog' or 'whiptail' is required for the wizard UI. Since --dry-run is active, it will not be installed automatically. Please install it manually: sudo pacman -S dialog" >&2
+            exit 1
+        fi
         echo "Installing 'dialog' (required for the wizard UI)..."
         pacman -S --noconfirm dialog >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2

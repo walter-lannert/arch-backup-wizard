@@ -44,6 +44,105 @@ generate_runbooks() {
     export CLOUD_OS_DIR="${CLOUD_OS_DIR:-${LAYER4_CLOUD_OS_DIR:-}}"
     export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-${LAYER4_CLOUD_PIKA_DIR:-}}"
 
+    # Dynamically detect kernel and microcode for bare-metal EFI restoration
+    local kernel_pkgs
+    kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | grep -E '^linux(-cachyos|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || echo "linux linux-headers")
+    local ucode_pkgs
+    ucode_pkgs=$(pacman -Qsq ucode 2>/dev/null | tr '\n' ' ' || echo "")
+    export KERNEL_PKGS="${kernel_pkgs} ${ucode_pkgs}"
+
+    # Generate dynamic subvolume recovery script block for runbooks
+    local restore_script=""
+    local snap_root_subvol="${DETECTED_ROOT_SUBVOL:-@}"
+    snap_root_subvol="${snap_root_subvol#/}"
+    [[ -z "$snap_root_subvol" ]] && snap_root_subvol="@"
+
+    restore_script+="cat << 'EOF' > /tmp/restore_subvols.sh"$'\n'
+    restore_script+="#!/bin/bash"$'\n'
+    restore_script+="set -e"$'\n'
+    while IFS= read -r sub; do
+        [[ -z "$sub" ]] && continue
+        local sub_safe="${sub//\//_}"
+        restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
+        restore_script+="SNAP=\$(ls -1d /mnt/backup/OS_Backup/${sub_safe}.* 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
+        restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
+        restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
+        restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'
+        restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+        restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$(basename \"\$SNAP\")\" \"/mnt/new_os/$sub\""$'\n'
+        restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$(basename \"\$SNAP\")\""$'\n'
+        restore_script+="else"$'\n'
+        restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
+        restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+        restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        restore_script+="fi"$'\n'
+    done <<< "$DETECTED_SUBVOLUMES"
+    restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
+    restore_script+="EOF"$'\n'
+    restore_script+="chmod +x /tmp/restore_subvols.sh"$'\n'
+    restore_script+="/tmp/restore_subvols.sh"$'\n'
+    
+    # Generate dynamic cloud recovery script block for runbooks
+    local cloud_restore_script=""
+    cloud_restore_script+="cat << 'EOF' > /tmp/cloud_restore_subvols.sh"$'\n'
+    cloud_restore_script+="#!/bin/bash"$'\n'
+    cloud_restore_script+="set -e"$'\n'
+    cloud_restore_script+="echo \"Fetching list of cloud archives...\""$'\n'
+    cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$')"$'\n'
+    cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'
+    
+    while IFS= read -r sub; do
+        [[ -z "$sub" ]] && continue
+        local sub_safe="${sub//\//_}"
+        cloud_restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
+        cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep \"^${sub_safe}\\.\" | sort -r | head -n 1 || true)"$'\n'
+        cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
+        cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
+        cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | pv | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/.btrfs.zst.age$//')"$'\n'
+        cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+        cloud_restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$RECEIVED_NAME\" \"/mnt/new_os/$sub\""$'\n'
+        cloud_restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$RECEIVED_NAME\""$'\n'
+        cloud_restore_script+="else"$'\n'
+        cloud_restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
+        cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+        cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        cloud_restore_script+="fi"$'\n'
+    done <<< "$DETECTED_SUBVOLUMES"
+    cloud_restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
+    cloud_restore_script+="EOF"$'\n'
+    cloud_restore_script+="chmod +x /tmp/cloud_restore_subvols.sh"$'\n'
+    cloud_restore_script+="/tmp/cloud_restore_subvols.sh"$'\n'
+    
+    export CLOUD_RECOVERY_SCRIPT="$cloud_restore_script"
+    export SUBVOL_RECOVERY_SCRIPT="$restore_script"
+    export DETECTED_ROOT_SUBVOL_STR="$snap_root_subvol"
+    
+    # Generate dynamic mount commands
+    local mount_cmds=""
+    local mkdir_cmds=""
+    for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
+        local mnt="${mount_pair%%:*}"
+        local sub="${mount_pair#*:}"
+        if [[ "$mnt" != "/" ]]; then
+            mkdir_cmds+="  mkdir -p /mnt/target${mnt}"$'\n'
+            mount_cmds+="  mount -o subvol=${sub},compress=zstd /dev/NEW_ROOT_PARTITION /mnt/target${mnt}"$'\n'
+        fi
+    done
+    export SUBVOL_MKDIR_CMDS="$mkdir_cmds"
+    export SUBVOL_MOUNT_CMDS="$mount_cmds"
+    
+    # EFI Mount Path
+    export EFI_MOUNT_PATH="${DETECTED_EFI_MOUNT:-/boot}"
+    
+    # Snapshot layout
+    local snap_layout="${snap_root_subvol}/.snapshots"
+    if [[ " $DETECTED_SUBVOLUMES " == *" @snapshots "* ]]; then
+        snap_layout="@snapshots"
+    elif [[ " $DETECTED_SUBVOLUMES " == *" @.snapshots "* ]]; then
+        snap_layout="@.snapshots"
+    fi
+    export SNAPSHOT_LAYOUT_PATH="$snap_layout"
     log_info "Exported template variables for runbook generation:"
     log_info "  ROOT_UUID=$ROOT_UUID"
     log_info "  EFI_UUID=$EFI_UUID"
@@ -73,7 +172,7 @@ generate_runbooks() {
         if [[ -f "$tpl1" ]]; then
             log_info "Generating Layer 1 Rollback Runbook..."
             if [[ -f "$out1" ]]; then
-                backup_file "$out1" >/dev/null
+                backup_file "$out1" >/dev/null || return 1
             fi
             template_render "$tpl1" "$out1"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
@@ -95,7 +194,7 @@ generate_runbooks() {
         if [[ -f "$tpl2" ]]; then
             log_info "Generating Bare-Metal Recovery Runbook..."
             if [[ -f "$out2" ]]; then
-                backup_file "$out2" >/dev/null
+                backup_file "$out2" >/dev/null || return 1
             fi
             template_render "$tpl2" "$out2"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
@@ -117,7 +216,7 @@ generate_runbooks() {
         if [[ -f "$tpl4" ]]; then
             log_info "Generating Cloud Recovery Runbook..."
             if [[ -f "$out4" ]]; then
-                backup_file "$out4" >/dev/null
+                backup_file "$out4" >/dev/null || return 1
             fi
             template_render "$tpl4" "$out4"
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
@@ -125,10 +224,14 @@ generate_runbooks() {
             fi
             generated_runbooks+=("Layer 4: Cloud Recovery Runbook (Cloud_Recovery_Runbook.txt)")
             log_success "Generated Cloud Recovery Runbook: $out4"
-            if [[ -n "${CLOUD_REMOTE:-}" && -n "${CLOUD_OS_DIR:-}" ]]; then
+        if [[ -n "${CLOUD_REMOTE:-}" && -n "${CLOUD_OS_DIR:-}" ]]; then
+            if [[ "${DRY_RUN:-false}" == "true" ]]; then
+                log_info "DRY-RUN: Skipping rclone upload of $out4 to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/"
+            else
                 log_info "Uploading $out4 to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/..."
                 run_as_user rclone copy "$out4" "${CLOUD_REMOTE}${CLOUD_OS_DIR}/" >>"$LOG_FILE" 2>&1 || true
             fi
+        fi
         else
             log_warn "Template not found: $tpl4 — skipping Layer 4 runbook generation"
             missing_templates+=("cloud-recovery-runbook.txt (Layer 4)")

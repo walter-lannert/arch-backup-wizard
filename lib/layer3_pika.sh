@@ -2,15 +2,6 @@
 # arch-backup-wizard/lib/layer3_pika.sh — Layer 3: Pika Backup Setup
 #
 # Sets up Layer 3: Pika Backup (Borg-based hourly home directory backups).
-# 1. Installs pika-backup package (and borg dependency)
-# 2. Creates Borg repository directory on backup drive: Personal/backup-<host>-<user>
-# 3. Initializes Borg repository (unencrypted) if not already initialized
-# 4. Prompts user for backup exclusion directories via ui_checklist
-# 5. Displays guided setup instructions for configuring Pika Backup GUI
-# 6. Optionally launches Pika Backup in background
-# 7. Asks user to confirm completion
-# 8. Validates Pika Backup configuration file exists
-
 setup_layer3() {
     log_info "── Setting up Layer 3: Pika Backup (Borg home backups) ──"
 
@@ -36,9 +27,6 @@ setup_layer3() {
     fi
     log_success "Layer 3 packages installed successfully."
 
-    # 2. Create the Borg repository directory:
-    #    local repo_name="backup-${DETECTED_HOSTNAME}-${DETECTED_USER}"
-    #    local repo_path="${BACKUP_MOUNT}/Personal/${repo_name}"
     local repo_name="backup-${target_host}-${target_user}"
     local repo_path="${backup_mount}/Personal/${repo_name}"
 
@@ -54,9 +42,6 @@ setup_layer3() {
         return 1
     }
 
-    # 3. Initialize the Borg repository if it doesn't already exist:
-    #    - Check if $repo_path/config exists (indicates initialized repo)
-    #    - If not, run as the real user: run_as_user borg init --encryption=none "$repo_path"
     log_info "Step 3: Checking Borg repository initialization..."
     if [[ -f "$repo_path/config" ]]; then
         log_info "Borg repository already initialized at $repo_path"
@@ -133,7 +118,7 @@ Please follow these steps:
 2. Click 'Setup Backup' or the + button
 3. Select 'Local Folder' and browse to:
    $repo_path
-4. Pika will detect the existing Borg repository
+4. Pika will initialize a NEW encrypted repository in this folder. Enter a strong password!
 5. Go to the Exclude tab and add these paths:
 $formatted_exclusions
 6. Set the schedule to 'Hourly'
@@ -156,26 +141,22 @@ $formatted_exclusions
         log_warn "User indicated Pika Backup configuration is not complete."
     fi
 
-    # 8. Validate: check if ~/.config/pika-backup/backup.json exists ($DETECTED_HOME/.config/pika-backup/backup.json)
+    # 8. Validate: check if the Borg repository was initialized by the GUI (Audit-041)
     log_info "Step 8: Validating Pika Backup configuration..."
-    local config_file="${target_home}/.local/share/pika-backup/backup.json"
-    if [[ ! -f "$config_file" ]]; then
-        config_file="${target_home}/.config/pika-backup/backup.json"
-    fi
-    if [[ -f "$config_file" ]]; then
-        log_success "Pika Backup configuration verified: $config_file"
+    if run_as_user borg info "$repo_path" >/dev/null 2>&1; then
+        log_success "Pika Backup repository verified."
         ui_msgbox "Pika Backup — Success" \
             "Pika Backup has been successfully configured!
 
-Configuration file detected:
-  $config_file
+Borg repository verified at:
+  $repo_path
 
 Hourly home directory backups to Borg are now active."
     else
-        log_warn "Pika Backup configuration file not found at: $config_file"
+        log_warn "Pika Backup repository not initialized at: $repo_path"
         ui_msgbox "Pika Backup — Warning" \
-            "Warning: Pika Backup configuration file was not detected:
-  $config_file
+            "Warning: The Borg repository was not initialized at:
+  $repo_path
 
 You can complete the setup at any time by launching
 Pika Backup from your desktop application menu."

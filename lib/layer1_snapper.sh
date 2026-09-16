@@ -66,7 +66,7 @@ setup_layer1() {
         local existing_subvol=""
         local candidate
         for candidate in "@snapshots" "@.snapshots"; do
-            if btrfs subvolume list / 2>/dev/null | sed -n 's/.* path //p' | grep -qx "$candidate"; then
+            if btrfs subvolume list / 2>/dev/null | sed -n 's/.* path //p' | grep -qFx "$candidate"; then
                 existing_subvol="$candidate"
                 break
             fi
@@ -102,7 +102,7 @@ setup_layer1() {
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
-                backup_file /etc/fstab
+                backup_file /etc/fstab || return 1
                 printf '\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n' \
                     "$root_uuid" "$existing_subvol" >>/etc/fstab
                 mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
@@ -115,6 +115,7 @@ setup_layer1() {
         else
             log_info "Using Snapper auto-created /.snapshots subvolume."
             chmod 750 "$SNAP_DIR"
+            echo "/.snapshots" >> /var/lib/arch-backup-wizard/manifest.txt
         fi
     fi
 
@@ -124,8 +125,9 @@ setup_layer1() {
         log_error "Failed to create /etc/snapper/configs"
         return 1
     }
-    backup_file /etc/snapper/configs/root
+    backup_file /etc/snapper/configs/root || return 1
 
+    record_manifest /etc/snapper/configs/root
     cat >/etc/snapper/configs/root <<'EOF'
 # subvolume to snapshot
 SUBVOLUME="/"
@@ -185,7 +187,7 @@ EOF
     # Ensure /etc/conf.d/snapper includes root config if the file exists
     if [[ -f /etc/conf.d/snapper ]]; then
         if ! grep -qE '^SNAPPER_CONFIGS=.*root' /etc/conf.d/snapper; then
-            backup_file /etc/conf.d/snapper
+            backup_file /etc/conf.d/snapper || return 1
             if grep -q '^SNAPPER_CONFIGS=' /etc/conf.d/snapper; then
                 if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper; then
                     sed -i 's/^SNAPPER_CONFIGS=""/SNAPPER_CONFIGS="root"/' /etc/conf.d/snapper
@@ -222,14 +224,23 @@ EOF
             log_error "Failed to enable grub-btrfsd service"
             return 1
         }
+        log_info "Regenerating GRUB configuration to include snapshot menu..."
+        grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG_FILE" 2>&1 || {
+            log_error "Failed to regenerate grub.cfg"
+        }
         log_success "grub-btrfsd service enabled and started."
         ;;
     limine)
-        log_info "Limine bootloader detected; showing limine-snapper-sync info..."
+        log_info "Limine bootloader detected; enabling limine-snapper-sync..."
+        systemctl enable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || {
+            log_error "Failed to enable limine-snapper-sync service"
+            return 1
+        }
+        log_success "limine-snapper-sync service enabled and started."
         ui_msgbox "Limine Bootloader Integration" \
             "Limine snapshot integration is active.
 
-limine-snapper-sync is installed. Whenever a snapshot is created by Snapper or pacman, it will automatically appear in your Limine boot menu."
+limine-snapper-sync is installed and the service is enabled. Whenever a snapshot is created by Snapper or pacman, it will automatically appear in your Limine boot menu."
         ;;
     systemd-boot)
         log_info "systemd-boot detected; showing manual rollback notice..."

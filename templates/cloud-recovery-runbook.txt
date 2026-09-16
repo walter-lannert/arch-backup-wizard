@@ -81,31 +81,31 @@ STEP 2: PARTITION AND FORMAT NEW NVME / SSD
 
      lsblk -o NAME,SIZE,TYPE,FSTYPE,MODEL
 
-   (Assuming target is /dev/nvme0n1; adjust accordingly if /dev/sda or similar).
+   (Assuming target is /dev/NEW_DRIVE; adjust accordingly if /dev/sda or similar).
 
 2. Partition the new drive using cgdisk or parted:
 
    Option A — Interactive (cgdisk):
-     cgdisk /dev/nvme0n1
+     cgdisk /dev/NEW_DRIVE
      - Partition 1: Size: 4096M (4GB), Type: EF00 (EFI System Partition)
      - Partition 2: Size: Remaining space, Type: 8300 (Linux filesystem)
      - Write changes and exit.
 
    Option B — Scripted (parted):
-     parted -s /dev/nvme0n1 mklabel gpt
-     parted -s /dev/nvme0n1 mkpart "EFI" fat32 1MiB 4097MiB
-     parted -s /dev/nvme0n1 set 1 esp on
-     parted -s /dev/nvme0n1 mkpart "ROOT" btrfs 4097MiB 100%
+     parted -s /dev/NEW_DRIVE mklabel gpt
+     parted -s /dev/NEW_DRIVE mkpart "EFI" fat32 1MiB 4097MiB
+     parted -s /dev/NEW_DRIVE set 1 esp on
+     parted -s /dev/NEW_DRIVE mkpart "ROOT" btrfs 4097MiB 100%
 
 3. Format the partitions:
 
-   mkfs.fat -F 32 -n EFI /dev/nvme0n1p1
-   mkfs.btrfs -f -L ARCH_ROOT /dev/nvme0n1p2
+   mkfs.fat -F 32 -n EFI /dev/NEW_EFI_PARTITION
+   mkfs.btrfs -f -L ARCH_ROOT /dev/NEW_ROOT_PARTITION
 
 4. Capture new partition UUIDs:
 
-   NEW_EFI_UUID=$(blkid -s UUID -o value /dev/nvme0n1p1)
-   NEW_ROOT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p2)
+   NEW_EFI_UUID=$(blkid -s UUID -o value /dev/NEW_EFI_PARTITION)
+   NEW_ROOT_UUID=$(blkid -s UUID -o value /dev/NEW_ROOT_PARTITION)
 
    echo "New EFI UUID:  $NEW_EFI_UUID"
    echo "New Root UUID: $NEW_ROOT_UUID"
@@ -117,7 +117,7 @@ STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
 1. Mount the new drive's top-level BTRFS root:
 
    mkdir -p /mnt/new_os
-   mount -o subvol=/,compress=zstd /dev/nvme0n1p2 /mnt/new_os
+   mount -o subvol=/,compress=zstd /dev/NEW_ROOT_PARTITION /mnt/new_os
 
 2. Set up rclone:
 
@@ -129,75 +129,38 @@ STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
      rclone config
      Create a new remote matching: {{CLOUD_REMOTE}} (without trailing colon)
 
-3. Verify access to the cloud OS backup directory:
+3. Restore your Age private key:
+   Retrieve your saved `cloud_os.key` from your password manager and save it:
+     nano /root/cloud_os.key
+     chmod 600 /root/cloud_os.key
+
+4. Verify access to the cloud OS backup directory:
 
    rclone lsf {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/
 
-   You should see: Cloud_Archive.btrfs.zst
+5. Restore all subvolumes from the OS cloud clone archives.
 
-4. Stream download, decompress, and receive directly to BTRFS:
-   [CRITICAL: In-flight streaming avoids requiring double disk space]
+We have generated an automated script that will find the latest cloud archives for each
+of your system subvolumes ({{SUBVOL_LAYOUT}}), securely stream them, decrypt them, and set them up as writable subvolumes.
 
-   rclone cat {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/Cloud_Archive.btrfs.zst | zstdcat | btrfs receive /mnt/new_os/
+[CRITICAL: In-flight streaming avoids requiring double disk space on the new drive]
 
-   (Optional: To view live transfer rate with 'pv' if installed:
-    rclone cat {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/Cloud_Archive.btrfs.zst | pv | zstdcat | btrfs receive /mnt/new_os/ )
+Run the following block of code in your terminal:
 
-5. Inspect the received subvolume name:
+{{CLOUD_RECOVERY_SCRIPT}}
+Create snapshot placeholder directories inside the new root:
 
-   ls -ld /mnt/new_os/*
-
-   Identify the received subvolume name (usually Cloud_Archive or similar).
-   In the following steps, let this be <RECEIVED_NAME>.
-
-
---------------------------------------------------------------------------------
-STEP 4: SNAPSHOT READ-ONLY CLONE TO WRITABLE '@' SUBVOLUME
---------------------------------------------------------------------------------
-Because received BTRFS streams are read-only, create a writable root subvolume
-named '@':
-
-  # Replace Cloud_Archive with actual received subvolume name if different:
-  btrfs subvolume snapshot /mnt/new_os/Cloud_Archive /mnt/new_os/@
-
-Verify that '@' exists:
-
-  btrfs subvolume list /mnt/new_os
+  mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
+  chmod 750 /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
 
 
 --------------------------------------------------------------------------------
-STEP 5: DELETE READ-ONLY RECEIVED SUBVOLUME
+STEP 4: SET '{{DETECTED_ROOT_SUBVOL_STR}}' AS BTRFS DEFAULT SUBVOLUME
 --------------------------------------------------------------------------------
-Delete the read-only received subvolume to reclaim storage:
+Find the subvolume ID of '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as the default:
 
-  btrfs subvolume delete /mnt/new_os/Cloud_Archive
-
-
---------------------------------------------------------------------------------
-STEP 6: RECREATE SUBVOLUME LAYOUT BASED ON {{SUBVOL_LAYOUT}}
---------------------------------------------------------------------------------
-Recreate the subvolumes matching your original system ({{SUBVOL_LAYOUT}}):
-
-  btrfs subvolume create /mnt/new_os/@home
-  btrfs subvolume create /mnt/new_os/@log
-  btrfs subvolume create /mnt/new_os/@cache
-  btrfs subvolume create /mnt/new_os/@tmp
-  btrfs subvolume create /mnt/new_os/@srv
-  btrfs subvolume create /mnt/new_os/@root
-
-Create snapshot placeholder directories:
-
-  mkdir -p /mnt/new_os/@/.snapshots
-  mkdir -p /mnt/new_os/@/.snapshots_btrbk
-  chmod 750 /mnt/new_os/@/.snapshots
-
-
---------------------------------------------------------------------------------
-STEP 7: SET '@' AS BTRFS DEFAULT SUBVOLUME
---------------------------------------------------------------------------------
-Find the subvolume ID of '@' and set it as the default:
-
-  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep ' path @$' | awk '{print $2}')
+  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep ' path {{DETECTED_ROOT_SUBVOL_STR}}$' | awk '{print $2}')
   echo "Setting default subvolume to ID: $ROOT_SUBVOL_ID"
   btrfs subvolume set-default "$ROOT_SUBVOL_ID" /mnt/new_os
 
@@ -207,33 +170,27 @@ Unmount the top-level mount point:
 
 
 --------------------------------------------------------------------------------
-STEP 8: MOUNT ALL SUBVOLUMES FOR CHROOT
+STEP 5: MOUNT ALL SUBVOLUMES FOR CHROOT
 --------------------------------------------------------------------------------
-Mount '@' as the root filesystem:
+Mount '{{DETECTED_ROOT_SUBVOL_STR}}' as the root filesystem:
 
   mkdir -p /mnt/target
-  mount -o subvol=@,compress=zstd /dev/nvme0n1p2 /mnt/target
+  mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd /dev/NEW_ROOT_PARTITION /mnt/target
 
-Create mount points and mount nested subvolumes:
+Create mount points for nested subvolumes:
 
-  mkdir -p /mnt/target/{home,var/log,var/cache,tmp,srv,root}
+{{SUBVOL_MKDIR_CMDS}}
+Mount the corresponding subvolumes:
 
-  mount -o subvol=@home,compress=zstd /dev/nvme0n1p2 /mnt/target/home
-  mount -o subvol=@log,compress=zstd /dev/nvme0n1p2 /mnt/target/var/log
-  mount -o subvol=@cache,compress=zstd /dev/nvme0n1p2 /mnt/target/var/cache
-  mount -o subvol=@tmp,compress=zstd /dev/nvme0n1p2 /mnt/target/tmp
-  mount -o subvol=@srv,compress=zstd /dev/nvme0n1p2 /mnt/target/srv
-  mount -o subvol=@root,compress=zstd /dev/nvme0n1p2 /mnt/target/root
+{{SUBVOL_MOUNT_CMDS}}
+Mount the new EFI partition:
 
-Mount the EFI partition:
-
-  mkdir -p /mnt/target/boot /mnt/target/efi
-  mount /dev/nvme0n1p1 /mnt/target/boot 2>/dev/null || \
-  mount /dev/nvme0n1p1 /mnt/target/efi 2>/dev/null
+  mkdir -p /mnt/target{{EFI_MOUNT_PATH}}
+  mount /dev/NEW_EFI_PARTITION /mnt/target{{EFI_MOUNT_PATH}} 2>/dev/null
 
 
 --------------------------------------------------------------------------------
-STEP 9: UPDATE ALL UUIDs IN CONFIGURATION FILES [CRITICAL]
+STEP 6: UPDATE ALL UUIDs IN CONFIGURATION FILES [CRITICAL]
 --------------------------------------------------------------------------------
 [CRITICAL WARNING: DRIVE UUID MISMATCH]
 Original Root UUID: {{ROOT_UUID}}
@@ -263,37 +220,44 @@ New EFI UUID:       $NEW_EFI_UUID
 
 
 --------------------------------------------------------------------------------
-STEP 10: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
+STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 --------------------------------------------------------------------------------
 1. Enter the chroot environment:
 
      arch-chroot /mnt/target
 
-2. Regenerate initramfs image:
+2. Rebuild the EFI partition by reinstalling your kernel and microcode packages:
+   [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz), microcode, and automatically recreates systemd-boot loader entries via pacman hooks]
+
+     pacman -S --noconfirm {{KERNEL_PKGS}}
+
+3. Ensure initramfs is fully generated (pacman hooks usually do this, but force it to be safe):
 
      mkinitcpio -P
 
-3. Rebuild bootloader according to: {{BOOTLOADER}}
+4. Rebuild bootloader according to: {{BOOTLOADER}}
 
    - If Limine:
        limine-mkinitcpio
 
    - If GRUB:
-       grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+       grub-install --target=x86_64-efi --efi-directory={{EFI_MOUNT_PATH}} --bootloader-id=GRUB --recheck
        grub-mkconfig -o /boot/grub/grub.cfg
 
    - If systemd-boot:
-       bootctl --path=/boot install
+       bootctl --path={{EFI_MOUNT_PATH}} install
 
 
 --------------------------------------------------------------------------------
-STEP 11: RESTORE HOME DATA FROM CLOUD PIKA / BORG REPO
+STEP 8: RESTORE HOME DATA FROM CLOUD PIKA / BORG REPO
 --------------------------------------------------------------------------------
 The OS clone restored the base system and applications. Personal data
 (/home/{{USERNAME}}) is stored in your cloud Borg repository at:
 {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}
 
-1. Outside or inside chroot, mount the cloud repository using rclone:
+1. Exit the chroot environment (type 'exit').
+
+2. Outside the chroot, mount the cloud repository using rclone:
 
    mkdir -p /mnt/cloud_repo
    rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon
@@ -302,25 +266,24 @@ The OS clone restored the base system and applications. Personal data
    sleep 3
    ls -la /mnt/cloud_repo
 
-2. Locate your Borg repository:
+3. Locate your Borg repository:
    Depending on whether the entire repository was synced or a subfolder:
    REPO_PATH="/mnt/cloud_repo"
    [ -d "/mnt/cloud_repo/backup-{{HOSTNAME_VAL}}-{{USERNAME}}" ] && \
      REPO_PATH="/mnt/cloud_repo/backup-{{HOSTNAME_VAL}}-{{USERNAME}}"
 
-3. List available archives in the Borg repository:
+4. List available archives in the Borg repository:
 
    borg list "$REPO_PATH"
 
-4. Extract files into the target home directory:
+5. Extract files into the new root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
 
-   cd /mnt/target/home/{{USERNAME}} 2>/dev/null || cd /home/{{USERNAME}}
+   cd /mnt/target
    borg extract --progress "$REPO_PATH::<ARCHIVE_NAME>"
 
-5. Restore correct user ownership:
+6. Restore correct user ownership:
 
-   chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}} 2>/dev/null || \
-   chown -R {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}
+   chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}}
 
 6. Unmount the cloud repository:
 
@@ -328,7 +291,7 @@ The OS clone restored the base system and applications. Personal data
 
 
 --------------------------------------------------------------------------------
-STEP 12: CLEANUP AND REBOOT
+STEP 9: CLEANUP AND REBOOT
 --------------------------------------------------------------------------------
 1. Exit chroot if still inside:
 

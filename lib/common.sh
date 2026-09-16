@@ -100,11 +100,34 @@ die() {
 }
 
 # ── File helpers ──────────────────────────────────────────────────────────────
+MANIFEST_FILE="/var/lib/arch-backup-wizard/manifest.txt"
+
+# Record a file created by the wizard for uninstallation
+record_manifest() {
+    local file="$1"
+    mkdir -p "$(dirname "$MANIFEST_FILE")"
+    if ! grep -Fxq "$file" "$MANIFEST_FILE" 2>/dev/null; then
+        echo "$file" >> "$MANIFEST_FILE"
+    fi
+}
 
 # Back up a file before modifying it (timestamped .bak copy)
+# Prompts for confirmation if the file already exists but is NOT tracked in the manifest
 backup_file() {
     local file="$1"
     if [[ -f "$file" ]]; then
+        # Check if we own this file
+        if [[ ! -f "$MANIFEST_FILE" ]] || ! grep -Fxq "$file" "$MANIFEST_FILE" 2>/dev/null; then
+            if ! ui_yesno "Overwrite Existing Configuration?" \
+                "The file '$file' already exists and was not created by the wizard.
+
+Overwriting it may destroy your custom settings (a backup will be saved).
+Do you want to proceed and overwrite it?"; then
+                log_warn "User aborted overwrite of unmanaged file: $file"
+                return 1
+            fi
+        fi
+
         local backup
         backup="${file}.bak.$(date +%s)"
         cp -p "$file" "$backup"
@@ -169,11 +192,6 @@ get_real_user() {
     echo "${SUDO_USER:-$(logname 2>/dev/null || echo "$USER")}"
 }
 
-# Get the real user's home directory
-get_real_home() {
-    getent passwd "$(effective_user)" | cut -d: -f6
-}
-
 # Canonical user/home resolution for layer modules.
 # Prefers DETECTED_USER / DETECTED_HOME (set by detect.sh after run_detection),
 # falling back to the get_real_* helpers. Use these instead of spelling out the
@@ -182,7 +200,7 @@ effective_user() {
     echo "${DETECTED_USER:-$(get_real_user)}"
 }
 effective_home() {
-    echo "${DETECTED_HOME:-$(get_real_home 2>/dev/null || echo "${HOME:-/root}")}"
+    echo "${DETECTED_HOME:-$(getent passwd "$(effective_user)" | cut -d: -f6 2>/dev/null || echo "${HOME:-/root}")}"
 }
 
 # Run a command as the real (non-root) user

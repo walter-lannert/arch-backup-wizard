@@ -21,47 +21,50 @@ setup_layer2() {
         log_error "Failed to install Layer 2 packages."
         return 1
     fi
-
-    # 2. Create the btrbk snapshot directory on root if it doesn't exist:
-    #    mkdir -p "$SNAP_DIR_BTRBK"
-    log_info "Step 2: Ensuring snapshot directory $SNAP_DIR_BTRBK exists..."
-    mkdir -p "$SNAP_DIR_BTRBK" || {
-        log_error "Failed to create $SNAP_DIR_BTRBK"
-        return 1
-    }
-
-    # 3. Create the OS_Backup target directory on the backup drive:
-    #    mkdir -p "$BACKUP_MOUNT/OS_Backup"
     log_info "Step 3: Ensuring backup target directory $backup_mount/OS_Backup exists..."
     mkdir -p "$backup_mount/OS_Backup" || {
         log_error "Failed to create $backup_mount/OS_Backup"
         return 1
     }
 
-    # 4. Write /etc/btrbk/btrbk.conf (back up existing one first with backup_file)
     log_info "Step 4: Writing /etc/btrbk/btrbk.conf..."
     mkdir -p "$(dirname "$BTRBK_CONF")" || {
         log_error "Failed to create $(dirname "$BTRBK_CONF")"
         return 1
     }
-    backup_file "$BTRBK_CONF" >/dev/null
+    backup_file "$BTRBK_CONF" >/dev/null || return 1
 
+    record_manifest "$BTRBK_CONF"
     cat <<EOF >"$BTRBK_CONF"
 transaction_log            /var/log/btrbk.log
-snapshot_dir               ${SNAP_DIR_BTRBK#/}
 snapshot_preserve_min      ${BTRBK_SNAP_MIN}
 snapshot_preserve          ${BTRBK_SNAP}
 target_preserve_min        ${BTRBK_TARGET_MIN}
 target_preserve            ${BTRBK_TARGET}
+EOF
 
-volume /
+    for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
+        local mnt="${mount_pair%%:*}"
+        local subvol="${mount_pair##*:}"
+        local subvol_safe="${subvol//\//_}"
+        local snap_dir="${mnt%/}/${SNAP_DIR_BTRBK#/}"
+        
+        # Make sure the snapshot directory exists
+        if [[ ! -d "$snap_dir" ]]; then
+            mkdir -p "$snap_dir" 2>/dev/null || log_error "Failed to create snapshot directory: $snap_dir"
+        fi
+
+        cat <<EOF >>"$BTRBK_CONF"
+
+volume "${mnt}"
+  snapshot_dir               "${SNAP_DIR_BTRBK#/}"
+  snapshot_name              "${subvol_safe}"
   subvolume .
   target send-receive      "${backup_mount}/OS_Backup"
 EOF
+    done
     log_success "Created $BTRBK_CONF"
 
-    # 5. Create systemd drop-in override at /etc/systemd/system/btrbk.service.d/override.conf:
-    #    Create the directory first: mkdir -p /etc/systemd/system/btrbk.service.d
     log_info "Step 5: Configuring systemd drop-in override for btrbk.service..."
     local override_dir="$BTRBK_OVERRIDE_DIR"
     local override_conf="$override_dir/override.conf"
@@ -70,11 +73,13 @@ EOF
         log_error "Failed to create $override_dir"
         return 1
     }
-    backup_file "$override_conf" >/dev/null
+    backup_file "$override_conf" >/dev/null || return 1
 
+    record_manifest "$override_conf"
+    local escaped_mount="${backup_mount// /\\x20}"
     cat <<EOF >"$override_conf"
 [Unit]
-RequiresMountsFor="${backup_mount}"
+RequiresMountsFor=${escaped_mount}
 
 [Service]
 Nice=19
@@ -89,17 +94,12 @@ EOF
         return 1
     }
 
-    # 7. Enable the timer: systemctl enable --now btrbk.timer
     log_info "Step 7: Enabling and starting btrbk.timer..."
     systemctl enable --now btrbk.timer >>"$LOG_FILE" 2>&1 || {
         log_error "Failed to enable btrbk.timer"
         return 1
     }
 
-    # 8. Ask the user if they want to run the first backup now (ui_yesno). If yes:
-    #    - Show ui_infobox saying backup is running
-    #    - Run: btrbk run (log output to $LOG_FILE)
-    #    - Show result
     log_info "Step 8: Checking if user wants to perform initial backup..."
     if ui_yesno "Run Initial Backup" \
         "Would you like to run the first btrbk backup now?
