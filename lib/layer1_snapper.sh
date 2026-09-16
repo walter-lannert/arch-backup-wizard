@@ -66,7 +66,7 @@ setup_layer1() {
         local existing_subvol=""
         local candidate
         for candidate in "@snapshots" "@.snapshots"; do
-            if btrfs subvolume list / 2>/dev/null | sed -n 's/.* path //p' | grep -qx "$candidate"; then
+            if btrfs subvolume list / 2>/dev/null | sed -n 's/.* path //p' | grep -qFx "$candidate"; then
                 existing_subvol="$candidate"
                 break
             fi

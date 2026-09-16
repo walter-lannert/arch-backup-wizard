@@ -62,9 +62,9 @@ EOF
 
         cat <<EOF >>"$BTRBK_CONF"
 
-volume ${mnt}
-  snapshot_dir               ${SNAP_DIR_BTRBK#/}
-  snapshot_name              ${subvol_safe}
+volume "${mnt}"
+  snapshot_dir               "${SNAP_DIR_BTRBK#/}"
+  snapshot_name              "${subvol_safe}"
   subvolume .
   target send-receive      "${backup_mount}/OS_Backup"
 EOF

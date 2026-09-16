@@ -104,9 +104,10 @@ This will NOT remove:
     home="$(effective_home)"
 
     # Also clean up any lingering local archives from interrupted backups
-    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
+    if [[ -n "${BACKUP_MOUNT:-}" && -d "${BACKUP_MOUNT}/Personal" ]]; then
         rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst" 2>/dev/null || true
         rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst.age" 2>/dev/null || true
+        rm -f "${BACKUP_MOUNT}/Personal/"*.btrfs.zst.age 2>/dev/null || true
     fi
 
     log_info "Reloading systemd daemon..."
