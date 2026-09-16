@@ -171,11 +171,7 @@ run_validation() {
             failure_issues+=("Layer 3: pika-backup package not installed")
         fi
 
-        if [[ ! -f "${user_home}/.local/share/pika-backup/backup.json" && ! -f "${user_home}/.config/pika-backup/backup.json" ]]; then
-            l3_ok=false
-            log_warn "Layer 3 check failed: ${user_home}/.config/pika-backup/backup.json does not exist"
-            failure_issues+=("Layer 3: Pika backup.json config missing")
-        fi
+
 
         if [[ -z "${BACKUP_MOUNT:-}" || ! -d "${BACKUP_MOUNT}/Personal" ]]; then
             l3_ok=false

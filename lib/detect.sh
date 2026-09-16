@@ -115,6 +115,7 @@ detect_btrfs_subvolumes() {
                 if [[ "$opts" =~ subvol=([^,]+) ]]; then
                     local subvol="${BASH_REMATCH[1]}"
                     subvol="${subvol#/}"
+                    [[ -z "$subvol" ]] && subvol="@"
                     
                     if [[ "$subvol" != *".snapshots"* ]]; then
                         subvol_list+=("$subvol")

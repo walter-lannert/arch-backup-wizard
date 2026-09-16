@@ -52,8 +52,10 @@ This will NOT remove:
         sed -i 's/\bSNAPPER_CONFIGS="root\b/SNAPPER_CONFIGS="/g; s/\bSNAPPER_CONFIGS="\(.*\) root\b/SNAPPER_CONFIGS="\1/g; s/\bSNAPPER_CONFIGS="root \([^"]*\)"/SNAPPER_CONFIGS="\1"/g' /etc/conf.d/snapper
     fi
 
-    if grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
-        sed -i -z 's/\n# Arch Backup Wizard Mount\n[^\n]*\n//g' /etc/fstab
+    if grep -q '# BEGIN Arch Backup Wizard Mount' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
+        # Handle legacy uninstalls and new BEGIN/END tags
+        sed -i -z 's/\n# Arch Backup Wizard Mount\n[^\n]*\n//g' /etc/fstab 2>/dev/null || true
+        sed -i '/# BEGIN Arch Backup Wizard Mount/,/# END Arch Backup Wizard Mount/d' /etc/fstab 2>/dev/null || true
         log_info "Removed managed entry from /etc/fstab"
     fi
 
@@ -70,7 +72,13 @@ This will NOT remove:
                     if [[ "$file" == "/.snapshots" ]] && cmd_exists snapper; then
                         snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
                     fi
-                    btrfs subvolume delete "$file" >>"$LOG_FILE" 2>&1 || true
+                    # Audit-040: Only delete subvolumes if they are empty to protect user data
+                    # Btrfs fails to delete if there are nested subvolumes, but checking explicitly is safer
+                    if ! btrfs subvolume list -o "$file" 2>/dev/null | grep -q .; then
+                        btrfs subvolume delete "$file" >>"$LOG_FILE" 2>&1 || true
+                    else
+                        log_warn "Subvolume $file contains nested subvolumes (e.g., user snapshots). Skipping deletion to prevent data loss."
+                    fi
                 elif [[ -d "$file" ]]; then
                     rmdir "$file" 2>/dev/null || true
                 else

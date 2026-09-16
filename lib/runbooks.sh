@@ -55,6 +55,7 @@ generate_runbooks() {
     local restore_script=""
     local snap_root_subvol="${DETECTED_ROOT_SUBVOL:-@}"
     snap_root_subvol="${snap_root_subvol#/}"
+    [[ -z "$snap_root_subvol" ]] && snap_root_subvol="@"
 
     restore_script+="cat << 'EOF' > /tmp/restore_subvols.sh"$'\n'
     restore_script+="#!/bin/bash"$'\n'

@@ -156,26 +156,22 @@ $formatted_exclusions
         log_warn "User indicated Pika Backup configuration is not complete."
     fi
 
-    # 8. Validate: check if ~/.config/pika-backup/backup.json exists ($DETECTED_HOME/.config/pika-backup/backup.json)
+    # 8. Validate: check if the Borg repository was initialized by the GUI (Audit-041)
     log_info "Step 8: Validating Pika Backup configuration..."
-    local config_file="${target_home}/.local/share/pika-backup/backup.json"
-    if [[ ! -f "$config_file" ]]; then
-        config_file="${target_home}/.config/pika-backup/backup.json"
-    fi
-    if [[ -f "$config_file" ]]; then
-        log_success "Pika Backup configuration verified: $config_file"
+    if run_as_user borg info "$repo_path" >/dev/null 2>&1; then
+        log_success "Pika Backup repository verified."
         ui_msgbox "Pika Backup — Success" \
             "Pika Backup has been successfully configured!
 
-Configuration file detected:
-  $config_file
+Borg repository verified at:
+  $repo_path
 
 Hourly home directory backups to Borg are now active."
     else
-        log_warn "Pika Backup configuration file not found at: $config_file"
+        log_warn "Pika Backup repository not initialized at: $repo_path"
         ui_msgbox "Pika Backup — Warning" \
-            "Warning: Pika Backup configuration file was not detected:
-  $config_file
+            "Warning: The Borg repository was not initialized at:
+  $repo_path
 
 You can complete the setup at any time by launching
 Pika Backup from your desktop application menu."
