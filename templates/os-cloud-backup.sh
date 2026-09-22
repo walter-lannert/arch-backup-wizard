@@ -4,7 +4,7 @@ set -euo pipefail
 echo "Starting Bare-Metal OS Cloud Backup..."
 
 cleanup_files=()
-trap '[[ ${#cleanup_files[@]} -gt 0 ]] && rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT
+trap '[[ ${#cleanup_files[@]} -gt 0 ]] && sudo rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT
 
 # Authenticate sudo cleanly first so the password prompt isn't overwritten by pv
 sudo -v || { echo "Error: sudo authentication failed."; read -p "Press Enter to close this window..."; exit 1; }
@@ -25,14 +25,14 @@ while IFS= read -r sub; do
 
     # Package, compress, and encrypt the snapshot
     echo "Compressing and encrypting $LATEST_SNAP (showing raw data processed)..."
-    sudo btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | zstd -T0 | age -r "{{AGE_PUBKEY}}" >"$ARCHIVE_PATH"
+    sudo btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | zstd -T0 | age -r "{{AGE_PUBKEY}}" | sudo tee "$ARCHIVE_PATH" > /dev/null
 
     # Sync to cloud storage
     echo "Uploading $LATEST_SNAP to cloud storage..."
     rclone copy "$ARCHIVE_PATH" "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}" -P
 
     # Clean up local encrypted copy
-    rm -f "$ARCHIVE_PATH"
+    sudo rm -f "$ARCHIVE_PATH"
 done <<< "{{DETECTED_SUBVOLUMES}}"
 
 echo "Success! Your OS clone is safe in the cloud."

@@ -64,7 +64,7 @@ generate_runbooks() {
         [[ -z "$sub" ]] && continue
         local sub_safe="${sub//\//_}"
         restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        restore_script+="SNAP=\$(ls -1d /mnt/backup/OS_Backup/${sub_safe}.* 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
+        restore_script+="SNAP=\$(ls -1d \"/mnt/backup/OS_Backup/${sub_safe}.\"* 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
         restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
         restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'
@@ -125,8 +125,8 @@ generate_runbooks() {
         local mnt="${mount_pair%%:*}"
         local sub="${mount_pair#*:}"
         if [[ "$mnt" != "/" ]]; then
-            mkdir_cmds+="  mkdir -p /mnt/target${mnt}"$'\n'
-            mount_cmds+="  mount -o subvol=${sub},compress=zstd /dev/NEW_ROOT_PARTITION /mnt/target${mnt}"$'\n'
+            mkdir_cmds+="  mkdir -p \"/mnt/target${mnt}\""$'\n'
+            mount_cmds+="  mount -o subvol=\"${sub}\",compress=zstd /dev/NEW_ROOT_PARTITION \"/mnt/target${mnt}\""$'\n'
         fi
     done
     export SUBVOL_MKDIR_CMDS="$mkdir_cmds"
