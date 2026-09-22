@@ -36,7 +36,7 @@ setup_layer3() {
         return 1
     }
     chown "$target_user:" "${backup_mount}/Personal" 2>/dev/null || true
-    
+
     run_as_user mkdir -p "$repo_path" || {
         log_error "Failed to create $repo_path as user $target_user"
         return 1

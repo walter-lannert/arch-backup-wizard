@@ -81,7 +81,7 @@ generate_runbooks() {
     restore_script+="EOF"$'\n'
     restore_script+="chmod +x /tmp/restore_subvols.sh"$'\n'
     restore_script+="/tmp/restore_subvols.sh"$'\n'
-    
+
     # Generate dynamic cloud recovery script block for runbooks
     local cloud_restore_script=""
     cloud_restore_script+="cat << 'EOF' > /tmp/cloud_restore_subvols.sh"$'\n'
@@ -90,7 +90,7 @@ generate_runbooks() {
     cloud_restore_script+="echo \"Fetching list of cloud archives...\""$'\n'
     cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$')"$'\n'
     cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'
-    
+
     while IFS= read -r sub; do
         [[ -z "$sub" ]] && continue
         local sub_safe="${sub//\//_}"
@@ -113,11 +113,11 @@ generate_runbooks() {
     cloud_restore_script+="EOF"$'\n'
     cloud_restore_script+="chmod +x /tmp/cloud_restore_subvols.sh"$'\n'
     cloud_restore_script+="/tmp/cloud_restore_subvols.sh"$'\n'
-    
+
     export CLOUD_RECOVERY_SCRIPT="$cloud_restore_script"
     export SUBVOL_RECOVERY_SCRIPT="$restore_script"
     export DETECTED_ROOT_SUBVOL_STR="$snap_root_subvol"
-    
+
     # Generate dynamic mount commands
     local mount_cmds=""
     local mkdir_cmds=""
@@ -131,10 +131,10 @@ generate_runbooks() {
     done
     export SUBVOL_MKDIR_CMDS="$mkdir_cmds"
     export SUBVOL_MOUNT_CMDS="$mount_cmds"
-    
+
     # EFI Mount Path
     export EFI_MOUNT_PATH="${DETECTED_EFI_MOUNT:-/boot}"
-    
+
     # Snapshot layout
     local snap_layout="${snap_root_subvol}/.snapshots"
     if [[ " $DETECTED_SUBVOLUMES " == *" @snapshots "* ]]; then

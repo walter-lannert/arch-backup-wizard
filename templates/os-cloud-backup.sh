@@ -22,15 +22,15 @@ while IFS= read -r sub; do
 
     ARCHIVE_PATH="{{BACKUP_MOUNT}}/OS_Backup/${LATEST_SNAP}.btrfs.zst.age"
     cleanup_files+=("$ARCHIVE_PATH")
-    
+
     # Package, compress, and encrypt the snapshot
     echo "Compressing and encrypting $LATEST_SNAP (showing raw data processed)..."
     sudo btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | zstd -T0 | age -r "{{AGE_PUBKEY}}" >"$ARCHIVE_PATH"
-    
+
     # Sync to cloud storage
     echo "Uploading $LATEST_SNAP to cloud storage..."
     rclone copy "$ARCHIVE_PATH" "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}" -P
-    
+
     # Clean up local encrypted copy
     rm -f "$ARCHIVE_PATH"
 done <<< "{{DETECTED_SUBVOLUMES}}"

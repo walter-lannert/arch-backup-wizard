@@ -92,7 +92,7 @@ This will NOT remove:
                         log_info "Restored previous state of $file from backup"
                     fi
                 fi
-                
+
                 # Clean up empty parent directories like /etc/systemd/system/btrbk.service.d
                 local parent_dir
                 parent_dir=$(dirname "$file")

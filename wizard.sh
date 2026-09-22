@@ -289,7 +289,7 @@ Use this drive?"; then
         local dev="${BASH_REMATCH[1]:-}"
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
-        
+
         # Skip system devices
         local is_system=false
         for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
@@ -353,35 +353,35 @@ Continue?"; then
             BACKUP_MOUNT=$(ui_inputbox "Mount Point" \
                 "Where should the backup drive be mounted?\n(Must be an absolute path outside system dirs)" \
                 "${DETECTED_HOME}/Backup") || die "Aborted at mount point input."
-            
+
             # Remove trailing slashes
             BACKUP_MOUNT="${BACKUP_MOUNT%/}"
-            
+
             if [[ -z "$BACKUP_MOUNT" ]]; then
                 ui_msgbox "Error" "Mount point cannot be empty."
                 continue
             fi
-            
+
             if [[ "$BACKUP_MOUNT" != /* ]]; then
                 ui_msgbox "Error" "Mount point must be an absolute path starting with '/'."
                 continue
             fi
-            
+
             if [[ "$BACKUP_MOUNT" == *$'\n'* || "$BACKUP_MOUNT" == *$'\t'* || "$BACKUP_MOUNT" == *\\* ]]; then
                 ui_msgbox "Error" "Mount point cannot contain newlines, tabs, or backslashes."
                 continue
             fi
-            
+
             if [[ "$BACKUP_MOUNT" == "/usr"* || "$BACKUP_MOUNT" == "/etc"* || "$BACKUP_MOUNT" == "/var"* || "$BACKUP_MOUNT" == "/boot"* || "$BACKUP_MOUNT" == "/" ]]; then
                 ui_msgbox "Error" "Mount point cannot be in a protected system directory."
                 continue
             fi
-            
+
             if [[ -L "$BACKUP_MOUNT" ]]; then
                 ui_msgbox "Error" "Mount point cannot be a symlink."
                 continue
             fi
-            
+
             if mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
                 local current_dev
                 current_dev=$(findmnt -n -o SOURCE "$BACKUP_MOUNT" 2>/dev/null || echo "")
@@ -390,7 +390,7 @@ Continue?"; then
                     continue
                 fi
             fi
-            
+
             if [[ -d "$BACKUP_MOUNT" ]] && ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
                 local contents
                 contents=$(ls -A "$BACKUP_MOUNT" 2>/dev/null || echo "")
@@ -399,7 +399,7 @@ Continue?"; then
                     continue
                 fi
             fi
-            
+
             break
         done
     fi
@@ -460,16 +460,16 @@ _ensure_backup_mounted() {
         local tmp_fstab
         tmp_fstab=$(mktemp)
         cp /etc/fstab "$tmp_fstab"
-        
+
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
         printf '\n# BEGIN Arch Backup Wizard Mount\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n# END Arch Backup Wizard Mount\n' \
             "$BACKUP_UUID" "$fstab_mount" >>"$tmp_fstab"
-        
+
         if ! findmnt --verify --tab-file "$tmp_fstab" &>/dev/null; then
             rm -f "$tmp_fstab"
             die "Generated fstab entry failed verification. Aborting."
         fi
-        
+
         backup_file /etc/fstab
         mv -T "$tmp_fstab" /etc/fstab
         chmod 644 /etc/fstab
@@ -595,7 +595,6 @@ NO SYSTEM FILES, DRIVES, OR PACKAGES WERE MODIFIED."
     fi
 
     # Run validation in read-only mode to show current system status
-
     run_validation || true
 
     log_info "══════ Dry run simulation finished cleanly ══════"
@@ -619,7 +618,6 @@ main() {
 
     # Handle --uninstall mode
     if $UNINSTALL; then
-
         run_uninstall
     fi
 

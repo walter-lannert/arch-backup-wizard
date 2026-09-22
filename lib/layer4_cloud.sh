@@ -41,9 +41,9 @@ setup_layer4() {
     log_info "Step 1.5: Setting up Age encryption for OS stream..."
     local age_key_dir="${target_home}/.config/arch-backup-wizard"
     local age_key_file="${age_key_dir}/cloud_os.key"
-    
+
     run_as_user mkdir -p "$age_key_dir" || return 1
-    
+
     if [[ ! -f "$age_key_file" ]]; then
         run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1
         run_as_user chmod 600 "$age_key_file"
@@ -51,12 +51,12 @@ setup_layer4() {
     else
         log_info "Using existing age key at $age_key_file"
     fi
-    
+
     local age_pubkey
     age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file")
     export AGE_PUBKEY="$age_pubkey"
     export AGE_KEYFILE="$age_key_file"
-    
+
     ui_msgbox "Encryption Key Generated" \
         "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
 

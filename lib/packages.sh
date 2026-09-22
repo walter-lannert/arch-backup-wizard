@@ -4,7 +4,6 @@
 # ── Query helpers ─────────────────────────────────────────────────────────────
 
 # Check if a package is installed
-
 pkg_is_installed() {
     pacman -Qi "$1" &>/dev/null
 }

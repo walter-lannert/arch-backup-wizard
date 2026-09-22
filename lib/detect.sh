@@ -111,13 +111,13 @@ detect_btrfs_subvolumes() {
             local target="${BASH_REMATCH[1]}"
             local uuid="${BASH_REMATCH[2]}"
             local opts="${BASH_REMATCH[3]}"
-            
+
             if [[ "$uuid" == "$DETECTED_ROOT_UUID" ]]; then
                 if [[ "$opts" =~ subvol=([^,]+) ]]; then
                     local subvol="${BASH_REMATCH[1]}"
                     subvol="${subvol#/}"
                     [[ -z "$subvol" ]] && subvol="@"
-                    
+
                     if [[ "$subvol" != *".snapshots"* ]]; then
                         subvol_list+=("$subvol")
                         DETECTED_SUBVOL_MOUNTS+=("$target:$subvol")
@@ -130,7 +130,7 @@ detect_btrfs_subvolumes() {
                 fi
             fi
         done < <(findmnt -n -P -o TARGET,UUID,OPTIONS -t btrfs,ext4,xfs,f2fs,vfat,exfat,ntfs 2>/dev/null)
-        
+
         if (( ${#subvol_list[@]} > 0 )); then
             mapfile -t subvol_list < <(printf "%s\n" "${subvol_list[@]}" | sort -u)
             DETECTED_SUBVOLUMES=$(printf "%s\n" "${subvol_list[@]}")
@@ -168,14 +168,14 @@ detect_system_devices() {
     DETECTED_SYSTEM_DEVS=()
     local critical_mounts=()
     mapfile -t critical_mounts < <(lsblk -rno MOUNTPOINT 2>/dev/null | grep -v '^$' | grep -v '\[SWAP\]' | grep -vE '^(/run/media|/mnt)' || true)
-    
+
     # Ensure standard mounts are checked even if unmounted currently (if they somehow exist)
     critical_mounts+=(/ /boot /boot/efi /efi)
-    
+
     for mnt in "${critical_mounts[@]}"; do
         local fstype
         fstype=$(findmnt -n -o FSTYPE "$mnt" 2>/dev/null || true)
-        
+
         local devs=()
         if [[ "$fstype" == "btrfs" ]]; then
             # Handle multi-device BTRFS roots
@@ -194,7 +194,7 @@ detect_system_devices() {
             done
         done
     done
-    
+
     local swaps
     swaps=$(swapon --show=NAME --noheadings 2>/dev/null || true)
     for swp in $swaps; do
@@ -204,7 +204,7 @@ detect_system_devices() {
             DETECTED_SYSTEM_DEVS+=("/dev/$k")
         done
     done
-    
+
     # Remove duplicates
     if (( ${#DETECTED_SYSTEM_DEVS[@]} > 0 )); then
         mapfile -t DETECTED_SYSTEM_DEVS < <(printf "%s\n" "${DETECTED_SYSTEM_DEVS[@]}" | sort -u)
@@ -237,28 +237,28 @@ detect_existing_backup_drive() {
     # Parse fstab explicitly with findmnt
     local fstab_entries
     fstab_entries=$(findmnt --fstab -P -o TARGET,UUID,FSTYPE 2>/dev/null || true)
-    
+
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ $line =~ TARGET=\"([^\"]*)\".*UUID=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\" ]] || true
         local target="${BASH_REMATCH[1]:-}"
         local uuid="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[3]:-}"
-        
+
         if [[ -d "$target/OS_Backup" ]] || echo "$target" | grep -qi 'backup'; then
             # Must be a btrfs entry
             [[ "$fstype" != "btrfs" ]] && continue
-            
+
             # Warn if we fall back to fuzzy match without the directory signature
             if [[ ! -d "$target/OS_Backup" ]]; then
                 log_warn "Found potential backup drive via substring match at $target, but no OS_Backup signature found."
                 # We'll let it pass for initialization, but this restricts pure fuzzy matching from hijacking another btrfs volume with 'backup' in the name unless the user is specifically formatting it
             fi
-            
+
             # Check if it is on the root filesystem (ignore if it's the same device)
             local target_dev
             target_dev=$(findmnt -n --nofsroot -o SOURCE "$target" 2>/dev/null || echo "")
-            
+
             # Allow fallback if the drive isn't currently mounted but has a UUID
             if [[ -z "$target_dev" && -n "$uuid" ]]; then
                 target_dev=$(blkid -U "$uuid" 2>/dev/null || echo "")

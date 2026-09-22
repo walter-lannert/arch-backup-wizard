@@ -48,7 +48,7 @@ EOF
         local subvol="${mount_pair##*:}"
         local subvol_safe="${subvol//\//_}"
         local snap_dir="${mnt%/}/${SNAP_DIR_BTRBK#/}"
-        
+
         # Make sure the snapshot directory exists
         if [[ ! -d "$snap_dir" ]]; then
             mkdir -p "$snap_dir" 2>/dev/null || log_error "Failed to create snapshot directory: $snap_dir"

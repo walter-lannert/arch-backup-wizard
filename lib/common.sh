@@ -149,7 +149,7 @@ template_render() {
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
         local value="${!var:-}"
-        
+
         if [[ "$output" == *.sh ]]; then
             # For shell scripts, escape the value to be safely injected inside double quotes
             # We escape \, $, `, and " so they are treated as literal characters inside "..."
@@ -161,7 +161,7 @@ template_render() {
             # For systemd or other files, we just prevent breaking out of double quotes
             value="${value//\"/\\\"}"
         fi
-        
+
         content="${content//\{\{${var}\}\}/${value}}"
     done <<<"$vars"
 
