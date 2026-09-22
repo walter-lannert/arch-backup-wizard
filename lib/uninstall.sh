@@ -59,7 +59,8 @@ This will NOT remove:
         log_info "Removed managed entry from /etc/fstab"
     fi
 
-    local manifest_file="/var/lib/arch-backup-wizard/manifest.txt"
+    # shellcheck disable=SC2153
+    local manifest_file="$MANIFEST_FILE"
     if [[ ! -f "$manifest_file" ]]; then
         log_warn "Manifest file not found at $manifest_file. No generated files to remove."
     else

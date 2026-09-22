@@ -21,13 +21,13 @@ setup_layer2() {
         log_error "Failed to install Layer 2 packages."
         return 1
     fi
-    log_info "Step 3: Ensuring backup target directory $backup_mount/OS_Backup exists..."
+    log_info "Step 2: Ensuring backup target directory $backup_mount/OS_Backup exists..."
     mkdir -p "$backup_mount/OS_Backup" || {
         log_error "Failed to create $backup_mount/OS_Backup"
         return 1
     }
 
-    log_info "Step 4: Writing /etc/btrbk/btrbk.conf..."
+    log_info "Step 3: Writing /etc/btrbk/btrbk.conf..."
     mkdir -p "$(dirname "$BTRBK_CONF")" || {
         log_error "Failed to create $(dirname "$BTRBK_CONF")"
         return 1
@@ -65,7 +65,7 @@ EOF
     done
     log_success "Created $BTRBK_CONF"
 
-    log_info "Step 5: Configuring systemd drop-in override for btrbk.service..."
+    log_info "Step 4: Configuring systemd drop-in override for btrbk.service..."
     local override_dir="$BTRBK_OVERRIDE_DIR"
     local override_conf="$override_dir/override.conf"
 
@@ -88,19 +88,19 @@ EOF
     log_success "Created $override_conf"
 
     # 6. Run systemctl daemon-reload
-    log_info "Step 6: Reloading systemd daemon..."
+    log_info "Step 5: Reloading systemd daemon..."
     systemctl daemon-reload >>"$LOG_FILE" 2>&1 || {
         log_error "systemctl daemon-reload failed"
         return 1
     }
 
-    log_info "Step 7: Enabling and starting btrbk.timer..."
+    log_info "Step 6: Enabling and starting btrbk.timer..."
     systemctl enable --now btrbk.timer >>"$LOG_FILE" 2>&1 || {
         log_error "Failed to enable btrbk.timer"
         return 1
     }
 
-    log_info "Step 8: Checking if user wants to perform initial backup..."
+    log_info "Step 7: Checking if user wants to perform initial backup..."
     if ui_yesno "Run Initial Backup" \
         "Would you like to run the first btrbk backup now?
 
@@ -134,7 +134,7 @@ Please check the log file for details:
     fi
 
     # 9. Verify: check that btrbk.timer is active (unit_is_active btrbk.timer) and show success/failure via ui_msgbox.
-    log_info "Step 9: Verifying btrbk.timer status..."
+    log_info "Step 8: Verifying btrbk.timer status..."
     if unit_is_active btrbk.timer; then
         log_success "Layer 2 setup completed: btrbk.timer is active."
         ui_msgbox "Layer 2 — Success" \

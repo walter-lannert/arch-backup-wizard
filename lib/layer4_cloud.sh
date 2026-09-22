@@ -318,7 +318,7 @@ EOF
     fi
 
     # ── 10. Completion summary dialog ────────────────────────────────────────
-    log_info "Step 10: Showing completion summary..."
+    log_info "Step 9: Showing completion summary..."
     ui_msgbox "Layer 4 Setup Complete" \
         "Layer 4 (Cloud Offsite) has been successfully configured!
 

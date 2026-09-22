@@ -115,7 +115,7 @@ setup_layer1() {
         else
             log_info "Using Snapper auto-created /.snapshots subvolume."
             chmod 750 "$SNAP_DIR"
-            echo "/.snapshots" >> /var/lib/arch-backup-wizard/manifest.txt
+            record_manifest "/.snapshots"
         fi
     fi
 

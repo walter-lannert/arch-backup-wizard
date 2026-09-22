@@ -178,8 +178,6 @@ run_validation() {
             failure_issues+=("Layer 3: pika-backup package not installed")
         fi
 
-
-
         if [[ -z "${BACKUP_MOUNT:-}" || ! -d "${BACKUP_MOUNT}/Personal" ]]; then
             l3_ok=false
             log_warn "Layer 3 check failed: directory '${BACKUP_MOUNT:-}/Personal' does not exist"

@@ -328,7 +328,6 @@ detect_terminal() {
 
 detect_existing_setup() {
 
-
     # Config file existence
     DETECTED_SNAPPER_CONFIG_EXISTS=false
     [[ -f /etc/snapper/configs/root ]] && DETECTED_SNAPPER_CONFIG_EXISTS=true
@@ -371,5 +370,3 @@ Hostname:        $DETECTED_HOSTNAME
 Backup Drive:    ${DETECTED_BACKUP_MOUNT:-Not configured}
 EOF
 }
-
-# Build dialog-formatted list of candidate backup partitions
