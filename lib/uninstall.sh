@@ -123,8 +123,6 @@ This will NOT remove:
     log_info "Reloading systemd daemon..."
     systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
 
-    log_info "Reloading user systemd daemon for user $user..."
-    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user daemon-reload 2>/dev/null || true
 
     log_info "Removing nag script lines from shell startup files..."
     local shell_files=(

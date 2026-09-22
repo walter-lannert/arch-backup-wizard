@@ -540,7 +540,7 @@ run_dry_run_simulation() {
         actions+="• Layer 4 (Cloud Offsite):\n"
         actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh\n"
         actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh\n"
-        actions+="  - User systemd timer: pika-cloud-sync.timer\n"
+        actions+="  - System timer (running as user): pika-cloud-sync.timer\n"
         actions+="  - Shell startup nag integration: ${DETECTED_SHELL}\n"
     fi
 

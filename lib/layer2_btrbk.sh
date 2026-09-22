@@ -87,7 +87,7 @@ IOSchedulingClass=idle
 EOF
     log_success "Created $override_conf"
 
-    # 6. Run systemctl daemon-reload
+    # 5. Run systemctl daemon-reload
     log_info "Step 5: Reloading systemd daemon..."
     systemctl daemon-reload >>"$LOG_FILE" 2>&1 || {
         log_error "systemctl daemon-reload failed"
@@ -133,7 +133,7 @@ Please check the log file for details:
         log_info "User skipped initial btrbk backup."
     fi
 
-    # 9. Verify: check that btrbk.timer is active (unit_is_active btrbk.timer) and show success/failure via ui_msgbox.
+    # 8. Verify: check that btrbk.timer is active (unit_is_active btrbk.timer) and show success/failure via ui_msgbox.
     log_info "Step 8: Verifying btrbk.timer status..."
     if unit_is_active btrbk.timer; then
         log_success "Layer 2 setup completed: btrbk.timer is active."
