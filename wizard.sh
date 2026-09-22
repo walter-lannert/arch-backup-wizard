@@ -146,6 +146,18 @@ $DETECTED_UNMOUNTED_SUBVOLS
 If you need these backed up, you must mount them explicitly in /etc/fstab."
     fi
 
+    if (( ${#DETECTED_SECONDARY_MOUNTS[@]} > 0 )); then
+        local sec_list=""
+        for m in "${DETECTED_SECONDARY_MOUNTS[@]}"; do
+            sec_list+="- $m\n"
+        done
+        ui_msgbox "Warning: Secondary Filesystems Detected" \
+            "The following secondary filesystems are mounted on your system but are outside the root BTRFS partition:
+
+$sec_list
+These secondary drives or partitions will NOT be included in the bare-metal clones (Layer 2) or OS cloud backups (Layer 4). They will only be backed up if they are inside your home directory and captured by Pika Backup (Layer 3)."
+    fi
+
     ui_yesno "System Detection" \
         "Your system was scanned. Please verify:
 

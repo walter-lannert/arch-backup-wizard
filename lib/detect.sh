@@ -101,6 +101,7 @@ detect_btrfs_subvolumes() {
     DETECTED_SUBVOLUMES=""
     DETECTED_SUBVOL_LAYOUT=""
     DETECTED_SUBVOL_MOUNTS=()
+    DETECTED_SECONDARY_MOUNTS=()
 
     if [[ "$DETECTED_ROOT_FS" == "btrfs" ]]; then
         local subvol_list=()
@@ -122,8 +123,13 @@ detect_btrfs_subvolumes() {
                         DETECTED_SUBVOL_MOUNTS+=("$target:$subvol")
                     fi
                 fi
+            else
+                # This is a different filesystem or different BTRFS UUID
+                if [[ "$target" != "/boot" && "$target" != "/boot/efi" && "$target" != "/efi" && "$target" != "/mnt"* && "$target" != "/run"* ]]; then
+                    DETECTED_SECONDARY_MOUNTS+=("$target")
+                fi
             fi
-        done < <(findmnt -n -t btrfs -P -o TARGET,UUID,OPTIONS 2>/dev/null)
+        done < <(findmnt -n -P -o TARGET,UUID,OPTIONS -t btrfs,ext4,xfs,f2fs,vfat,exfat,ntfs 2>/dev/null)
         
         if (( ${#subvol_list[@]} > 0 )); then
             mapfile -t subvol_list < <(printf "%s\n" "${subvol_list[@]}" | sort -u)
@@ -167,15 +173,26 @@ detect_system_devices() {
     critical_mounts+=(/ /boot /boot/efi /efi)
     
     for mnt in "${critical_mounts[@]}"; do
-        local dev
-        dev=$(findmnt -n --nofsroot -o SOURCE "$mnt" 2>/dev/null || true)
-        if [[ -n "$dev" ]]; then
+        local fstype
+        fstype=$(findmnt -n -o FSTYPE "$mnt" 2>/dev/null || true)
+        
+        local devs=()
+        if [[ "$fstype" == "btrfs" ]]; then
+            # Handle multi-device BTRFS roots
+            mapfile -t devs < <(btrfs filesystem show "$mnt" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="path") print $(i+1)}' || true)
+        else
+            local dev
+            dev=$(findmnt -n --nofsroot -o SOURCE "$mnt" 2>/dev/null || true)
+            [[ -n "$dev" ]] && devs+=("$dev")
+        fi
+
+        for d in "${devs[@]}"; do
             local tree
-            tree=$(lsblk -s -nlo KNAME "$dev" 2>/dev/null || true)
+            tree=$(lsblk -s -nlo KNAME "$d" 2>/dev/null || true)
             for k in $tree; do
                 DETECTED_SYSTEM_DEVS+=("/dev/$k")
             done
-        fi
+        done
     done
     
     local swaps
@@ -204,7 +221,7 @@ detect_available_drives() {
 
     # Partitions with filesystem info
     DETECTED_PARTITIONS=$(lsblk -P -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null |
-        grep 'TYPE="part"' |
+        grep -E 'TYPE="(part|crypt|lvm)"' |
         grep -vE 'loop|rom' || echo "")
 
     log_info "Drive scan complete"

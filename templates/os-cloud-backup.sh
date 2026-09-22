@@ -20,7 +20,7 @@ while IFS= read -r sub; do
     fi
     echo "Found latest snapshot for $sub: $LATEST_SNAP"
 
-    ARCHIVE_PATH="{{BACKUP_MOUNT}}/Personal/${LATEST_SNAP}.btrfs.zst.age"
+    ARCHIVE_PATH="{{BACKUP_MOUNT}}/OS_Backup/${LATEST_SNAP}.btrfs.zst.age"
     cleanup_files+=("$ARCHIVE_PATH")
     
     # Package, compress, and encrypt the snapshot
