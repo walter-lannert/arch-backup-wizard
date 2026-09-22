@@ -18,8 +18,6 @@ readonly LAYER_PIKA=3
 readonly LAYER_CLOUD=4
 readonly LAYER_DEEP=5
 
-
-
 # ── Configuration defaults ────────────────────────────────────────────────────
 # All tunable defaults live here. Changing a value in this block is the single
 # place required to alter wizard behaviour — no need to hunt for literals.

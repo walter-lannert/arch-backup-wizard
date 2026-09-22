@@ -108,7 +108,8 @@ This will NOT remove:
 
     local user
     user="$(effective_user)"
-    local target_uid; target_uid=$(id -u "$user")
+    local target_uid
+    target_uid=$(id -u "$user")
     local home
     home="$(effective_home)"
 

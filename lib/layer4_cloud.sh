@@ -10,7 +10,7 @@
 # 6. Generates the bi-weekly nag reminder script (~/.os_clone_nag.sh)
 # 7. Generates and enables Pika cloud sync user service and timer
 # 8. Adds the nag script to user's shell startup file (idempotent)
-# 10. Displays completion summary dialog
+# 9. Displays completion summary dialog
 
 setup_layer4() {
     log_info "── Setting up Layer 4: Cloud Offsite (rclone) ──"
@@ -317,7 +317,7 @@ EOF
         log_success "Added nag script invocation to $rc_file"
     fi
 
-    # ── 10. Completion summary dialog ────────────────────────────────────────
+    # ── 9. Completion summary dialog ────────────────────────────────────────
     log_info "Step 9: Showing completion summary..."
     ui_msgbox "Layer 4 Setup Complete" \
         "Layer 4 (Cloud Offsite) has been successfully configured!
