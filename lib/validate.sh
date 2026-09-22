@@ -141,10 +141,17 @@ run_validation() {
             failure_issues+=("Layer 2: ${BACKUP_MOUNT:-}/OS_Backup directory missing")
         fi
 
-        if $l2_ok && ! btrbk -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
-            l2_ok=false
-            log_warn "Layer 2 check failed: btrbk.conf failed to parse or dryrun"
-            failure_issues+=("Layer 2: btrbk configuration invalid (fails dryrun)")
+        if $l2_ok; then
+            if [[ "$EUID" -eq 0 ]] || sudo -n true 2>/dev/null; then
+                # shellcheck disable=SC2024
+                if ! sudo -n btrbk -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
+                    l2_ok=false
+                    log_warn "Layer 2 check failed: btrbk.conf failed to parse or dryrun"
+                    failure_issues+=("Layer 2: btrbk configuration invalid (fails dryrun)")
+                fi
+            else
+                log_info "Layer 2: Skipping btrbk dryrun (requires root privileges)"
+            fi
         fi
 
         if $l2_ok; then
