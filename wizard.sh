@@ -444,6 +444,7 @@ No partitions or data were modified."
     log_info "Formatting $BACKUP_DEV as BTRFS with zstd compression"
     ui_infobox "Formatting" "Creating BTRFS filesystem on $BACKUP_DEV..."
     mkfs.btrfs -f "$BACKUP_DEV" >>"$LOG_FILE" 2>&1 || die "mkfs.btrfs failed on $BACKUP_DEV"
+    udevadm settle 2>/dev/null || sleep 1
     log_success "Formatted $BACKUP_DEV as BTRFS"
 }
 

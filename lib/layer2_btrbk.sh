@@ -76,10 +76,10 @@ EOF
     backup_file "$override_conf" >/dev/null || return 1
 
     record_manifest "$override_conf"
-    local escaped_mount="${backup_mount// /\\x20}"
+    local escaped_mount="$backup_mount"
     cat <<EOF >"$override_conf"
 [Unit]
-RequiresMountsFor=${escaped_mount}
+RequiresMountsFor="$backup_mount"
 
 [Service]
 Nice=19

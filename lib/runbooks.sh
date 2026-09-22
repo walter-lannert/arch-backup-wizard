@@ -59,7 +59,7 @@ generate_runbooks() {
 
     restore_script+="cat << 'EOF' > /tmp/restore_subvols.sh"$'\n'
     restore_script+="#!/bin/bash"$'\n'
-    restore_script+="set -e"$'\n'
+    restore_script+="set -euo pipefail"$'\n'
     while IFS= read -r sub; do
         [[ -z "$sub" ]] && continue
         local sub_safe="${sub//\//_}"
@@ -86,7 +86,7 @@ generate_runbooks() {
     local cloud_restore_script=""
     cloud_restore_script+="cat << 'EOF' > /tmp/cloud_restore_subvols.sh"$'\n'
     cloud_restore_script+="#!/bin/bash"$'\n'
-    cloud_restore_script+="set -e"$'\n'
+    cloud_restore_script+="set -euo pipefail"$'\n'
     cloud_restore_script+="echo \"Fetching list of cloud archives...\""$'\n'
     cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$')"$'\n'
     cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'

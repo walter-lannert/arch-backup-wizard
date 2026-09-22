@@ -230,6 +230,15 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 
    - If systemd-boot:
        bootctl --path={{EFI_MOUNT_PATH}} install
+       # Verify loader entries were recreated by the pacman hook above.
+       # If {{EFI_MOUNT_PATH}}/loader/entries/ is empty, recreate manually:
+       ls {{EFI_MOUNT_PATH}}/loader/entries/ || (
+           mkdir -p {{EFI_MOUNT_PATH}}/loader/entries
+           echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "linux /vmlinuz-linux" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "initrd /initramfs-linux.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "options root=UUID=$(blkid -s UUID -o value /dev/NEW_ROOT_PARTITION) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+       )
 
 4. Keep the chroot open for Step 12, or exit if preferred.
 

@@ -10,10 +10,9 @@ if ! command -v zenity >/dev/null 2>&1; then
     exit 0
 fi
 
-# Prevent multiple stacked prompts if multiple terminals are launched simultaneously
-if pgrep -f "zenity.*OS Cloud Backup Due" >/dev/null 2>&1; then
-    exit 0
-fi
+# Prevent concurrent execution across multiple simultaneous shell startups (tmux, tabs, etc.)
+exec 9>"{{DETECTED_HOME}}/.os_clone_nag.lock"
+if ! flock -n 9; then exit 0; fi
 
 YEAR=$(date +%Y)
 MONTH=$(date +%m)
