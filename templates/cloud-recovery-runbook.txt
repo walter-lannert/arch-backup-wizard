@@ -235,7 +235,11 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 
      mkinitcpio -P
 
-4. Rebuild bootloader according to: {{BOOTLOADER}}
+4. If you use Secure Boot (e.g., sbctl), you MUST sign the newly generated EFI binaries now, otherwise your system will not boot:
+
+     sbctl sign-all
+
+5. Rebuild bootloader according to: {{BOOTLOADER}}
 
    - If Limine:
        limine-mkinitcpio

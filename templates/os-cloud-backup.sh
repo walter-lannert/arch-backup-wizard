@@ -4,7 +4,10 @@ set -euo pipefail
 echo "Starting Bare-Metal OS Cloud Backup..."
 
 cleanup_files=()
-trap '[[ ${#cleanup_files[@]} -gt 0 ]] && sudo rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT
+trap '[[ ${#cleanup_files[@]} -gt 0 ]] && sudo rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT INT TERM HUP
+
+# Preemptively clean up any orphaned archives from previously killed runs
+sudo rm -f "{{BACKUP_MOUNT}}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
 
 # Authenticate sudo cleanly first so the password prompt isn't overwritten by pv
 sudo -v || { echo "Error: sudo authentication failed."; read -p "Press Enter to close this window..."; exit 1; }
