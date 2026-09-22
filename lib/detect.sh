@@ -273,7 +273,7 @@ detect_existing_backup_drive() {
 
 detect_user_info() {
     DETECTED_USER=$(get_real_user)
-    DETECTED_HOME=$(get_real_home)
+    DETECTED_HOME=$(getent passwd "$DETECTED_USER" | cut -d: -f6)
     DETECTED_SHELL=$(getent passwd "$DETECTED_USER" | cut -d: -f7)
     DETECTED_HOSTNAME=$(cat /etc/hostname 2>/dev/null || uname -n || echo "localhost")
 

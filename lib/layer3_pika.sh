@@ -143,7 +143,7 @@ $formatted_exclusions
 
     # 8. Validate: check if the Borg repository was initialized by the GUI (Audit-041)
     log_info "Step 8: Validating Pika Backup configuration..."
-    if run_as_user borg info "$repo_path" >/dev/null 2>&1; then
+    if run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1; then
         log_success "Pika Backup repository verified."
         ui_msgbox "Pika Backup — Success" \
             "Pika Backup has been successfully configured!

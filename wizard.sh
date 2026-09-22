@@ -444,7 +444,7 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT"
 
     # Add to fstab if not already present
-    if ! grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" 2>/dev/null; then
+    if ! findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1 && ! findmnt --fstab -S "UUID=$BACKUP_UUID" >/dev/null 2>&1; then
         local tmp_fstab
         tmp_fstab=$(mktemp)
         cp /etc/fstab "$tmp_fstab"
