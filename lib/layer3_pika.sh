@@ -143,7 +143,11 @@ $formatted_exclusions
 
     # 8. Validate: check if the Borg repository was initialized by the GUI (Audit-041)
     log_info "Step 8: Validating Pika Backup configuration..."
-    if run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1; then
+    local borg_ec=0
+    run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
+    # Exit code 0 = accessible (unencrypted); exit code 2 = passphrase required (encrypted, properly initialized)
+    # Either means the repository exists and is valid.
+    if [[ $borg_ec -eq 0 || $borg_ec -eq 2 ]] || [[ -f "$repo_path/config" && -d "$repo_path/data" ]]; then
         log_success "Pika Backup repository verified."
         ui_msgbox "Pika Backup — Success" \
             "Pika Backup has been successfully configured!

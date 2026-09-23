@@ -240,7 +240,7 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
            echo "options root=UUID=$(blkid -s UUID -o value /dev/NEW_ROOT_PARTITION) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
        )
 
-4. Keep the chroot open for Step 12, or exit if preferred.
+4. Keep the chroot open for remaining steps, or exit if preferred.
 
 
 --------------------------------------------------------------------------------

@@ -46,9 +46,10 @@ generate_runbooks() {
 
     # Dynamically detect kernel and microcode for bare-metal EFI restoration
     local kernel_pkgs
-    kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | grep -E '^linux(-cachyos|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || echo "linux linux-headers")
+    kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | grep -E '^linux(-cachyos|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || true)
+    [[ -z "${kernel_pkgs// /}" ]] && kernel_pkgs="linux linux-headers"
     local ucode_pkgs
-    ucode_pkgs=$(pacman -Qsq ucode 2>/dev/null | tr '\n' ' ' || echo "")
+    ucode_pkgs=$(pacman -Qsq ucode 2>/dev/null | tr '\n' ' ' || true)
     export KERNEL_PKGS="${kernel_pkgs} ${ucode_pkgs}"
 
     # Generate dynamic subvolume recovery script block for runbooks
@@ -70,6 +71,7 @@ generate_runbooks() {
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'
         restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$(basename \"\$SNAP\")\" \"/mnt/new_os/$sub\""$'\n'
+        restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
         restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$(basename \"\$SNAP\")\""$'\n'
         restore_script+="else"$'\n'
         restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
@@ -102,6 +104,7 @@ generate_runbooks() {
         cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/.btrfs.zst.age$//')"$'\n'
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$RECEIVED_NAME\" \"/mnt/new_os/$sub\""$'\n'
+        cloud_restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
         cloud_restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$RECEIVED_NAME\""$'\n'
         cloud_restore_script+="else"$'\n'
         cloud_restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'

@@ -245,15 +245,9 @@ detect_existing_backup_drive() {
         local uuid="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[3]:-}"
 
-        if [[ -d "$target/OS_Backup" ]] || echo "$target" | grep -qi 'backup'; then
-            # Must be a btrfs entry
+        if [[ -d "$target/OS_Backup" ]] || grep -qE "^[^#]*[[:space:]]+${target}[[:space:]].*#.*Arch Backup Wizard" /etc/fstab 2>/dev/null; then
+            # Must be a BTRFS filesystem
             [[ "$fstype" != "btrfs" ]] && continue
-
-            # Warn if we fall back to fuzzy match without the directory signature
-            if [[ ! -d "$target/OS_Backup" ]]; then
-                log_warn "Found potential backup drive via substring match at $target, but no OS_Backup signature found."
-                # We'll let it pass for initialization, but this restricts pure fuzzy matching from hijacking another btrfs volume with 'backup' in the name unless the user is specifically formatting it
-            fi
 
             # Check if it is on the root filesystem (ignore if it's the same device)
             local target_dev

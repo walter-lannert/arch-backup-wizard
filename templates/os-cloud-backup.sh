@@ -16,11 +16,12 @@ while IFS= read -r sub; do
     [[ -z "$sub" ]] && continue
     sub_safe="${sub//\//_}"
     # Automatically find the name of the newest snapshot for this subvolume (relying on btrbk's deterministic timestamp naming)
-    LATEST_SNAP=$(basename "$(ls -d "{{BACKUP_MOUNT}}/OS_Backup/${sub_safe}."20[0-9][0-9]* 2>/dev/null | sort -r | head -n 1)" || true)
-    if [[ -z "$LATEST_SNAP" || "$LATEST_SNAP" == "*" ]]; then
+    LATEST_SNAP_PATH=$(ls -1d "{{BACKUP_MOUNT}}/OS_Backup/${sub_safe}."20[0-9][0-9]* 2>/dev/null | sort -r | head -n 1 || true)
+    if [[ -z "$LATEST_SNAP_PATH" || ! -d "$LATEST_SNAP_PATH" ]]; then
         echo "Warning: No snapshots found for $sub_safe in {{BACKUP_MOUNT}}/OS_Backup"
         continue
     fi
+    LATEST_SNAP=$(basename "$LATEST_SNAP_PATH")
     echo "Found latest snapshot for $sub: $LATEST_SNAP"
 
     ARCHIVE_PATH="{{BACKUP_MOUNT}}/OS_Backup/${LATEST_SNAP}.btrfs.zst.age"
@@ -29,6 +30,7 @@ while IFS= read -r sub; do
     # Package, compress, and encrypt the snapshot
     echo "Compressing and encrypting $LATEST_SNAP (showing raw data processed)..."
     sudo btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | zstd -T0 | age -r "{{AGE_PUBKEY}}" | sudo tee "$ARCHIVE_PATH" > /dev/null
+    sudo chmod 644 "$ARCHIVE_PATH"
 
     # Sync to cloud storage
     echo "Uploading $LATEST_SNAP to cloud storage..."

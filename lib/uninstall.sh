@@ -52,10 +52,11 @@ This will NOT remove:
         sed -i 's/\bSNAPPER_CONFIGS="root\b/SNAPPER_CONFIGS="/g; s/\bSNAPPER_CONFIGS="\(.*\) root\b/SNAPPER_CONFIGS="\1/g; s/\bSNAPPER_CONFIGS="root \([^"]*\)"/SNAPPER_CONFIGS="\1"/g' /etc/conf.d/snapper
     fi
 
-    if grep -q '# BEGIN Arch Backup Wizard Mount' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
+    if grep -q '# BEGIN Arch Backup Wizard' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
+        backup_file /etc/fstab || log_warn "Could not create backup of /etc/fstab prior to cleaning"
         # Handle legacy uninstalls and new BEGIN/END tags
         sed -i -z 's/\n# Arch Backup Wizard Mount\n[^\n]*\n//g' /etc/fstab 2>/dev/null || true
-        sed -i '/# BEGIN Arch Backup Wizard Mount/,/# END Arch Backup Wizard Mount/d' /etc/fstab 2>/dev/null || true
+        sed -i '/# BEGIN Arch Backup Wizard/,/# END Arch Backup Wizard/d' /etc/fstab 2>/dev/null || true
         log_info "Removed managed entry from /etc/fstab"
     fi
 

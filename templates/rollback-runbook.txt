@@ -268,39 +268,39 @@ Identify the target snapshot number: NNN
 --------------------------------------------------------------------------------
 STEP 3: CREATE NEW @ SUBVOLUME AND SWAP SUBVOLUMES
 --------------------------------------------------------------------------------
-Create writable snapshot '@.new' from the chosen snapshot:
+Create writable snapshot '{{DETECTED_ROOT_SUBVOL_STR}}.new' from the chosen snapshot:
 
-  # If snapshots are at /mnt/btrfs-top/.snapshots:
-  btrfs subvolume snapshot /mnt/btrfs-top/.snapshots/NNN/snapshot /mnt/btrfs-top/@.new
+  # If snapshots are at /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}:
+  btrfs subvolume snapshot /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new
 
-  # (OR if snapshots are at /mnt/btrfs-top/@/.snapshots):
-  # btrfs subvolume snapshot /mnt/btrfs-top/@/.snapshots/NNN/snapshot /mnt/btrfs-top/@.new
+  # (OR if snapshots are nested inside the root subvolume):
+  # btrfs subvolume snapshot /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new
 
 Swap the subvolumes:
 
-  mv /mnt/btrfs-top/@ /mnt/btrfs-top/@.old
-  mv /mnt/btrfs-top/@.new /mnt/btrfs-top/@
+  mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}} /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old
+  mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}
 
 --------------------------------------------------------------------------------
 STEP 4: MIGRATE NESTED SUBVOLUMES (.snapshots & .snapshots_btrbk)
 --------------------------------------------------------------------------------
 [CRITICAL: Preserving snapshot history and btrbk state]
 
-1. Remove empty placeholder directories in the new '@':
-  rmdir /mnt/btrfs-top/@/.snapshots 2>/dev/null || rm -rf /mnt/btrfs-top/@/.snapshots
-  rm -rf /mnt/btrfs-top/@/.snapshots_btrbk && mkdir -p /mnt/btrfs-top/@/.snapshots_btrbk
+1. Remove empty placeholder directories in the new '{{DETECTED_ROOT_SUBVOL_STR}}':
+  rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk && mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
 
-2. Move .snapshots from @.old to @:
-  mv /mnt/btrfs-top/@.old/.snapshots /mnt/btrfs-top/@/.snapshots
+2. Move .snapshots from {{DETECTED_ROOT_SUBVOL_STR}}.old to {{DETECTED_ROOT_SUBVOL_STR}}:
+  mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
 
-3. Migrate btrbk snapshots from @.old to @:
-  for snap in /mnt/btrfs-top/@.old/.snapshots_btrbk/*; do
+3. Migrate btrbk snapshots from {{DETECTED_ROOT_SUBVOL_STR}}.old to {{DETECTED_ROOT_SUBVOL_STR}}:
+  for snap in /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots_btrbk/*; do
       if [ -d "$snap" ]; then
           sname=$(basename "$snap")
           echo "Migrating btrbk snapshot: $sname"
           btrfs property set -ts "$snap" ro false
-          mv "$snap" "/mnt/btrfs-top/@/.snapshots_btrbk/$sname"
-          btrfs property set -ts "/mnt/btrfs-top/@/.snapshots_btrbk/$sname" ro true
+          mv "$snap" "/mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk/$sname"
+          btrfs property set -ts "/mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk/$sname" ro true
       fi
   done
 

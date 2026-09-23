@@ -103,7 +103,7 @@ setup_layer1() {
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
                 backup_file /etc/fstab || return 1
-                printf '\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n' \
+                printf '\n# BEGIN Arch Backup Wizard /.snapshots Mount\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n# END Arch Backup Wizard /.snapshots Mount\n' \
                     "$root_uuid" "$existing_subvol" >>/etc/fstab
                 mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to mount $SNAP_DIR"

@@ -685,10 +685,7 @@ main() {
         local fn="$2"
         if layer_selected "$layer_id"; then
             set +e
-            (
-                set -e
-                "$fn"
-            )
+            "$fn"
             local ret=$?
             set -e
             if [[ $ret -ne 0 ]]; then
