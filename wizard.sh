@@ -384,7 +384,7 @@ Continue?"; then
 
             if mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
                 local current_dev
-                current_dev=$(findmnt -n -o SOURCE "$BACKUP_MOUNT" 2>/dev/null || echo "")
+                current_dev=$(findmnt -n --nofsroot -o SOURCE "$BACKUP_MOUNT" 2>/dev/null || echo "")
                 if [[ "$current_dev" != "$BACKUP_DEV" ]]; then
                     ui_msgbox "Error" "Path is already a mount point for a different device ($current_dev)."
                     continue
@@ -610,6 +610,8 @@ main() {
     # Set up global wizard log file
     if $DRY_RUN; then
         LOG_FILE="/tmp/arch-backup-wizard-dryrun.log"
+    elif [[ $EUID -ne 0 ]]; then
+        LOG_FILE="/tmp/arch-backup-wizard.log"
     else
         LOG_FILE="/var/log/arch-backup-wizard.log"
     fi

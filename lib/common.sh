@@ -6,7 +6,6 @@ _ARCH_BACKUP_COMMON_LOADED=1
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 readonly CLR_RED='\033[0;31m'
-
 readonly CLR_NC='\033[0m'
 
 # ── Layer ID constants ────────────────────────────────────────────────────────
@@ -72,7 +71,8 @@ _log() {
     shift
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"$LOG_FILE"
+    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"$LOG_FILE" 2>/dev/null || \
+    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"/tmp/arch-backup-wizard.log" 2>/dev/null || true
 }
 
 log_info() { _log "INFO" "$*"; }
@@ -157,8 +157,8 @@ template_render() {
             value="${value//\$/\\\$}"
             value="${value//\`/\\\`}"
             value="${value//\"/\\\"}"
-        else
-            # For systemd or other files, we just prevent breaking out of double quotes
+        elif [[ "$output" == *.service || "$output" == *.timer || "$output" == *.conf ]]; then
+            # For systemd or configuration files, prevent breaking out of double quotes
             value="${value//\"/\\\"}"
         fi
 

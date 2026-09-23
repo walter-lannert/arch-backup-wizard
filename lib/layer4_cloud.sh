@@ -191,6 +191,7 @@ Would you like to re-run 'rclone config' to retry?
     done
     cloud_os_dir="${cloud_os_dir#/}"
     cloud_os_dir="${cloud_os_dir%/}"
+    [[ -z "$cloud_os_dir" ]] && cloud_os_dir="$default_os_dir"
 
     local default_pika_dir="${distro_name}_Pika_Backup"
     local cloud_pika_dir="$default_pika_dir"
@@ -207,6 +208,7 @@ Would you like to re-run 'rclone config' to retry?
     done
     cloud_pika_dir="${cloud_pika_dir#/}"
     cloud_pika_dir="${cloud_pika_dir%/}"
+    [[ -z "$cloud_pika_dir" ]] && cloud_pika_dir="$default_pika_dir"
 
     log_info "Cloud destination folders: OS='$cloud_os_dir', Pika='$cloud_pika_dir'"
 

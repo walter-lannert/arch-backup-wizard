@@ -17,4 +17,4 @@ ExecStartPre=+/usr/bin/btrfs subvolume snapshot -r "{{BACKUP_MOUNT}}" "{{BACKUP_
 # rolling chunk compaction and index integrity. 'rclone copy' corrupts Borg.
 ExecStart=/usr/bin/rclone sync "{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v
 # Clean up the snapshot
-ExecStopPost=+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
+ExecStopPost=-+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"

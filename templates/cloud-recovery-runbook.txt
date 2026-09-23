@@ -242,6 +242,8 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 5. Rebuild bootloader according to: {{BOOTLOADER}}
 
    - If Limine:
+       mkdir -p {{EFI_MOUNT_PATH}}/EFI/BOOT
+       cp /usr/share/limine/BOOTX64.EFI {{EFI_MOUNT_PATH}}/EFI/BOOT/BOOTX64.EFI
        limine-mkinitcpio
 
    - If GRUB:
@@ -257,7 +259,7 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
            echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
            echo "linux /vmlinuz-linux" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
            echo "initrd /initramfs-linux.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           echo "options root=UUID=$(blkid -s UUID -o value /dev/NEW_ROOT_PARTITION) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "options root=UUID=$(findmnt -n -o UUID /) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
        )
 
 
@@ -273,7 +275,7 @@ The OS clone restored the base system and applications. Personal data
 2. Outside the chroot, mount the cloud repository using rclone:
 
    mkdir -p /mnt/cloud_repo
-   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon
+   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon --vfs-cache-mode full
 
    Wait a few seconds for the mount to establish:
    sleep 3

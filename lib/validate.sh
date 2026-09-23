@@ -269,14 +269,17 @@ run_validation() {
         bash | *) rc_file="${user_home}/.bashrc" ;;
         esac
 
+        local desktop_autostart="${user_home}/.config/autostart/os-clone-nag.desktop"
         if [[ -f "$rc_file" ]] && grep -Fq ".os_clone_nag.sh" "$rc_file"; then
+            hook_found=true
+        elif [[ -f "$desktop_autostart" ]] && grep -Fq ".os_clone_nag.sh" "$desktop_autostart"; then
             hook_found=true
         fi
 
         if ! $hook_found; then
             l4_ok=false
-            log_warn "Layer 4 check failed: nag script hook not found in $rc_file"
-            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file")")
+            log_warn "Layer 4 check failed: nag script hook not found in $rc_file or $desktop_autostart"
+            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file") or autostart")
         fi
 
         if $l4_ok; then

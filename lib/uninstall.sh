@@ -107,10 +107,6 @@ This will NOT remove:
         rm -f "$manifest_file"
     fi
 
-    local user
-    user="$(effective_user)"
-    local target_uid
-    target_uid=$(id -u "$user")
     local home
     home="$(effective_home)"
 

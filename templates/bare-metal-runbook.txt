@@ -220,9 +220,9 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 5. Rebuild bootloader according to: {{BOOTLOADER}}
 
    - If Limine:
+       mkdir -p {{EFI_MOUNT_PATH}}/EFI/BOOT
+       cp /usr/share/limine/BOOTX64.EFI {{EFI_MOUNT_PATH}}/EFI/BOOT/BOOTX64.EFI
        limine-mkinitcpio
-       # If deploying Limine MBR/BIOS boot code (UEFI does not require deploy):
-       # limine-deploy /dev/NEW_DRIVE
 
    - If GRUB:
        grub-install --target=x86_64-efi --efi-directory={{EFI_MOUNT_PATH}} --bootloader-id=GRUB --recheck
@@ -237,10 +237,10 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
            echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
            echo "linux /vmlinuz-linux" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
            echo "initrd /initramfs-linux.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           echo "options root=UUID=$(blkid -s UUID -o value /dev/NEW_ROOT_PARTITION) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "options root=UUID=$(findmnt -n -o UUID /) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
        )
 
-4. Keep the chroot open for remaining steps, or exit if preferred.
+6. Keep the chroot open for remaining steps, or exit if preferred.
 
 
 --------------------------------------------------------------------------------

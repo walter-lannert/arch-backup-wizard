@@ -245,7 +245,19 @@ detect_existing_backup_drive() {
         local uuid="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[3]:-}"
 
-        if [[ -d "$target/OS_Backup" ]] || grep -qE "^[^#]*[[:space:]]+${target}[[:space:]].*#.*Arch Backup Wizard" /etc/fstab 2>/dev/null; then
+        local is_managed_fstab=false
+        if awk -v t1="$target" -v t2="${target// /\\040}" '
+            /# BEGIN Arch Backup Wizard/{f=1; next}
+            /# END Arch Backup Wizard/{f=0}
+            f && ($2 == t1 || $2 == t2) {found=1}
+            END{exit !found}
+        ' /etc/fstab 2>/dev/null; then
+            is_managed_fstab=true
+        elif grep -qE "^[^#]*[[:space:]]+${target}[[:space:]].*#.*Arch Backup Wizard" /etc/fstab 2>/dev/null; then
+            is_managed_fstab=true
+        fi
+
+        if [[ -d "$target/OS_Backup" ]] || $is_managed_fstab; then
             # Must be a BTRFS filesystem
             [[ "$fstype" != "btrfs" ]] && continue
 
