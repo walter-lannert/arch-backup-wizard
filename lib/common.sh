@@ -218,7 +218,11 @@ effective_home() {
 
 # Run a command as the real (non-root) user
 run_as_user() {
-    sudo -u "$(effective_user)" "$@"
+    if [[ $EUID -eq 0 ]]; then
+        sudo -u "$(effective_user)" "$@"
+    else
+        "$@"
+    fi
 }
 
 # ── Misc helpers ──────────────────────────────────────────────────────────────

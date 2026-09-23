@@ -49,7 +49,7 @@ detect_aur_helper() {
 detect_bootloader() {
     DETECTED_BOOTLOADER="unknown"
 
-    if [[ -f /etc/default/limine ]] || cmd_exists limine; then
+    if [[ -f /etc/default/limine || -f /boot/limine.conf || -f /boot/limine/limine.conf || -f /efi/limine.conf || -f /efi/limine/limine.conf ]]; then
         DETECTED_BOOTLOADER="limine"
     elif bootctl is-installed &>/dev/null 2>&1 || [[ -d /boot/loader/entries ]]; then
         DETECTED_BOOTLOADER="systemd-boot"
@@ -268,6 +268,11 @@ detect_existing_backup_drive() {
             # Allow fallback if the drive isn't currently mounted but has a UUID
             if [[ -z "$target_dev" && -n "$uuid" ]]; then
                 target_dev=$(blkid -U "$uuid" 2>/dev/null || echo "")
+            fi
+
+            # If UUID was not in fstab (e.g. mounted by device node or label), resolve from device
+            if [[ -z "$uuid" && -n "$target_dev" ]]; then
+                uuid=$(blkid -s UUID -o value "$target_dev" 2>/dev/null || echo "")
             fi
 
             local is_system=false

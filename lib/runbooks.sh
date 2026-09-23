@@ -23,6 +23,9 @@ generate_runbooks() {
             log_error "Failed to create $BACKUP_MOUNT"
             return 1
         }
+        if [[ -n "$target_user" && "$target_user" != "root" ]]; then
+            chown "$target_user:" "$BACKUP_MOUNT" 2>/dev/null || true
+        fi
     fi
 
     # 1. Set up all template variables that the runbook templates need.
@@ -40,13 +43,13 @@ generate_runbooks() {
     export ROOT_SUBVOL="${DETECTED_ROOT_SUBVOL:-}"
     export SUBVOL_LAYOUT="${DETECTED_SUBVOL_LAYOUT:-}"
     export DISTRO="${DETECTED_DISTRO:-Arch Linux}"
-    export CLOUD_REMOTE="${CLOUD_REMOTE:-${LAYER4_CLOUD_REMOTE:-}}"
-    export CLOUD_OS_DIR="${CLOUD_OS_DIR:-${LAYER4_CLOUD_OS_DIR:-}}"
-    export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-${LAYER4_CLOUD_PIKA_DIR:-}}"
+    export CLOUD_REMOTE="${CLOUD_REMOTE:-}"
+    export CLOUD_OS_DIR="${CLOUD_OS_DIR:-}"
+    export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-}"
 
     # Dynamically detect kernel and microcode for bare-metal EFI restoration
     local kernel_pkgs
-    kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | grep -E '^linux(-cachyos|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || true)
+    kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | grep -E '^linux(-cachyos(-[a-z0-9]+)?|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || true)
     [[ -z "${kernel_pkgs// /}" ]] && kernel_pkgs="linux linux-headers"
     local ucode_pkgs
     ucode_pkgs=$(pacman -Qsq ucode 2>/dev/null | tr '\n' ' ' || true)
@@ -211,8 +214,8 @@ generate_runbooks() {
         fi
     fi
 
-    # 4. Generate Cloud Recovery Runbook (only if Layer 4 was configured)
-    if layer_selected "$LAYER_CLOUD"; then
+    # 4. Generate Cloud Recovery Runbook (only if Layer 4 and Layer 2 were configured)
+    if layer_selected "$LAYER_CLOUD" && layer_selected "$LAYER_BTRBK"; then
         local tpl4="$wizard_dir/templates/cloud-recovery-runbook.txt"
         local out4="$BACKUP_MOUNT/Cloud_Recovery_Runbook.txt"
 

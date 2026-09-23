@@ -92,11 +92,12 @@ This will NOT remove:
                 else
                     rm -f "$file"
                     if [[ -f "$ORIG_MANIFEST" ]] && grep -Fxq "$file" "$ORIG_MANIFEST" 2>/dev/null; then
-                        local latest_bak
+                        local orig_bak
                         # shellcheck disable=SC2012
-                        latest_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -r | head -n 1 || true)
-                        if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
-                            mv "$latest_bak" "$file"
+                        orig_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -V | head -n 1 || true)
+                        if [[ -n "$orig_bak" && -f "$orig_bak" ]]; then
+                            mv "$orig_bak" "$file"
+                            rm -f "${file}.bak."* 2>/dev/null || true
                             log_info "Restored original pre-wizard state of $file"
                         fi
                     else

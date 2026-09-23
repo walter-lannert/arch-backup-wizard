@@ -47,8 +47,10 @@ parse_args() {
                 IFS=',' read -ra VALIDATE_LAYERS <<<"$1"
                 shift
                 # Validate each token
-                local _l
-                for _l in "${VALIDATE_LAYERS[@]}"; do
+                local _idx _l
+                for _idx in "${!VALIDATE_LAYERS[@]}"; do
+                    _l="${VALIDATE_LAYERS[_idx]// /}"
+                    VALIDATE_LAYERS[_idx]="$_l"
                     case "$_l" in
                     1 | 2 | 3 | 4 | 5) ;;
                     *) die "Invalid layer id: '$_l' (expected 1..5, or comma-separated subset, e.g. 1,3)" ;;
@@ -247,8 +249,8 @@ select_backup_drive() {
 
 Use this drive?"; then
             BACKUP_MOUNT="$DETECTED_BACKUP_MOUNT"
-            BACKUP_UUID="$DETECTED_BACKUP_UUID"
             BACKUP_DEV="$DETECTED_BACKUP_DEV"
+            BACKUP_UUID="${DETECTED_BACKUP_UUID:-$(blkid -s UUID -o value "$BACKUP_DEV" 2>/dev/null || echo "")}"
             log_info "Reusing existing backup drive: $BACKUP_MOUNT"
             _ensure_backup_mounted || return 1
             return 0

@@ -4,7 +4,7 @@ set -euo pipefail
 echo "Starting Bare-Metal OS Cloud Backup..."
 
 cleanup_files=()
-trap '[[ ${#cleanup_files[@]} -gt 0 ]] && sudo rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT INT TERM HUP
+trap '[[ ${#cleanup_files[@]} -gt 0 ]] && sudo -n rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT INT TERM HUP
 trap 'echo -e "\n\033[0;31m[ERROR] Cloud backup encountered an unrecoverable failure. See log above.\033[0m"; read -r -p "Press Enter to close this window...";' ERR
 
 # Preemptively clean up any orphaned archives from previously killed runs

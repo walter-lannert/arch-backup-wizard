@@ -210,8 +210,8 @@ New EFI UUID:       $NEW_EFI_UUID
 
    - If Limine:
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/limine 2>/dev/null || true
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.cfg 2>/dev/null || true
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.conf 2>/dev/null || true
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.cfg /mnt/target/boot/limine/*.cfg /mnt/target{{EFI_MOUNT_PATH}}/limine*.cfg /mnt/target{{EFI_MOUNT_PATH}}/limine/*.cfg 2>/dev/null || true
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.conf /mnt/target/boot/limine/*.conf /mnt/target{{EFI_MOUNT_PATH}}/limine*.conf /mnt/target{{EFI_MOUNT_PATH}}/limine/*.conf 2>/dev/null || true
 
    - If GRUB:
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/grub 2>/dev/null || true

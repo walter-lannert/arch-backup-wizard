@@ -38,34 +38,35 @@ setup_layer4() {
     log_success "Layer 4 packages installed successfully."
 
     # ── 1.5 Generate Age Encryption Key ─────────────────────────────────────────
-    log_info "Step 1.5: Setting up Age encryption for OS stream..."
-    local age_key_dir="${target_home}/.config/arch-backup-wizard"
-    local age_key_file="${age_key_dir}/cloud_os.key"
+    if layer_selected "$LAYER_BTRBK"; then
+        log_info "Step 1.5: Setting up Age encryption for OS stream..."
+        local age_key_dir="${target_home}/.config/arch-backup-wizard"
+        local age_key_file="${age_key_dir}/cloud_os.key"
 
-    run_as_user mkdir -p "$age_key_dir" || return 1
+        run_as_user mkdir -p "$age_key_dir" || return 1
 
-    if [[ ! -f "$age_key_file" ]]; then
-        if ! run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1; then
-            log_error "Failed to generate age encryption key at $age_key_file"
+        if [[ ! -f "$age_key_file" ]]; then
+            if ! run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1; then
+                log_error "Failed to generate age encryption key at $age_key_file"
+                return 1
+            fi
+            run_as_user chmod 600 "$age_key_file"
+            log_info "Generated new age key at $age_key_file"
+        else
+            log_info "Using existing age key at $age_key_file"
+        fi
+
+        local age_pubkey
+        age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file" || true)
+        if [[ -z "$age_pubkey" ]]; then
+            log_error "Failed to extract public key from $age_key_file"
             return 1
         fi
-        run_as_user chmod 600 "$age_key_file"
-        log_info "Generated new age key at $age_key_file"
-    else
-        log_info "Using existing age key at $age_key_file"
-    fi
+        export AGE_PUBKEY="$age_pubkey"
+        export AGE_KEYFILE="$age_key_file"
 
-    local age_pubkey
-    age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file" || true)
-    if [[ -z "$age_pubkey" ]]; then
-        log_error "Failed to extract public key from $age_key_file"
-        return 1
-    fi
-    export AGE_PUBKEY="$age_pubkey"
-    export AGE_KEYFILE="$age_key_file"
-
-    ui_msgbox "Encryption Key Generated" \
-        "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
+        ui_msgbox "Encryption Key Generated" \
+            "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
 
 PUBLIC KEY:
 $age_pubkey
@@ -78,16 +79,17 @@ If your computer is destroyed or stolen, you WILL need this private key to decry
 
 You MUST back up this private key to an external USB drive, another computer, or a secure Password Manager RIGHT NOW."
 
-    while true; do
-        if ui_yesno "Confirm Key Backup" \
-            "Have you successfully backed up your Age private key to an external USB drive or password manager?
+        while true; do
+            if ui_yesno "Confirm Key Backup" \
+                "Have you successfully backed up your Age private key to an external USB drive or password manager?
 
 Without this key, your cloud backups are completely unrecoverable in a bare-metal disaster."; then
-            break
-        else
-            ui_msgbox "Action Required" "Please back up the file:\n$age_key_file\n\nTake your time, then press OK to verify again."
-        fi
-    done
+                break
+            else
+                ui_msgbox "Action Required" "Please back up the file:\n$age_key_file\n\nTake your time, then press OK to verify again."
+            fi
+        done
+    fi
 
     # ── 2. Cloud provider selection menu ──────────────────────────────────────
     log_info "Step 2: Selecting cloud storage provider..."
@@ -186,169 +188,186 @@ Would you like to re-run 'rclone config' to retry?
 
     local default_os_dir="${distro_name}-bare-metal-clones"
     local cloud_os_dir="$default_os_dir"
-    while true; do
-        cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
-            "Enter cloud destination folder for bare-metal OS clones (a-z, 0-9, -, _, /):" \
-            "$cloud_os_dir") || cloud_os_dir="$default_os_dir"
-        cloud_os_dir="${cloud_os_dir:-$default_os_dir}"
-        if [[ "$cloud_os_dir" =~ ^[a-zA-Z0-9_/-]+$ ]]; then
-            break
-        else
-            ui_msgbox "Error" "Invalid folder name. Only alphanumeric, slashes, dashes, and underscores are allowed."
-        fi
-    done
-    cloud_os_dir="${cloud_os_dir#/}"
-    cloud_os_dir="${cloud_os_dir%/}"
-    [[ -z "$cloud_os_dir" ]] && cloud_os_dir="$default_os_dir"
+    if layer_selected "$LAYER_BTRBK"; then
+        while true; do
+            cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
+                "Enter cloud destination folder for bare-metal OS clones (a-z, 0-9, -, _, /):" \
+                "$cloud_os_dir") || cloud_os_dir="$default_os_dir"
+            cloud_os_dir="${cloud_os_dir:-$default_os_dir}"
+            if [[ "$cloud_os_dir" =~ ^[a-zA-Z0-9_/-]+$ ]]; then
+                break
+            else
+                ui_msgbox "Error" "Invalid folder name. Only alphanumeric, slashes, dashes, and underscores are allowed."
+            fi
+        done
+        cloud_os_dir="${cloud_os_dir#/}"
+        cloud_os_dir="${cloud_os_dir%/}"
+        [[ -z "$cloud_os_dir" ]] && cloud_os_dir="$default_os_dir"
+    fi
 
     local default_pika_dir="${distro_name}-pika-backup"
     local cloud_pika_dir="$default_pika_dir"
-    while true; do
-        cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
-            "Enter cloud destination folder for Pika backups (a-z, 0-9, -, _, /):" \
-            "$cloud_pika_dir") || cloud_pika_dir="$default_pika_dir"
-        cloud_pika_dir="${cloud_pika_dir:-$default_pika_dir}"
-        if [[ "$cloud_pika_dir" =~ ^[a-zA-Z0-9_/-]+$ ]]; then
-            break
-        else
-            ui_msgbox "Error" "Invalid folder name. Only alphanumeric, slashes, dashes, and underscores are allowed."
-        fi
-    done
-    cloud_pika_dir="${cloud_pika_dir#/}"
-    cloud_pika_dir="${cloud_pika_dir%/}"
-    [[ -z "$cloud_pika_dir" ]] && cloud_pika_dir="$default_pika_dir"
+    if layer_selected "$LAYER_PIKA"; then
+        while true; do
+            cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
+                "Enter cloud destination folder for Pika backups (a-z, 0-9, -, _, /):" \
+                "$cloud_pika_dir") || cloud_pika_dir="$default_pika_dir"
+            cloud_pika_dir="${cloud_pika_dir:-$default_pika_dir}"
+            if [[ "$cloud_pika_dir" =~ ^[a-zA-Z0-9_/-]+$ ]]; then
+                break
+            else
+                ui_msgbox "Error" "Invalid folder name. Only alphanumeric, slashes, dashes, and underscores are allowed."
+            fi
+        done
+        cloud_pika_dir="${cloud_pika_dir#/}"
+        cloud_pika_dir="${cloud_pika_dir%/}"
+        [[ -z "$cloud_pika_dir" ]] && cloud_pika_dir="$default_pika_dir"
+    fi
 
     log_info "Cloud destination folders: OS='$cloud_os_dir', Pika='$cloud_pika_dir'"
 
-    # ── 5. Generate OS cloud backup script ─────────────────────────────────────
-    log_info "Step 5: Generating OS cloud backup script..."
-    export BACKUP_MOUNT="$backup_mount"
-    export CLOUD_REMOTE="$rclone_remote"
-    export CLOUD_OS_DIR="$cloud_os_dir"
-
     local os_backup_script="${target_home}/.os_cloud_backup.sh"
-    backup_file "$os_backup_script" >/dev/null || return 1
-
-    template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"
-    chmod 700 "$os_backup_script"
-    chown "$target_user:" "$os_backup_script"
-    record_manifest "$os_backup_script"
-    log_success "Generated OS cloud backup script at $os_backup_script"
-
-    # ── 6. Generate nag script ────────────────────────────────────────────────
-    log_info "Step 6: Generating OS clone nag script..."
-    local term_cmd="${DETECTED_TERMINAL_CMD:-}"
-    if [[ -z "$term_cmd" ]]; then
-        detect_terminal
-        term_cmd="${DETECTED_TERMINAL_CMD:-xterm -e}"
-    fi
-
-    export DETECTED_HOME="$target_home"
-    export DETECTED_TERMINAL_CMD="$term_cmd"
-
     local os_nag_script="${target_home}/.os_clone_nag.sh"
-    backup_file "$os_nag_script" >/dev/null || return 1
-
-    template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"
-    chmod 700 "$os_nag_script"
-    chown "$target_user:" "$os_nag_script"
-    record_manifest "$os_nag_script"
-    log_success "Generated OS clone nag script at $os_nag_script"
-
-    # ── 7. Generate and install Pika cloud sync service and timer ─────────────
-    log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
-    export BACKUP_MOUNT="$backup_mount"
-    export SYSTEMD_BACKUP_MOUNT="${backup_mount// /\\x20}"
-    export CLOUD_REMOTE="$rclone_remote"
-    export CLOUD_PIKA_DIR="$cloud_pika_dir"
-
-    local systemd_dir="/etc/systemd/system"
-    mkdir -p "$systemd_dir"
-
-    local service_file="${systemd_dir}/pika-cloud-sync.service"
-    local timer_file="${systemd_dir}/pika-cloud-sync.timer"
-
-    backup_file "$service_file" >/dev/null || return 1
-    template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
-    chmod 644 "$service_file"
-    record_manifest "$service_file"
-
-    backup_file "$timer_file" >/dev/null || return 1
-    template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
-    chmod 644 "$timer_file"
-    record_manifest "$timer_file"
-
-    log_success "Installed systemd units: $service_file and $timer_file"
-
-    log_info "Reloading systemd daemon and enabling pika-cloud-sync.timer..."
-    systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
-
-    if systemctl enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
-        log_success "Enabled and started pika-cloud-sync.timer"
-    else
-        log_error "Failed to enable pika-cloud-sync.timer"
-    fi
-
-    # ── 8. Add nag script to user's shell startup ─────────────────────────────
-    log_info "Step 8: Adding nag script to user's shell startup..."
-    local shell_bin
-    shell_bin=$(basename "${DETECTED_SHELL:-bash}")
     local rc_file=""
-    local nag_line=""
 
-    case "$shell_bin" in
-    zsh)
-        rc_file="${target_home}/.zshrc"
-        nag_line='[[ -o interactive ]] && [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh &'
-        ;;
-    fish)
-        rc_file="${target_home}/.config/fish/config.fish"
-        nag_line='status is-interactive; and test -f ~/.os_clone_nag.sh; and bash ~/.os_clone_nag.sh &'
-        ;;
-    bash | *)
-        rc_file="${target_home}/.bashrc"
-        nag_line='case $- in *i*) [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh & ;; esac'
-        ;;
-    esac
+    if layer_selected "$LAYER_BTRBK"; then
+        # ── 5. Generate OS cloud backup script ─────────────────────────────────────
+        log_info "Step 5: Generating OS cloud backup script..."
+        export BACKUP_MOUNT="$backup_mount"
+        export CLOUD_REMOTE="$rclone_remote"
+        export CLOUD_OS_DIR="$cloud_os_dir"
 
-    run_as_user mkdir -p "$(dirname "$rc_file")" || {
-        log_error "Failed to create $(dirname "$rc_file") as user $target_user"
-        return 1
-    }
-    if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
-        log_info "Nag script already configured in $rc_file"
-    else
-        backup_file "$rc_file" >/dev/null || return 1
-        # shellcheck disable=SC2016
-        run_as_user bash -c 'cat >> "$1"' -- "$rc_file" <<EOF
+        backup_file "$os_backup_script" >/dev/null || return 1
+
+        template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"
+        chmod 700 "$os_backup_script"
+        chown "$target_user:" "$os_backup_script"
+        record_manifest "$os_backup_script"
+        log_success "Generated OS cloud backup script at $os_backup_script"
+
+        # ── 6. Generate nag script ────────────────────────────────────────────────
+        log_info "Step 6: Generating OS clone nag script..."
+        local term_cmd="${DETECTED_TERMINAL_CMD:-}"
+        if [[ -z "$term_cmd" ]]; then
+            detect_terminal
+            term_cmd="${DETECTED_TERMINAL_CMD:-xterm -e}"
+        fi
+
+        export DETECTED_HOME="$target_home"
+        export DETECTED_TERMINAL_CMD="$term_cmd"
+
+        backup_file "$os_nag_script" >/dev/null || return 1
+
+        template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"
+        chmod 700 "$os_nag_script"
+        chown "$target_user:" "$os_nag_script"
+        record_manifest "$os_nag_script"
+        log_success "Generated OS clone nag script at $os_nag_script"
+
+        # ── 8. Add nag script to user's shell startup ─────────────────────────────
+        log_info "Step 8: Adding nag script to user's shell startup..."
+        local shell_bin
+        shell_bin=$(basename "${DETECTED_SHELL:-bash}")
+        local nag_line=""
+
+        case "$shell_bin" in
+        zsh)
+            rc_file="${target_home}/.zshrc"
+            nag_line='[[ -o interactive ]] && [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh &'
+            ;;
+        fish)
+            rc_file="${target_home}/.config/fish/config.fish"
+            nag_line='status is-interactive; and test -f ~/.os_clone_nag.sh; and bash ~/.os_clone_nag.sh &'
+            ;;
+        bash | *)
+            rc_file="${target_home}/.bashrc"
+            nag_line='case $- in *i*) [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh & ;; esac'
+            ;;
+        esac
+
+        run_as_user mkdir -p "$(dirname "$rc_file")" || {
+            log_error "Failed to create $(dirname "$rc_file") as user $target_user"
+            return 1
+        }
+        if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
+            log_info "Nag script already configured in $rc_file"
+        else
+            backup_file "$rc_file" >/dev/null || return 1
+            # shellcheck disable=SC2016
+            run_as_user bash -c 'cat >> "$1"' -- "$rc_file" <<EOF
 
 # Arch Backup Wizard OS Clone Nag BEGIN
 $nag_line
 # Arch Backup Wizard OS Clone Nag END
 EOF
-        # chown is no longer needed since it's written as the user
-        log_success "Added nag script invocation to $rc_file"
+            log_success "Added nag script invocation to $rc_file"
+        fi
+    fi
+
+    local systemd_dir="/etc/systemd/system"
+    local service_file="${systemd_dir}/pika-cloud-sync.service"
+    local timer_file="${systemd_dir}/pika-cloud-sync.timer"
+
+    if layer_selected "$LAYER_PIKA"; then
+        # ── 7. Generate and install Pika cloud sync service and timer ─────────────
+        log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
+        export BACKUP_MOUNT="$backup_mount"
+        export SYSTEMD_BACKUP_MOUNT="${backup_mount// /\\x20}"
+        export CLOUD_REMOTE="$rclone_remote"
+        export CLOUD_PIKA_DIR="$cloud_pika_dir"
+
+        mkdir -p "$systemd_dir"
+
+        backup_file "$service_file" >/dev/null || return 1
+        template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
+        chmod 644 "$service_file"
+        record_manifest "$service_file"
+
+        backup_file "$timer_file" >/dev/null || return 1
+        template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
+        chmod 644 "$timer_file"
+        record_manifest "$timer_file"
+
+        log_success "Installed systemd units: $service_file and $timer_file"
+
+        log_info "Reloading systemd daemon and enabling pika-cloud-sync.timer..."
+        systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
+
+        if systemctl enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
+            log_success "Enabled and started pika-cloud-sync.timer"
+        else
+            log_error "Failed to enable pika-cloud-sync.timer"
+        fi
     fi
 
     # ── 9. Completion summary dialog ────────────────────────────────────────
     log_info "Step 9: Showing completion summary..."
+    local summary_folders=""
+    local summary_components=""
+
+    if layer_selected "$LAYER_BTRBK"; then
+        summary_folders+="• OS Clones Folder:   ${rclone_remote}${cloud_os_dir}"$'\n'
+        summary_components+="• OS Cloud Backup:"$'\n'
+        summary_components+="  ${os_backup_script}"$'\n'
+        summary_components+="• Bi-weekly Nag Script:"$'\n'
+        summary_components+="  ${os_nag_script} (added to $(basename "${rc_file:-shell startup}"))"$'\n'
+    fi
+
+    if layer_selected "$LAYER_PIKA"; then
+        summary_folders+="• Pika Backup Folder: ${rclone_remote}${cloud_pika_dir}"$'\n'
+        summary_components+="• Pika Cloud Sync System Units:"$'\n'
+        summary_components+="  ${timer_file} (weekly sync enabled)"$'\n'
+    fi
+
     ui_msgbox "Layer 4 Setup Complete" \
         "Layer 4 (Cloud Offsite) has been successfully configured!
 
 Configuration Summary:
 • Provider:           ${provider_label} (${cloud_type})
 • Rclone Remote:      ${rclone_remote}
-• OS Clones Folder:   ${rclone_remote}${cloud_os_dir}
-• Pika Backup Folder: ${rclone_remote}${cloud_pika_dir}
-
+${summary_folders}
 Installed Components:
-• OS Cloud Backup:
-  ${os_backup_script}
-• Bi-weekly Nag Script:
-  ${os_nag_script} (added to $(basename "$rc_file"))
-• Pika Cloud Sync System Units:
-  ${timer_file} (weekly sync enabled)
-
+${summary_components}
 Your offsite cloud backup pipeline is ready."
 
     log_success "── Layer 4 setup completed ──"
