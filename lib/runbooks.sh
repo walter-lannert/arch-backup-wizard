@@ -9,6 +9,9 @@
 generate_runbooks() {
     log_info "── Generating Personalized Recovery Runbooks ──"
 
+    local target_user
+    target_user="$(effective_user)"
+
     # Resolve WIZARD_DIR if not already set
     local wizard_dir="${WIZARD_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
@@ -165,8 +168,6 @@ generate_runbooks() {
     log_info "  CLOUD_OS_DIR=$CLOUD_OS_DIR"
     log_info "  CLOUD_PIKA_DIR=$CLOUD_PIKA_DIR"
 
-    local target_user
-    target_user="$(effective_user)"
     local generated_runbooks=()
     local missing_templates=()
 

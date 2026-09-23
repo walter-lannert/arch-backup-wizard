@@ -125,7 +125,7 @@ detect_btrfs_subvolumes() {
                 fi
             else
                 # This is a different filesystem or different BTRFS UUID
-                if [[ "$target" != "/boot" && "$target" != "/boot/efi" && "$target" != "/efi" && "$target" != "/mnt"* && "$target" != "/run"* ]]; then
+                if [[ "$target" != "/boot" && "$target" != "/boot/efi" && "$target" != "/efi" && "$target" != "/mnt"* && "$target" != "/run"* && "$target" != *"/Backup" ]]; then
                     DETECTED_SECONDARY_MOUNTS+=("$target")
                 fi
             fi
@@ -285,11 +285,13 @@ detect_existing_backup_drive() {
                 done
             fi
 
-            if [[ "$is_system" == false && -n "$target_dev" ]]; then
-                DETECTED_BACKUP_MOUNT="$target"
-                DETECTED_BACKUP_UUID="$uuid"
-                DETECTED_BACKUP_DEV="$target_dev"
-                break
+            if [[ "$is_system" == false ]]; then
+                if [[ -n "$target_dev" ]] || $is_managed_fstab; then
+                    DETECTED_BACKUP_MOUNT="$target"
+                    DETECTED_BACKUP_UUID="$uuid"
+                    DETECTED_BACKUP_DEV="$target_dev"
+                    break
+                fi
             fi
         fi
     done <<<"$fstab_entries"

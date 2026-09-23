@@ -291,7 +291,7 @@ Repository path on backup drive:
 
 5. Restore proper user ownership and permissions:
 
-     chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}}
+     arch-chroot /mnt/target chown -R {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}
 
 6. Note on Deep Storage (Layer 5):
    If you had archives in '/mnt/backup/Deep Storage/', they remain safe on

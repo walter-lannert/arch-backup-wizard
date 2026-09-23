@@ -195,7 +195,7 @@ run_validation() {
             local repo_path="${BACKUP_MOUNT}/Personal/backup-${host_name}-${target_user}"
             local borg_ec=0
             run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
-            if [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]] && [[ ! -f "$repo_path/config" || ! -d "$repo_path/data" ]]; then
+            if [[ ! -f "$repo_path/config" || ! -d "$repo_path/data" ]] || [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]]; then
                 l3_ok=false
                 log_warn "Layer 3 check failed: Borg repository at $repo_path is invalid or inaccessible (borg info exit code $borg_ec)"
                 failure_issues+=("Layer 3: Borg repository inaccessible or not initialized in Pika Backup")
@@ -286,12 +286,12 @@ run_validation() {
                 log_warn "Layer 4 check failed: /etc/systemd/system/pika-cloud-sync.timer does not exist"
                 failure_issues+=("Layer 4: pika-cloud-sync.timer missing")
             else
-                if ! systemctl is-enabled pika-cloud-sync.timer >/dev/null 2>&1; then
+                if ! unit_is_enabled pika-cloud-sync.timer; then
                     l4_ok=false
                     log_warn "Layer 4 check failed: pika-cloud-sync.timer is not enabled"
                     failure_issues+=("Layer 4: pika-cloud-sync.timer not enabled")
                 fi
-                if ! systemctl is-active pika-cloud-sync.timer >/dev/null 2>&1; then
+                if ! unit_is_active pika-cloud-sync.timer; then
                     l4_ok=false
                     log_warn "Layer 4 check failed: pika-cloud-sync.timer is not active (running)"
                     failure_issues+=("Layer 4: pika-cloud-sync.timer not active")

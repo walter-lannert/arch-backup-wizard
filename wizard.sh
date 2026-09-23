@@ -253,6 +253,7 @@ Use this drive?"; then
             BACKUP_UUID="${DETECTED_BACKUP_UUID:-$(blkid -s UUID -o value "$BACKUP_DEV" 2>/dev/null || echo "")}"
             log_info "Reusing existing backup drive: $BACKUP_MOUNT"
             _ensure_backup_mounted || return 1
+            export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
             return 0
         fi
     fi
@@ -556,6 +557,17 @@ run_dry_run_simulation() {
         actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage\n"
     fi
 
+    # Also render scripts and runbooks into preview dir
+    local orig_cloud_remote="${CLOUD_REMOTE:-}"
+    local orig_cloud_os_dir="${CLOUD_OS_DIR:-}"
+    local orig_cloud_pika_dir="${CLOUD_PIKA_DIR:-}"
+    local orig_age_pubkey="${AGE_PUBKEY:-}"
+
+    export CLOUD_REMOTE="${CLOUD_REMOTE:-cloud:}"
+    export CLOUD_OS_DIR="${CLOUD_OS_DIR:-arch-bare-metal-clones}"
+    export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-arch-pika-backup}"
+    export AGE_PUBKEY="${AGE_PUBKEY:-age1previewdummykey000000000000000000000000000000000000000000000}"
+
     # 3. Generate preview runbooks into preview sandbox
     local orig_mount="$BACKUP_MOUNT"
     BACKUP_MOUNT="$preview_dir/runbooks"
@@ -568,17 +580,6 @@ run_dry_run_simulation() {
     eval "$_saved_ui_msgbox"
     BACKUP_MOUNT="$orig_mount"
     export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
-
-    # Also render scripts into preview dir
-    local orig_cloud_remote="${CLOUD_REMOTE:-}"
-    local orig_cloud_os_dir="${CLOUD_OS_DIR:-}"
-    local orig_cloud_pika_dir="${CLOUD_PIKA_DIR:-}"
-    local orig_age_pubkey="${AGE_PUBKEY:-}"
-
-    export CLOUD_REMOTE="${CLOUD_REMOTE:-cloud:}"
-    export CLOUD_OS_DIR="${CLOUD_OS_DIR:-arch-bare-metal-clones}"
-    export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-arch-pika-backup}"
-    export AGE_PUBKEY="${AGE_PUBKEY:-age1previewdummykey000000000000000000000000000000000000000000000}"
 
     template_render "$WIZARD_DIR/templates/os-cloud-backup.sh" "$preview_dir/scripts/os-cloud-backup.sh" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/os-clone-nag.sh" "$preview_dir/scripts/os-clone-nag.sh" 2>/dev/null || true

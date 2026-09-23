@@ -151,8 +151,8 @@ $formatted_exclusions
     local borg_ec=0
     run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
     # Exit code 0 = accessible (unencrypted); exit code 2 = passphrase required (encrypted, properly initialized)
-    # Either means the repository exists and is valid.
-    if [[ $borg_ec -eq 0 || $borg_ec -eq 2 ]] || [[ -f "$repo_path/config" && -d "$repo_path/data" ]]; then
+    # The physical repository markers (config and data/) must exist to avoid treating uninitialized directories as valid.
+    if [[ -f "$repo_path/config" && -d "$repo_path/data" ]] && [[ $borg_ec -eq 0 || $borg_ec -eq 2 ]]; then
         log_success "Pika Backup repository verified."
         ui_msgbox "Pika Backup — Success" \
             "Pika Backup has been successfully configured!

@@ -117,6 +117,7 @@ This will NOT remove:
         done < "$manifest_file"
         rm -f "$manifest_file"
         rm -f "$ORIG_MANIFEST" 2>/dev/null || true
+        rmdir "/var/lib/arch-backup-wizard" 2>/dev/null || true
     fi
 
     local home
@@ -163,6 +164,8 @@ This will NOT remove:
         rm -f "$autostart_desktop"
         log_success "Cleaned XDG autostart entry"
     fi
+
+    rm -f "$home/.os_clone_nag.lock" "$home/.last_cloud_run" 2>/dev/null || true
 
     # ── 5. Success message ────────────────────────────────────────────────────
     ui_msgbox "Uninstall Complete" \

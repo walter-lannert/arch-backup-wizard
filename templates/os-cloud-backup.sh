@@ -51,5 +51,14 @@ if [[ $uploaded_count -eq 0 ]]; then
     exit 1
 fi
 
+_year=$(date +%Y)
+_month=$(date +%m)
+_day=$(date +%-d)
+_period="1"
+if [ "$_day" -ge 15 ]; then
+    _period="2"
+fi
+echo "${_year}-${_month}-P${_period}" > "{{DETECTED_HOME}}/.last_cloud_run"
+
 echo "Success! Your OS clone is safe in the cloud."
 read -r -p "Press Enter to close this window..."

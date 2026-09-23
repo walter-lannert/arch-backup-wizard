@@ -309,7 +309,7 @@ The OS clone restored the base system and applications. Personal data
 
 6. Restore correct user ownership:
 
-   chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}}
+   arch-chroot /mnt/target chown -R {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}
 
 7. Unmount the cloud repository:
 
