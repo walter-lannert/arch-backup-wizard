@@ -13,6 +13,8 @@ IOSchedulingClass=idle
 ExecStartPre=-+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Take a read-only snapshot of the backup drive to ensure Borg repo consistency
 ExecStartPre=+/usr/bin/btrfs subvolume snapshot -r "{{BACKUP_MOUNT}}" "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
+# Guard: abort sync before invoking rclone if the Borg repository is missing or empty
+ExecStartPre=/usr/bin/sh -c 'test -d "{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal" && test -n "$(/usr/bin/ls -A "{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal" 2>/dev/null)"'
 # Note: 'rclone sync' is strictly required for Borg repositories to ensure
 # rolling chunk compaction and index integrity. 'rclone copy' corrupts Borg.
 ExecStart=/usr/bin/rclone sync "{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v

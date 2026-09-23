@@ -148,9 +148,11 @@ run_validation() {
         fi
 
         if $l2_ok; then
+            local btrbk_cmd="btrbk"
+            [[ "$EUID" -ne 0 ]] && btrbk_cmd="sudo -n btrbk"
             if [[ "$EUID" -eq 0 ]] || sudo -n true 2>/dev/null; then
                 # shellcheck disable=SC2024
-                if ! sudo -n btrbk -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
+                if ! $btrbk_cmd -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
                     l2_ok=false
                     log_warn "Layer 2 check failed: btrbk.conf failed to parse or dryrun"
                     failure_issues+=("Layer 2: btrbk configuration invalid (fails dryrun)")
@@ -281,10 +283,10 @@ run_validation() {
         fi
 
         if layer_selected "$LAYER_PIKA"; then
-            if [[ ! -f "/etc/systemd/system/pika-cloud-sync.timer" ]]; then
+            if [[ ! -f "/etc/systemd/system/pika-cloud-sync.service" || ! -f "/etc/systemd/system/pika-cloud-sync.timer" ]]; then
                 l4_ok=false
-                log_warn "Layer 4 check failed: /etc/systemd/system/pika-cloud-sync.timer does not exist"
-                failure_issues+=("Layer 4: pika-cloud-sync.timer missing")
+                log_warn "Layer 4 check failed: pika-cloud-sync service or timer unit missing"
+                failure_issues+=("Layer 4: pika-cloud-sync systemd units missing")
             else
                 if ! unit_is_enabled pika-cloud-sync.timer; then
                     l4_ok=false

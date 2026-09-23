@@ -143,7 +143,6 @@ Do you want to proceed and overwrite it?"; then
         backup="${file}.bak.$(date +%s)"
         cp -p "$file" "$backup"
         log_info "Backed up $file → $backup"
-        echo "$backup"
     fi
 }
 

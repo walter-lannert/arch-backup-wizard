@@ -45,7 +45,8 @@ This will NOT remove:
     systemctl disable --now grub-btrfsd >>"$LOG_FILE" 2>&1 || true
     systemctl disable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || true
 
-    log_info "Disabling pika-cloud-sync.timer..."
+    log_info "Stopping and disabling pika-cloud-sync..."
+    systemctl stop pika-cloud-sync.service >>"$LOG_FILE" 2>&1 || true
     systemctl disable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1 || true
 
     if [[ -f /etc/conf.d/snapper ]]; then
@@ -125,8 +126,8 @@ This will NOT remove:
 
     # Also clean up any lingering local archives from interrupted backups
     if [[ -n "${BACKUP_MOUNT:-}" ]]; then
-        rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst" 2>/dev/null || true
-        rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst.age" 2>/dev/null || true
+        btrfs subvolume delete "${BACKUP_MOUNT}/.pika_sync_snapshot" >>"$LOG_FILE" 2>&1 || true
+        rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst"* 2>/dev/null || true
         rm -f "${BACKUP_MOUNT}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
     fi
 

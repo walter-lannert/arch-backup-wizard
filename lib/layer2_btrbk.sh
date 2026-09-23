@@ -51,7 +51,10 @@ EOF
 
         # Make sure the snapshot directory exists
         if [[ ! -d "$snap_dir" ]]; then
-            mkdir -p "$snap_dir" 2>/dev/null || log_error "Failed to create snapshot directory: $snap_dir"
+            mkdir -p "$snap_dir" || {
+                log_error "Failed to create snapshot directory: $snap_dir"
+                return 1
+            }
         fi
 
         cat <<EOF >>"$BTRBK_CONF"

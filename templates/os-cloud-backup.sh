@@ -18,8 +18,8 @@ while IFS= read -r sub; do
     [[ -z "$sub" ]] && continue
     sub_safe="${sub//\//_}"
     # Automatically find the name of the newest snapshot for this subvolume (relying on btrbk's deterministic timestamp naming)
-    LATEST_SNAP_PATH=$(find "{{BACKUP_MOUNT}}/OS_Backup" -maxdepth 1 -mindepth 1 -type d -name "${sub_safe}.20*" 2>/dev/null | sort -r | head -n 1 || true)
-    if [[ -z "$LATEST_SNAP_PATH" || ! -d "$LATEST_SNAP_PATH" ]]; then
+    LATEST_SNAP_PATH=$(sudo find "{{BACKUP_MOUNT}}/OS_Backup" -maxdepth 1 -mindepth 1 -type d -name "${sub_safe}.20*" 2>/dev/null | sort -r | head -n 1 || true)
+    if [[ -z "$LATEST_SNAP_PATH" ]]; then
         echo "Warning: No snapshots found for $sub_safe in {{BACKUP_MOUNT}}/OS_Backup"
         continue
     fi
