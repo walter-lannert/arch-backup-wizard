@@ -458,7 +458,10 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT"
 
     # Add to fstab if not already present
-    if ! findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1 && ! findmnt --fstab -S "UUID=$BACKUP_UUID" >/dev/null 2>&1; then
+    local existing_mount
+    existing_mount=$(findmnt --fstab -n -o TARGET -S "UUID=$BACKUP_UUID" 2>/dev/null || echo "")
+
+    if [[ "$existing_mount" != "$BACKUP_MOUNT" ]] && ! findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1; then
         local tmp_fstab
         tmp_fstab=$(mktemp)
         cp /etc/fstab "$tmp_fstab"
@@ -480,7 +483,7 @@ _ensure_backup_mounted() {
 
     # Mount if not already mounted
     if ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
-        mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
+        mount "$BACKUP_DEV" "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
     fi
 
     # Create standard directory structure
@@ -565,10 +568,25 @@ run_dry_run_simulation() {
     export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
 
     # Also render scripts into preview dir
+    local orig_cloud_remote="${CLOUD_REMOTE:-}"
+    local orig_cloud_os_dir="${CLOUD_OS_DIR:-}"
+    local orig_cloud_pika_dir="${CLOUD_PIKA_DIR:-}"
+    local orig_age_pubkey="${AGE_PUBKEY:-}"
+
+    export CLOUD_REMOTE="${CLOUD_REMOTE:-cloud:}"
+    export CLOUD_OS_DIR="${CLOUD_OS_DIR:-arch-bare-metal-clones}"
+    export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-arch-pika-backup}"
+    export AGE_PUBKEY="${AGE_PUBKEY:-age1previewdummykey000000000000000000000000000000000000000000000}"
+
     template_render "$WIZARD_DIR/templates/os-cloud-backup.sh" "$preview_dir/scripts/os-cloud-backup.sh" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/os-clone-nag.sh" "$preview_dir/scripts/os-clone-nag.sh" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/pika-cloud-sync.service" "$preview_dir/systemd/pika-cloud-sync.service" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/pika-cloud-sync.timer" "$preview_dir/systemd/pika-cloud-sync.timer" 2>/dev/null || true
+
+    export CLOUD_REMOTE="$orig_cloud_remote"
+    export CLOUD_OS_DIR="$orig_cloud_os_dir"
+    export CLOUD_PIKA_DIR="$orig_cloud_pika_dir"
+    export AGE_PUBKEY="$orig_age_pubkey"
 
     local rb_count
     rb_count=$(find "$preview_dir/runbooks" -maxdepth 1 -name "*Runbook*.txt" 2>/dev/null | wc -l)

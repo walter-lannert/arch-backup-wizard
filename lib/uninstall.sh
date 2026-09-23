@@ -152,10 +152,16 @@ This will NOT remove:
             else
                 log_info "Nag script line not found in $rc (skipping)"
             fi
-        else
-            log_info "Shell config not found: $rc (skipping)"
         fi
     done
+
+    local autostart_desktop="$home/.config/autostart/os-clone-nag.desktop"
+    if [[ -f "$autostart_desktop" ]]; then
+        log_info "Removing XDG autostart entry: $autostart_desktop..."
+        backup_file "$autostart_desktop" >/dev/null || true
+        rm -f "$autostart_desktop"
+        log_success "Cleaned XDG autostart entry"
+    fi
 
     # ── 5. Success message ────────────────────────────────────────────────────
     ui_msgbox "Uninstall Complete" \

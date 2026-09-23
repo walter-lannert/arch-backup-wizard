@@ -131,9 +131,9 @@ We have generated an automated script that will find the latest clone for each
 of your system subvolumes ({{SUBVOL_LAYOUT}}), transfer them, and set them up as writable subvolumes.
 
 Run the following block of code in your terminal:
-
 {{SUBVOL_RECOVERY_SCRIPT}}
-Create snapshot placeholder directories inside the new root:
+
+4. Create snapshot placeholder directories inside the new root:
 
   mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
   mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
@@ -245,14 +245,16 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
    - If systemd-boot:
        bootctl --path={{EFI_MOUNT_PATH}} install
        # If ESP is separate (e.g. /efi), ensure kernel & initramfs are present on the ESP:
-       if [ "{{EFI_MOUNT_PATH}}" != "/boot" ] && [ -f "/boot/vmlinuz-linux" ] && [ ! -f "{{EFI_MOUNT_PATH}}/vmlinuz-linux" ]; then
-           cp -a /boot/vmlinuz-* /boot/initramfs-*.img /boot/*-ucode.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+       if [ "{{EFI_MOUNT_PATH}}" != "/boot" ]; then
+           ls /boot/vmlinuz-* &>/dev/null && cp -a /boot/vmlinuz-* /boot/initramfs-*.img /boot/*-ucode.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
        fi
        # Verify loader entries were recreated by the pacman hook above.
        # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
        ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (
            mkdir -p {{EFI_MOUNT_PATH}}/loader/entries
-           K_BIN=$(basename "$(ls -1 {{EFI_MOUNT_PATH}}/vmlinuz-* 2>/dev/null | head -n 1)" 2>/dev/null || echo "vmlinuz-linux")
+           K_PATH=$(ls -1 {{EFI_MOUNT_PATH}}/vmlinuz-* 2>/dev/null | head -n 1)
+           K_BIN=$(basename "${K_PATH:-vmlinuz-linux}")
+           [[ "$K_BIN" == "." || -z "$K_BIN" ]] && K_BIN="vmlinuz-linux"
            INITRD_NAME="initramfs-${K_BIN#vmlinuz-}.img"
            echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
            echo "linux /${K_BIN}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
@@ -303,16 +305,20 @@ STEP 9: CLEANUP AND REBOOT
 
      exit
 
-2. Unmount all target partitions and the backup drive cleanly:
+2. Ensure you are outside the mount directory:
+
+     cd /
+
+3. Unmount all target partitions and the backup drive cleanly:
 
      umount -R /mnt/target
-     umount /mnt/backup
+     umount /mnt/backup 2>/dev/null || true
 
-3. Reboot:
+4. Reboot:
 
      reboot
 
-4. Remove the Live USB. Your system should boot cleanly from the new drive.
+5. Remove the Live USB. Your system should boot cleanly from the new drive.
 
 ================================================================================
 END OF RUNBOOK

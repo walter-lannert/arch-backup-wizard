@@ -5,14 +5,15 @@ echo "Starting Bare-Metal OS Cloud Backup..."
 
 cleanup_files=()
 trap '[[ ${#cleanup_files[@]} -gt 0 ]] && sudo rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT INT TERM HUP
-trap 'echo -e "\n\033[0;31m[ERROR] Cloud backup encountered an unrecoverable failure. See log above.\033[0m"; read -p "Press Enter to close this window...";' ERR
+trap 'echo -e "\n\033[0;31m[ERROR] Cloud backup encountered an unrecoverable failure. See log above.\033[0m"; read -r -p "Press Enter to close this window...";' ERR
 
 # Preemptively clean up any orphaned archives from previously killed runs
 sudo rm -f "{{BACKUP_MOUNT}}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
 
 # Authenticate sudo cleanly first so the password prompt isn't overwritten by pv
-sudo -v || { echo "Error: sudo authentication failed."; read -p "Press Enter to close this window..."; exit 1; }
+sudo -v || { echo "Error: sudo authentication failed."; read -r -p "Press Enter to close this window..."; exit 1; }
 
+uploaded_count=0
 while IFS= read -r sub; do
     [[ -z "$sub" ]] && continue
     sub_safe="${sub//\//_}"
@@ -39,7 +40,16 @@ while IFS= read -r sub; do
 
     # Clean up local encrypted copy
     sudo rm -f "$ARCHIVE_PATH"
+    cleanup_files=()
+    ((uploaded_count++))
 done <<< "{{DETECTED_SUBVOLUMES}}"
 
+if [[ $uploaded_count -eq 0 ]]; then
+    echo -e "\n\033[0;31m[ERROR] No snapshots were found in {{BACKUP_MOUNT}}/OS_Backup. Cloud backup failed.\033[0m"
+    echo "Run a local btrbk backup first (sudo btrbk run) before syncing to the cloud."
+    read -r -p "Press Enter to close this window..."
+    exit 1
+fi
+
 echo "Success! Your OS clone is safe in the cloud."
-read -p "Press Enter to close this window..."
+read -r -p "Press Enter to close this window..."

@@ -47,10 +47,11 @@ aur_install() {
 
     if [[ -z "${DETECTED_AUR_HELPER:-}" ]]; then
         ui_msgbox "AUR Helper Required" \
-            "No AUR helper (paru, yay) was detected on this system.
+            "No AUR helper (paru or yay) was detected on this system.
 
-Please install one first:
-  sudo pacman -S paru
+Please install one from the AUR (or your distribution's repository) first:
+  git clone https://aur.archlinux.org/paru-bin.git
+  cd paru-bin && makepkg -si
 
 Then re-run this wizard."
         return 1

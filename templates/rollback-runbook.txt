@@ -152,12 +152,16 @@ from '{{DETECTED_ROOT_SUBVOL_STR}}.old' into the new '{{DETECTED_ROOT_SUBVOL_STR
 
 Execute the following migration steps:
 
-1. Clean up empty placeholder directories in the new '{{DETECTED_ROOT_SUBVOL_STR}}':
-  sudo rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || sudo rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+1. Prepare snapshot directories in the new '{{DETECTED_ROOT_SUBVOL_STR}}':
   sudo rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk && sudo mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
 
-2. Migrate Snapper's .snapshots subvolume from {{DETECTED_ROOT_SUBVOL_STR}}.old to {{DETECTED_ROOT_SUBVOL_STR}}:
-  sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+2. Migrate or create Snapper's .snapshots mountpoint in {{DETECTED_ROOT_SUBVOL_STR}}:
+  if [ -e "/mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots" ]; then
+      sudo rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || sudo rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+      sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || true
+  fi
+  sudo mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  sudo chmod 750 /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
 
 3. Migrate btrbk snapshots from {{DETECTED_ROOT_SUBVOL_STR}}.old to {{DETECTED_ROOT_SUBVOL_STR}}:
   Btrbk snapshots are marked read-only by BTRFS. To move them cleanly,
@@ -289,12 +293,16 @@ STEP 4: MIGRATE NESTED SUBVOLUMES (.snapshots & .snapshots_btrbk)
 --------------------------------------------------------------------------------
 [CRITICAL: Preserving snapshot history and btrbk state]
 
-1. Remove empty placeholder directories in the new '{{DETECTED_ROOT_SUBVOL_STR}}':
-  rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+1. Prepare snapshot directories in the new '{{DETECTED_ROOT_SUBVOL_STR}}':
   rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk && mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
 
-2. Move .snapshots from {{DETECTED_ROOT_SUBVOL_STR}}.old to {{DETECTED_ROOT_SUBVOL_STR}}:
-  mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+2. Migrate or create Snapper's .snapshots mountpoint in {{DETECTED_ROOT_SUBVOL_STR}}:
+  if [ -e "/mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots" ]; then
+      rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+      mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || true
+  fi
+  mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  chmod 750 /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
 
 3. Migrate btrbk snapshots from {{DETECTED_ROOT_SUBVOL_STR}}.old to {{DETECTED_ROOT_SUBVOL_STR}}:
   for snap in /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots_btrbk/*; do

@@ -182,6 +182,7 @@ template_render() {
     local temp_file
     temp_file=$(mktemp)
     printf "%s\n" "$content" >"$temp_file"
+    chmod 644 "$temp_file"
     mv -T "$temp_file" "$output"
     log_info "Rendered template $(basename "$template") → $output"
 }

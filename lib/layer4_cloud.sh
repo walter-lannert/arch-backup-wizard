@@ -270,10 +270,12 @@ Would you like to re-run 'rclone config' to retry?
 
     backup_file "$service_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
+    chmod 644 "$service_file"
     record_manifest "$service_file"
 
     backup_file "$timer_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
+    chmod 644 "$timer_file"
     record_manifest "$timer_file"
 
     log_success "Installed systemd units: $service_file and $timer_file"
