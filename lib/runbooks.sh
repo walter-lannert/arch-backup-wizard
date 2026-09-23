@@ -101,7 +101,7 @@ generate_runbooks() {
         cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
         cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
         cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | pv | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
-        cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/.btrfs.zst.age$//')"$'\n'
+        cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/\\.btrfs\\.zst\\.age$//')"$'\n'
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$RECEIVED_NAME\" \"/mnt/new_os/$sub\""$'\n'
         cloud_restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
@@ -140,9 +140,9 @@ generate_runbooks() {
 
     # Snapshot layout
     local snap_layout="${snap_root_subvol}/.snapshots"
-    if [[ " $DETECTED_SUBVOLUMES " == *" @snapshots "* ]]; then
+    if grep -qFx "@snapshots" <<<"$DETECTED_SUBVOLUMES"; then
         snap_layout="@snapshots"
-    elif [[ " $DETECTED_SUBVOLUMES " == *" @.snapshots "* ]]; then
+    elif grep -qFx "@.snapshots" <<<"$DETECTED_SUBVOLUMES"; then
         snap_layout="@.snapshots"
     fi
     export SNAPSHOT_LAYOUT_PATH="$snap_layout"

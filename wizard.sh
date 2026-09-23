@@ -621,6 +621,8 @@ main() {
 
     # Handle --uninstall mode
     if $UNINSTALL; then
+        run_detection
+        BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
         run_uninstall
     fi
 

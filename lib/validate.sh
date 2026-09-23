@@ -351,23 +351,24 @@ run_validation() {
 
     log_info "Checking for recovery runbooks..."
     local runbook_count=0
-    if [[ -n "${BACKUP_MOUNT:-}" && -d "$BACKUP_MOUNT" ]]; then
+    local runbook_dir="${BACKUP_MOUNT:-${user_home}/Backup}"
+    if [[ -d "$runbook_dir" ]]; then
         local runbook_files=()
         local prev_nullglob
         prev_nullglob=$(shopt -p nullglob || true)
         shopt -s nullglob
-        runbook_files=("$BACKUP_MOUNT"/*Runbook*.txt)
+        runbook_files=("$runbook_dir"/*Runbook*.txt)
         eval "$prev_nullglob"
         runbook_count=${#runbook_files[@]}
     fi
 
     if [[ $runbook_count -gt 0 ]]; then
-        log_success "Recovery runbooks: $runbook_count found in ${BACKUP_MOUNT:-N/A}"
+        log_success "Recovery runbooks: $runbook_count found in $runbook_dir"
     else
-        log_warn "Recovery runbooks: 0 found in ${BACKUP_MOUNT:-N/A}"
+        log_warn "Recovery runbooks: 0 found in $runbook_dir"
         if layer_selected "$LAYER_SNAPPER" || layer_selected "$LAYER_BTRBK" || layer_selected "$LAYER_CLOUD"; then
             all_passed=false
-            failure_issues+=("Runbooks: No recovery runbooks found in ${BACKUP_MOUNT:-N/A}")
+            failure_issues+=("Runbooks: No recovery runbooks found in $runbook_dir")
         fi
     fi
 

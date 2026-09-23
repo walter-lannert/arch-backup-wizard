@@ -46,7 +46,17 @@ STEP 1: BOOT LIVE USB AND IDENTIFY DRIVES
 1. Connect your backup drive (UUID: {{BACKUP_UUID}}) and boot your machine
    from an Arch Linux or {{DISTRO}} Live USB.
 2. In the Live environment, open a root terminal (you are root by default).
-3. Identify all connected storage devices:
+3. Establish network connectivity (required in Step 7 to reinstall kernel/microcode):
+   - If using Ethernet: DHCP usually connects automatically.
+     Test with: ping -c 3 archlinux.org
+   - If using Wi-Fi (via iwd / iwctl):
+       iwctl
+       station wlan0 scan
+       station wlan0 get-networks
+       station wlan0 connect "<YOUR_WIFI_SSID>"
+       exit
+     Verify with: ping -c 3 archlinux.org
+4. Identify all connected storage devices:
 
      lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS
 
@@ -231,8 +241,8 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
    - If systemd-boot:
        bootctl --path={{EFI_MOUNT_PATH}} install
        # Verify loader entries were recreated by the pacman hook above.
-       # If {{EFI_MOUNT_PATH}}/loader/entries/ is empty, recreate manually:
-       ls {{EFI_MOUNT_PATH}}/loader/entries/ || (
+       # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
+       ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (
            mkdir -p {{EFI_MOUNT_PATH}}/loader/entries
            echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
            echo "linux /vmlinuz-linux" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf

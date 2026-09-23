@@ -332,9 +332,8 @@ Mount the newly restored '{{DETECTED_ROOT_SUBVOL_STR}}' subvolume and EFI partit
   mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd UUID={{ROOT_UUID}} /mnt/target
 
 Mount the EFI partition:
-  mkdir -p /mnt/target/boot /mnt/target/efi
-  mount UUID={{EFI_UUID}} /mnt/target/boot 2>/dev/null || \
-  mount UUID={{EFI_UUID}} /mnt/target/efi 2>/dev/null
+  mkdir -p /mnt/target{{EFI_MOUNT_PATH}}
+  mount UUID={{EFI_UUID}} /mnt/target{{EFI_MOUNT_PATH}}
 
 Enter the chroot environment:
 

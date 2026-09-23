@@ -253,8 +253,8 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
    - If systemd-boot:
        bootctl --path={{EFI_MOUNT_PATH}} install
        # Verify loader entries were recreated by the pacman hook above.
-       # If {{EFI_MOUNT_PATH}}/loader/entries/ is empty, recreate manually:
-       ls {{EFI_MOUNT_PATH}}/loader/entries/ || (
+       # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
+       ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (
            mkdir -p {{EFI_MOUNT_PATH}}/loader/entries
            echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
            echo "linux /vmlinuz-linux" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
