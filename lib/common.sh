@@ -6,7 +6,6 @@ _ARCH_BACKUP_COMMON_LOADED=1
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 readonly CLR_RED='\033[0;31m'
-
 readonly CLR_NC='\033[0m'
 
 # ── Layer ID constants ────────────────────────────────────────────────────────
@@ -17,8 +16,6 @@ readonly LAYER_BTRBK=2
 readonly LAYER_PIKA=3
 readonly LAYER_CLOUD=4
 readonly LAYER_DEEP=5
-
-
 
 # ── Configuration defaults ────────────────────────────────────────────────────
 # All tunable defaults live here. Changing a value in this block is the single
@@ -74,7 +71,8 @@ _log() {
     shift
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"$LOG_FILE"
+    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"$LOG_FILE" 2>/dev/null || \
+    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"/tmp/arch-backup-wizard.log" 2>/dev/null || true
 }
 
 log_info() { _log "INFO" "$*"; }
@@ -111,20 +109,33 @@ record_manifest() {
     fi
 }
 
+readonly ORIG_MANIFEST="/var/lib/arch-backup-wizard/unmanaged_orig.txt"
+
 # Back up a file before modifying it (timestamped .bak copy)
 # Prompts for confirmation if the file already exists but is NOT tracked in the manifest
 backup_file() {
     local file="$1"
     if [[ -f "$file" ]]; then
-        # Check if we own this file
+        local is_shared=false
+        case "$file" in
+            /etc/fstab|*/.bashrc|*/.zshrc|*/config.fish) is_shared=true ;;
+        esac
+
         if [[ ! -f "$MANIFEST_FILE" ]] || ! grep -Fxq "$file" "$MANIFEST_FILE" 2>/dev/null; then
-            if ! ui_yesno "Overwrite Existing Configuration?" \
-                "The file '$file' already exists and was not created by the wizard.
+            mkdir -p "$(dirname "$ORIG_MANIFEST")"
+            if ! grep -Fxq "$file" "$ORIG_MANIFEST" 2>/dev/null; then
+                echo "$file" >> "$ORIG_MANIFEST"
+            fi
+
+            if ! ${UNINSTALL:-false} && ! $is_shared; then
+                if ! ui_yesno "Overwrite Existing Configuration?" \
+                    "The file '$file' already exists and was not created by the wizard.
 
 Overwriting it may destroy your custom settings (a backup will be saved).
 Do you want to proceed and overwrite it?"; then
-                log_warn "User aborted overwrite of unmanaged file: $file"
-                return 1
+                    log_warn "User aborted overwrite of unmanaged file: $file"
+                    return 1
+                fi
             fi
         fi
 
@@ -139,6 +150,7 @@ Do you want to proceed and overwrite it?"; then
 # Render a template file: replaces every {{KEY}} with the value of $KEY
 # Usage: template_render templates/foo.conf /etc/foo.conf
 template_render() {
+    shopt -u patsub_replacement 2>/dev/null || true
     local template="$1"
     local output="$2"
     local content
@@ -151,7 +163,7 @@ template_render() {
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
         local value="${!var:-}"
-        
+
         if [[ "$output" == *.sh ]]; then
             # For shell scripts, escape the value to be safely injected inside double quotes
             # We escape \, $, `, and " so they are treated as literal characters inside "..."
@@ -159,17 +171,18 @@ template_render() {
             value="${value//\$/\\\$}"
             value="${value//\`/\\\`}"
             value="${value//\"/\\\"}"
-        else
-            # For systemd or other files, we just prevent breaking out of double quotes
+        elif [[ "$output" == *.service || "$output" == *.timer || "$output" == *.conf ]]; then
+            # For systemd or configuration files, prevent breaking out of double quotes
             value="${value//\"/\\\"}"
         fi
-        
+
         content="${content//\{\{${var}\}\}/${value}}"
     done <<<"$vars"
 
     local temp_file
     temp_file=$(mktemp)
     printf "%s\n" "$content" >"$temp_file"
+    chmod 644 "$temp_file"
     mv -T "$temp_file" "$output"
     log_info "Rendered template $(basename "$template") → $output"
 }

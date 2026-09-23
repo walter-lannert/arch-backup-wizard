@@ -141,10 +141,17 @@ run_validation() {
             failure_issues+=("Layer 2: ${BACKUP_MOUNT:-}/OS_Backup directory missing")
         fi
 
-        if $l2_ok && ! btrbk -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
-            l2_ok=false
-            log_warn "Layer 2 check failed: btrbk.conf failed to parse or dryrun"
-            failure_issues+=("Layer 2: btrbk configuration invalid (fails dryrun)")
+        if $l2_ok; then
+            if [[ "$EUID" -eq 0 ]] || sudo -n true 2>/dev/null; then
+                # shellcheck disable=SC2024
+                if ! sudo -n btrbk -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
+                    l2_ok=false
+                    log_warn "Layer 2 check failed: btrbk.conf failed to parse or dryrun"
+                    failure_issues+=("Layer 2: btrbk configuration invalid (fails dryrun)")
+                fi
+            else
+                log_info "Layer 2: Skipping btrbk dryrun (requires root privileges)"
+            fi
         fi
 
         if $l2_ok; then
@@ -171,8 +178,6 @@ run_validation() {
             failure_issues+=("Layer 3: pika-backup package not installed")
         fi
 
-
-
         if [[ -z "${BACKUP_MOUNT:-}" || ! -d "${BACKUP_MOUNT}/Personal" ]]; then
             l3_ok=false
             log_warn "Layer 3 check failed: directory '${BACKUP_MOUNT:-}/Personal' does not exist"
@@ -182,16 +187,12 @@ run_validation() {
             local target_user
             target_user="$(effective_user)"
             local repo_path="${BACKUP_MOUNT}/Personal/backup-${host_name}-${target_user}"
-            if [[ ! -f "$repo_path/config" ]]; then
+            local borg_ec=0
+            run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
+            if [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]] && [[ ! -f "$repo_path/config" || ! -d "$repo_path/data" ]]; then
                 l3_ok=false
-                log_warn "Layer 3 check failed: Borg repository not initialized at $repo_path"
-                failure_issues+=("Layer 3: Borg repository not initialized in Pika Backup")
-            else
-                if ! run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes timeout 5 borg info "$repo_path" >/dev/null 2>&1; then
-                    log_warn "Layer 3: 'borg info' returned non-zero. Repository may be corrupted or encrypted."
-                    l3_ok=false
-                    failure_issues+=("Layer 3: Borg repository inaccessible (check 'borg info $repo_path')")
-                fi
+                log_warn "Layer 3 check failed: Borg repository at $repo_path is invalid or inaccessible (borg info exit code $borg_ec)"
+                failure_issues+=("Layer 3: Borg repository inaccessible or not initialized in Pika Backup")
             fi
         fi
 
@@ -270,14 +271,17 @@ run_validation() {
         bash | *) rc_file="${user_home}/.bashrc" ;;
         esac
 
+        local desktop_autostart="${user_home}/.config/autostart/os-clone-nag.desktop"
         if [[ -f "$rc_file" ]] && grep -Fq ".os_clone_nag.sh" "$rc_file"; then
+            hook_found=true
+        elif [[ -f "$desktop_autostart" ]] && grep -Fq ".os_clone_nag.sh" "$desktop_autostart"; then
             hook_found=true
         fi
 
         if ! $hook_found; then
             l4_ok=false
-            log_warn "Layer 4 check failed: nag script hook not found in $rc_file"
-            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file")")
+            log_warn "Layer 4 check failed: nag script hook not found in $rc_file or $desktop_autostart"
+            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file") or autostart")
         fi
 
         if $l4_ok; then
@@ -317,8 +321,13 @@ run_validation() {
     fi
 
     # ── 6. Check cross-layer items ────────────────────────────────────────────
-    local fstab_status="✓"
-    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
+    local check_fstab=false
+    for l in "$LAYER_BTRBK" "$LAYER_PIKA" "$LAYER_DEEP"; do
+        layer_selected "$l" && check_fstab=true
+    done
+
+    local fstab_status="—"
+    if $check_fstab && [[ -n "${BACKUP_MOUNT:-}" ]]; then
         log_info "Checking /etc/fstab for backup drive mount ($BACKUP_MOUNT)..."
         local fstab_line=""
         if [[ -f /etc/fstab ]]; then
@@ -344,29 +353,43 @@ run_validation() {
         fi
     else
         fstab_status="—"
-        log_info "BACKUP_MOUNT not set; skipping /etc/fstab validation"
+        log_info "No layers requiring backup drive selected; skipping /etc/fstab validation"
     fi
 
     log_info "Checking for recovery runbooks..."
     local runbook_count=0
-    if [[ -n "${BACKUP_MOUNT:-}" && -d "$BACKUP_MOUNT" ]]; then
+    local runbook_dir="${BACKUP_MOUNT:-${user_home}/Backup}"
+    if [[ -d "$runbook_dir" ]]; then
         local runbook_files=()
         local prev_nullglob
         prev_nullglob=$(shopt -p nullglob || true)
         shopt -s nullglob
-        runbook_files=("$BACKUP_MOUNT"/*Runbook*.txt)
+        runbook_files=("$runbook_dir"/*Runbook*.txt)
         eval "$prev_nullglob"
         runbook_count=${#runbook_files[@]}
     fi
 
-    if [[ $runbook_count -gt 0 ]]; then
-        log_success "Recovery runbooks: $runbook_count found in ${BACKUP_MOUNT:-N/A}"
+    local missing_runbooks=()
+    if layer_selected "$LAYER_SNAPPER" && [[ ! -f "$runbook_dir/Layer1_Snapper_Rollback_Runbook.txt" ]]; then
+        missing_runbooks+=("Layer 1 Rollback Runbook (Layer1_Snapper_Rollback_Runbook.txt)")
+    fi
+    if layer_selected "$LAYER_BTRBK" && [[ ! -f "$runbook_dir/Bare_Metal_Recovery_Runbook.txt" ]]; then
+        missing_runbooks+=("Layer 2 Bare-Metal Recovery Runbook (Bare_Metal_Recovery_Runbook.txt)")
+    fi
+    if layer_selected "$LAYER_CLOUD" && [[ ! -f "$runbook_dir/Cloud_Recovery_Runbook.txt" ]]; then
+        missing_runbooks+=("Layer 4 Cloud Recovery Runbook (Cloud_Recovery_Runbook.txt)")
+    fi
+
+    if [[ ${#missing_runbooks[@]} -gt 0 ]]; then
+        log_warn "Missing expected recovery runbooks in $runbook_dir: ${missing_runbooks[*]}"
+        all_passed=false
+        for mrb in "${missing_runbooks[@]}"; do
+            failure_issues+=("Runbooks: Missing $mrb in $runbook_dir")
+        done
+    elif [[ $runbook_count -gt 0 ]]; then
+        log_success "All expected recovery runbooks found ($runbook_count total in $runbook_dir)"
     else
-        log_warn "Recovery runbooks: 0 found in ${BACKUP_MOUNT:-N/A}"
-        if layer_selected "$LAYER_SNAPPER" || layer_selected "$LAYER_BTRBK" || layer_selected "$LAYER_CLOUD"; then
-            all_passed=false
-            failure_issues+=("Runbooks: No recovery runbooks found in ${BACKUP_MOUNT:-N/A}")
-        fi
+        log_info "No recovery runbooks expected for the selected layers"
     fi
 
     # ── 7. Build summary dashboard ────────────────────────────────────────────

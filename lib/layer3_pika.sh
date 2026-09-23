@@ -36,7 +36,7 @@ setup_layer3() {
         return 1
     }
     chown "$target_user:" "${backup_mount}/Personal" 2>/dev/null || true
-    
+
     run_as_user mkdir -p "$repo_path" || {
         log_error "Failed to create $repo_path as user $target_user"
         return 1
@@ -129,8 +129,13 @@ $formatted_exclusions
     # 6. Ask if the user wants to launch Pika now (ui_yesno)
     log_info "Step 6: Asking user to launch Pika Backup..."
     if ui_yesno "Launch Pika Backup" "Would you like to launch Pika Backup now?"; then
-        log_info "Launching Pika Backup in background for user $target_user..."
-        run_as_user env DISPLAY="${DISPLAY:-:0}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" pika-backup >>"$LOG_FILE" 2>&1 &
+        local target_uid
+        target_uid=$(id -u "$target_user")
+        run_as_user env DISPLAY="${DISPLAY:-:0}" \
+            WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+            XDG_RUNTIME_DIR="/run/user/${target_uid}" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${target_uid}/bus" \
+            pika-backup >>"$LOG_FILE" 2>&1 &
     fi
 
     # 7. Ask the user to confirm when they've finished configuring Pika
@@ -143,7 +148,11 @@ $formatted_exclusions
 
     # 8. Validate: check if the Borg repository was initialized by the GUI (Audit-041)
     log_info "Step 8: Validating Pika Backup configuration..."
-    if run_as_user borg info "$repo_path" >/dev/null 2>&1; then
+    local borg_ec=0
+    run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
+    # Exit code 0 = accessible (unencrypted); exit code 2 = passphrase required (encrypted, properly initialized)
+    # Either means the repository exists and is valid.
+    if [[ $borg_ec -eq 0 || $borg_ec -eq 2 ]] || [[ -f "$repo_path/config" && -d "$repo_path/data" ]]; then
         log_success "Pika Backup repository verified."
         ui_msgbox "Pika Backup — Success" \
             "Pika Backup has been successfully configured!

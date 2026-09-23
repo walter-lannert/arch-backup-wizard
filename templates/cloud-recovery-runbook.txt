@@ -34,10 +34,10 @@ Recovery Flow:
   1. Boot Arch Linux / {{DISTRO}} Live USB and establish internet access
   2. Partition and format replacement drive (EFI + BTRFS root)
   3. Configure rclone and stream download OS image into btrfs receive
-  4. Snapshot read-only received clone to writable '@' subvolume
+  4. Snapshot read-only received clone to writable '{{DETECTED_ROOT_SUBVOL_STR}}' subvolume
   5. Delete read-only clone subvolume
   6. Recreate subvolume layout based on: {{SUBVOL_LAYOUT}}
-  7. Set '@' as default BTRFS subvolume
+  7. Set '{{DETECTED_ROOT_SUBVOL_STR}}' as default BTRFS subvolume
   8. Mount all subvolumes for chroot
   9. Update all UUIDs in /etc/fstab and bootloader configurations
  10. Chroot and rebuild bootloader ({{BOOTLOADER}})
@@ -69,7 +69,7 @@ STEP 1: BOOT LIVE USB AND ESTABLISH INTERNET CONNECTION
 
 5. Install necessary recovery packages in the Live environment:
 
-     pacman -Sy --needed rclone zstd btrfs-progs borg
+     pacman -Sy --needed rclone zstd btrfs-progs borg age pv fuse3
 
 
 --------------------------------------------------------------------------------
@@ -148,7 +148,8 @@ of your system subvolumes ({{SUBVOL_LAYOUT}}), securely stream them, decrypt the
 Run the following block of code in your terminal:
 
 {{CLOUD_RECOVERY_SCRIPT}}
-Create snapshot placeholder directories inside the new root:
+
+6. Create snapshot placeholder directories inside the new root:
 
   mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
   mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
@@ -186,7 +187,7 @@ Mount the corresponding subvolumes:
 Mount the new EFI partition:
 
   mkdir -p /mnt/target{{EFI_MOUNT_PATH}}
-  mount /dev/NEW_EFI_PARTITION /mnt/target{{EFI_MOUNT_PATH}} 2>/dev/null
+  mount /dev/NEW_EFI_PARTITION /mnt/target{{EFI_MOUNT_PATH}}
 
 
 --------------------------------------------------------------------------------
@@ -229,15 +230,21 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 2. Rebuild the EFI partition by reinstalling your kernel and microcode packages:
    [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz), microcode, and automatically recreates systemd-boot loader entries via pacman hooks]
 
-     pacman -S --noconfirm {{KERNEL_PKGS}}
+     pacman -Sy --noconfirm {{KERNEL_PKGS}}
 
 3. Ensure initramfs is fully generated (pacman hooks usually do this, but force it to be safe):
 
      mkinitcpio -P
 
-4. Rebuild bootloader according to: {{BOOTLOADER}}
+4. If you use Secure Boot (e.g., sbctl), you MUST sign the newly generated EFI binaries now, otherwise your system will not boot:
+
+     sbctl sign-all
+
+5. Rebuild bootloader according to: {{BOOTLOADER}}
 
    - If Limine:
+       mkdir -p {{EFI_MOUNT_PATH}}/EFI/BOOT
+       cp /usr/share/limine/BOOTX64.EFI {{EFI_MOUNT_PATH}}/EFI/BOOT/BOOTX64.EFI
        limine-mkinitcpio
 
    - If GRUB:
@@ -246,6 +253,25 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 
    - If systemd-boot:
        bootctl --path={{EFI_MOUNT_PATH}} install
+       # If ESP is separate (e.g. /efi), ensure kernel & initramfs are present on the ESP:
+       if [ "{{EFI_MOUNT_PATH}}" != "/boot" ]; then
+           ls /boot/vmlinuz-* &>/dev/null && cp -a /boot/vmlinuz-* /boot/initramfs-*.img /boot/*-ucode.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+       fi
+       # Verify loader entries were recreated by the pacman hook above.
+       # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
+       ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (
+           mkdir -p {{EFI_MOUNT_PATH}}/loader/entries
+           K_PATH=$(ls -1 {{EFI_MOUNT_PATH}}/vmlinuz-* 2>/dev/null | head -n 1)
+           K_BIN=$(basename "${K_PATH:-vmlinuz-linux}")
+           [[ "$K_BIN" == "." || -z "$K_BIN" ]] && K_BIN="vmlinuz-linux"
+           INITRD_NAME="initramfs-${K_BIN#vmlinuz-}.img"
+           echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "linux /${K_BIN}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           [ -f "{{EFI_MOUNT_PATH}}/intel-ucode.img" ] && echo "initrd /intel-ucode.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           [ -f "{{EFI_MOUNT_PATH}}/amd-ucode.img" ] && echo "initrd /amd-ucode.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "initrd /${INITRD_NAME}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "options root=UUID=$(findmnt -n -o UUID /) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+       )
 
 
 --------------------------------------------------------------------------------
@@ -260,7 +286,7 @@ The OS clone restored the base system and applications. Personal data
 2. Outside the chroot, mount the cloud repository using rclone:
 
    mkdir -p /mnt/cloud_repo
-   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon
+   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon --vfs-cache-mode full
 
    Wait a few seconds for the mount to establish:
    sleep 3
@@ -285,7 +311,7 @@ The OS clone restored the base system and applications. Personal data
 
    chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}}
 
-6. Unmount the cloud repository:
+7. Unmount the cloud repository:
 
    fusermount -u /mnt/cloud_repo 2>/dev/null || umount /mnt/cloud_repo 2>/dev/null || true
 
@@ -297,15 +323,19 @@ STEP 9: CLEANUP AND REBOOT
 
      exit
 
-2. Unmount all target partitions:
+2. Ensure you are outside the mount directory:
+
+     cd /
+
+3. Unmount all target partitions:
 
      umount -R /mnt/target
 
-3. Reboot:
+4. Reboot:
 
      reboot
 
-4. Remove the Live USB. Your system should boot into your restored Arch Linux environment.
+5. Remove the Live USB. Your system should boot into your restored Arch Linux environment.
 
 ================================================================================
 END OF RUNBOOK

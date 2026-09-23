@@ -146,6 +146,18 @@ $DETECTED_UNMOUNTED_SUBVOLS
 If you need these backed up, you must mount them explicitly in /etc/fstab."
     fi
 
+    if (( ${#DETECTED_SECONDARY_MOUNTS[@]} > 0 )); then
+        local sec_list=""
+        for m in "${DETECTED_SECONDARY_MOUNTS[@]}"; do
+            sec_list+="- $m\n"
+        done
+        ui_msgbox "Warning: Secondary Filesystems Detected" \
+            "The following secondary filesystems are mounted on your system but are outside the root BTRFS partition:
+
+$sec_list
+These secondary drives or partitions will NOT be included in the bare-metal clones (Layer 2) or OS cloud backups (Layer 4). They will only be backed up if they are inside your home directory and captured by Pika Backup (Layer 3)."
+    fi
+
     ui_yesno "System Detection" \
         "Your system was scanned. Please verify:
 
@@ -277,7 +289,7 @@ Use this drive?"; then
         local dev="${BASH_REMATCH[1]:-}"
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
-        
+
         # Skip system devices
         local is_system=false
         for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
@@ -341,44 +353,44 @@ Continue?"; then
             BACKUP_MOUNT=$(ui_inputbox "Mount Point" \
                 "Where should the backup drive be mounted?\n(Must be an absolute path outside system dirs)" \
                 "${DETECTED_HOME}/Backup") || die "Aborted at mount point input."
-            
+
             # Remove trailing slashes
             BACKUP_MOUNT="${BACKUP_MOUNT%/}"
-            
+
             if [[ -z "$BACKUP_MOUNT" ]]; then
                 ui_msgbox "Error" "Mount point cannot be empty."
                 continue
             fi
-            
+
             if [[ "$BACKUP_MOUNT" != /* ]]; then
                 ui_msgbox "Error" "Mount point must be an absolute path starting with '/'."
                 continue
             fi
-            
+
             if [[ "$BACKUP_MOUNT" == *$'\n'* || "$BACKUP_MOUNT" == *$'\t'* || "$BACKUP_MOUNT" == *\\* ]]; then
                 ui_msgbox "Error" "Mount point cannot contain newlines, tabs, or backslashes."
                 continue
             fi
-            
+
             if [[ "$BACKUP_MOUNT" == "/usr"* || "$BACKUP_MOUNT" == "/etc"* || "$BACKUP_MOUNT" == "/var"* || "$BACKUP_MOUNT" == "/boot"* || "$BACKUP_MOUNT" == "/" ]]; then
                 ui_msgbox "Error" "Mount point cannot be in a protected system directory."
                 continue
             fi
-            
+
             if [[ -L "$BACKUP_MOUNT" ]]; then
                 ui_msgbox "Error" "Mount point cannot be a symlink."
                 continue
             fi
-            
+
             if mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
                 local current_dev
-                current_dev=$(findmnt -n -o SOURCE "$BACKUP_MOUNT" 2>/dev/null || echo "")
+                current_dev=$(findmnt -n --nofsroot -o SOURCE "$BACKUP_MOUNT" 2>/dev/null || echo "")
                 if [[ "$current_dev" != "$BACKUP_DEV" ]]; then
                     ui_msgbox "Error" "Path is already a mount point for a different device ($current_dev)."
                     continue
                 fi
             fi
-            
+
             if [[ -d "$BACKUP_MOUNT" ]] && ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
                 local contents
                 contents=$(ls -A "$BACKUP_MOUNT" 2>/dev/null || echo "")
@@ -387,13 +399,14 @@ Continue?"; then
                     continue
                 fi
             fi
-            
+
             break
         done
     fi
 
     _ensure_backup_mounted
 
+    export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
     log_info "Backup drive configured: dev=$BACKUP_DEV mount=$BACKUP_MOUNT UUID=$BACKUP_UUID"
 }
 
@@ -432,6 +445,7 @@ No partitions or data were modified."
     log_info "Formatting $BACKUP_DEV as BTRFS with zstd compression"
     ui_infobox "Formatting" "Creating BTRFS filesystem on $BACKUP_DEV..."
     mkfs.btrfs -f "$BACKUP_DEV" >>"$LOG_FILE" 2>&1 || die "mkfs.btrfs failed on $BACKUP_DEV"
+    udevadm settle 2>/dev/null || sleep 1
     log_success "Formatted $BACKUP_DEV as BTRFS"
 }
 
@@ -444,21 +458,24 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT"
 
     # Add to fstab if not already present
-    if ! grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" 2>/dev/null; then
+    local existing_mount
+    existing_mount=$(findmnt --fstab -n -o TARGET -S "UUID=$BACKUP_UUID" 2>/dev/null || echo "")
+
+    if [[ "$existing_mount" != "$BACKUP_MOUNT" ]] && ! findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1; then
         local tmp_fstab
         tmp_fstab=$(mktemp)
         cp /etc/fstab "$tmp_fstab"
-        
+
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
         printf '\n# BEGIN Arch Backup Wizard Mount\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n# END Arch Backup Wizard Mount\n' \
             "$BACKUP_UUID" "$fstab_mount" >>"$tmp_fstab"
-        
+
         if ! findmnt --verify --tab-file "$tmp_fstab" &>/dev/null; then
             rm -f "$tmp_fstab"
             die "Generated fstab entry failed verification. Aborting."
         fi
-        
-        backup_file /etc/fstab
+
+        backup_file /etc/fstab || { rm -f "$tmp_fstab"; die "Aborted by user: declined /etc/fstab modification."; }
         mv -T "$tmp_fstab" /etc/fstab
         chmod 644 /etc/fstab
         log_info "Added backup drive to /etc/fstab"
@@ -466,7 +483,7 @@ _ensure_backup_mounted() {
 
     # Mount if not already mounted
     if ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
-        mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
+        mount "$BACKUP_DEV" "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
     fi
 
     # Create standard directory structure
@@ -528,7 +545,7 @@ run_dry_run_simulation() {
         actions+="• Layer 4 (Cloud Offsite):\n"
         actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh\n"
         actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh\n"
-        actions+="  - User systemd timer: pika-cloud-sync.timer\n"
+        actions+="  - System timer (running as user): pika-cloud-sync.timer\n"
         actions+="  - Shell startup nag integration: ${DETECTED_SHELL}\n"
     fi
 
@@ -548,12 +565,28 @@ run_dry_run_simulation() {
     generate_runbooks >/dev/null 2>&1 || true
     eval "$_saved_ui_msgbox"
     BACKUP_MOUNT="$orig_mount"
+    export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
 
     # Also render scripts into preview dir
+    local orig_cloud_remote="${CLOUD_REMOTE:-}"
+    local orig_cloud_os_dir="${CLOUD_OS_DIR:-}"
+    local orig_cloud_pika_dir="${CLOUD_PIKA_DIR:-}"
+    local orig_age_pubkey="${AGE_PUBKEY:-}"
+
+    export CLOUD_REMOTE="${CLOUD_REMOTE:-cloud:}"
+    export CLOUD_OS_DIR="${CLOUD_OS_DIR:-arch-bare-metal-clones}"
+    export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-arch-pika-backup}"
+    export AGE_PUBKEY="${AGE_PUBKEY:-age1previewdummykey000000000000000000000000000000000000000000000}"
+
     template_render "$WIZARD_DIR/templates/os-cloud-backup.sh" "$preview_dir/scripts/os-cloud-backup.sh" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/os-clone-nag.sh" "$preview_dir/scripts/os-clone-nag.sh" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/pika-cloud-sync.service" "$preview_dir/systemd/pika-cloud-sync.service" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/pika-cloud-sync.timer" "$preview_dir/systemd/pika-cloud-sync.timer" 2>/dev/null || true
+
+    export CLOUD_REMOTE="$orig_cloud_remote"
+    export CLOUD_OS_DIR="$orig_cloud_os_dir"
+    export CLOUD_PIKA_DIR="$orig_cloud_pika_dir"
+    export AGE_PUBKEY="$orig_age_pubkey"
 
     local rb_count
     rb_count=$(find "$preview_dir/runbooks" -maxdepth 1 -name "*Runbook*.txt" 2>/dev/null | wc -l)
@@ -583,7 +616,6 @@ NO SYSTEM FILES, DRIVES, OR PACKAGES WERE MODIFIED."
     fi
 
     # Run validation in read-only mode to show current system status
-
     run_validation || true
 
     log_info "══════ Dry run simulation finished cleanly ══════"
@@ -598,6 +630,8 @@ main() {
     # Set up global wizard log file
     if $DRY_RUN; then
         LOG_FILE="/tmp/arch-backup-wizard-dryrun.log"
+    elif [[ $EUID -ne 0 ]]; then
+        LOG_FILE="/tmp/arch-backup-wizard.log"
     else
         LOG_FILE="/var/log/arch-backup-wizard.log"
     fi
@@ -607,7 +641,8 @@ main() {
 
     # Handle --uninstall mode
     if $UNINSTALL; then
-
+        run_detection
+        BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
         run_uninstall
     fi
 
@@ -674,10 +709,7 @@ main() {
         local fn="$2"
         if layer_selected "$layer_id"; then
             set +e
-            (
-                set -e
-                "$fn"
-            )
+            "$fn"
             local ret=$?
             set -e
             if [[ $ret -ne 0 ]]; then

@@ -52,14 +52,16 @@ This will NOT remove:
         sed -i 's/\bSNAPPER_CONFIGS="root\b/SNAPPER_CONFIGS="/g; s/\bSNAPPER_CONFIGS="\(.*\) root\b/SNAPPER_CONFIGS="\1/g; s/\bSNAPPER_CONFIGS="root \([^"]*\)"/SNAPPER_CONFIGS="\1"/g' /etc/conf.d/snapper
     fi
 
-    if grep -q '# BEGIN Arch Backup Wizard Mount' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
+    if grep -q '# BEGIN Arch Backup Wizard' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
+        backup_file /etc/fstab || log_warn "Could not create backup of /etc/fstab prior to cleaning"
         # Handle legacy uninstalls and new BEGIN/END tags
         sed -i -z 's/\n# Arch Backup Wizard Mount\n[^\n]*\n//g' /etc/fstab 2>/dev/null || true
-        sed -i '/# BEGIN Arch Backup Wizard Mount/,/# END Arch Backup Wizard Mount/d' /etc/fstab 2>/dev/null || true
+        sed -i '/# BEGIN Arch Backup Wizard/,/# END Arch Backup Wizard/d' /etc/fstab 2>/dev/null || true
         log_info "Removed managed entry from /etc/fstab"
     fi
 
-    local manifest_file="/var/lib/arch-backup-wizard/manifest.txt"
+    # shellcheck disable=SC2153
+    local manifest_file="$MANIFEST_FILE"
     if [[ ! -f "$manifest_file" ]]; then
         log_warn "Manifest file not found at $manifest_file. No generated files to remove."
     else
@@ -69,8 +71,14 @@ This will NOT remove:
                 log_info "Removing $file"
                 if btrfs subvolume show "$file" &>/dev/null; then
                     # Before deleting, check if this is the Snapper config
-                    if [[ "$file" == "/.snapshots" ]] && cmd_exists snapper; then
-                        snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
+                    if [[ "$file" == "/.snapshots" ]]; then
+                        if mountpoint -q "/.snapshots" 2>/dev/null || findmnt -n "/.snapshots" &>/dev/null; then
+                            log_info "Unmounting /.snapshots prior to configuration removal..."
+                            umount -q "/.snapshots" >>"$LOG_FILE" 2>&1 || log_warn "Failed to unmount /.snapshots cleanly"
+                        fi
+                        if cmd_exists snapper; then
+                            snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
+                        fi
                     fi
                     # Audit-040: Only delete subvolumes if they are empty to protect user data
                     # Btrfs fails to delete if there are nested subvolumes, but checking explicitly is safer
@@ -83,19 +91,23 @@ This will NOT remove:
                     rmdir "$file" 2>/dev/null || true
                 else
                     rm -f "$file"
-                    local latest_bak
-                    # shellcheck disable=SC2012
-                    latest_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -r | head -n 1 || true)
-                    if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
-                        mv "$latest_bak" "$file"
-                        log_info "Restored previous state of $file from backup"
+                    if [[ -f "$ORIG_MANIFEST" ]] && grep -Fxq "$file" "$ORIG_MANIFEST" 2>/dev/null; then
+                        local latest_bak
+                        # shellcheck disable=SC2012
+                        latest_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -r | head -n 1 || true)
+                        if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
+                            mv "$latest_bak" "$file"
+                            log_info "Restored original pre-wizard state of $file"
+                        fi
+                    else
+                        rm -f "${file}.bak."* 2>/dev/null || true
                     fi
                 fi
-                
+
                 # Clean up empty parent directories like /etc/systemd/system/btrbk.service.d
                 local parent_dir
                 parent_dir=$(dirname "$file")
-                if [[ -d "$parent_dir" ]]; then
+                if [[ "$parent_dir" == *"/systemd/system/"*.service.d && -d "$parent_dir" ]]; then
                     rmdir "$parent_dir" 2>/dev/null || true
                 fi
             else
@@ -103,26 +115,22 @@ This will NOT remove:
             fi
         done < "$manifest_file"
         rm -f "$manifest_file"
+        rm -f "$ORIG_MANIFEST" 2>/dev/null || true
     fi
 
-    local user
-    user="$(effective_user)"
-    local target_uid; target_uid=$(id -u "$user")
     local home
     home="$(effective_home)"
 
     # Also clean up any lingering local archives from interrupted backups
-    if [[ -n "${BACKUP_MOUNT:-}" && -d "${BACKUP_MOUNT}/Personal" ]]; then
+    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
         rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst" 2>/dev/null || true
         rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst.age" 2>/dev/null || true
-        rm -f "${BACKUP_MOUNT}/Personal/"*.btrfs.zst.age 2>/dev/null || true
+        rm -f "${BACKUP_MOUNT}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
     fi
 
     log_info "Reloading systemd daemon..."
     systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
 
-    log_info "Reloading user systemd daemon for user $user..."
-    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user daemon-reload 2>/dev/null || true
 
     log_info "Removing nag script lines from shell startup files..."
     local shell_files=(
@@ -144,10 +152,16 @@ This will NOT remove:
             else
                 log_info "Nag script line not found in $rc (skipping)"
             fi
-        else
-            log_info "Shell config not found: $rc (skipping)"
         fi
     done
+
+    local autostart_desktop="$home/.config/autostart/os-clone-nag.desktop"
+    if [[ -f "$autostart_desktop" ]]; then
+        log_info "Removing XDG autostart entry: $autostart_desktop..."
+        backup_file "$autostart_desktop" >/dev/null || true
+        rm -f "$autostart_desktop"
+        log_success "Cleaned XDG autostart entry"
+    fi
 
     # ── 5. Success message ────────────────────────────────────────────────────
     ui_msgbox "Uninstall Complete" \

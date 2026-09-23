@@ -21,13 +21,13 @@ setup_layer2() {
         log_error "Failed to install Layer 2 packages."
         return 1
     fi
-    log_info "Step 3: Ensuring backup target directory $backup_mount/OS_Backup exists..."
+    log_info "Step 2: Ensuring backup target directory $backup_mount/OS_Backup exists..."
     mkdir -p "$backup_mount/OS_Backup" || {
         log_error "Failed to create $backup_mount/OS_Backup"
         return 1
     }
 
-    log_info "Step 4: Writing /etc/btrbk/btrbk.conf..."
+    log_info "Step 3: Writing /etc/btrbk/btrbk.conf..."
     mkdir -p "$(dirname "$BTRBK_CONF")" || {
         log_error "Failed to create $(dirname "$BTRBK_CONF")"
         return 1
@@ -48,7 +48,7 @@ EOF
         local subvol="${mount_pair##*:}"
         local subvol_safe="${subvol//\//_}"
         local snap_dir="${mnt%/}/${SNAP_DIR_BTRBK#/}"
-        
+
         # Make sure the snapshot directory exists
         if [[ ! -d "$snap_dir" ]]; then
             mkdir -p "$snap_dir" 2>/dev/null || log_error "Failed to create snapshot directory: $snap_dir"
@@ -65,7 +65,7 @@ EOF
     done
     log_success "Created $BTRBK_CONF"
 
-    log_info "Step 5: Configuring systemd drop-in override for btrbk.service..."
+    log_info "Step 4: Configuring systemd drop-in override for btrbk.service..."
     local override_dir="$BTRBK_OVERRIDE_DIR"
     local override_conf="$override_dir/override.conf"
 
@@ -76,10 +76,10 @@ EOF
     backup_file "$override_conf" >/dev/null || return 1
 
     record_manifest "$override_conf"
-    local escaped_mount="${backup_mount// /\\x20}"
+    local systemd_mount="${backup_mount// /\\x20}"
     cat <<EOF >"$override_conf"
 [Unit]
-RequiresMountsFor=${escaped_mount}
+RequiresMountsFor=${systemd_mount}
 
 [Service]
 Nice=19
@@ -87,20 +87,20 @@ IOSchedulingClass=idle
 EOF
     log_success "Created $override_conf"
 
-    # 6. Run systemctl daemon-reload
-    log_info "Step 6: Reloading systemd daemon..."
+    # 5. Run systemctl daemon-reload
+    log_info "Step 5: Reloading systemd daemon..."
     systemctl daemon-reload >>"$LOG_FILE" 2>&1 || {
         log_error "systemctl daemon-reload failed"
         return 1
     }
 
-    log_info "Step 7: Enabling and starting btrbk.timer..."
+    log_info "Step 6: Enabling and starting btrbk.timer..."
     systemctl enable --now btrbk.timer >>"$LOG_FILE" 2>&1 || {
         log_error "Failed to enable btrbk.timer"
         return 1
     }
 
-    log_info "Step 8: Checking if user wants to perform initial backup..."
+    log_info "Step 7: Checking if user wants to perform initial backup..."
     if ui_yesno "Run Initial Backup" \
         "Would you like to run the first btrbk backup now?
 
@@ -133,8 +133,8 @@ Please check the log file for details:
         log_info "User skipped initial btrbk backup."
     fi
 
-    # 9. Verify: check that btrbk.timer is active (unit_is_active btrbk.timer) and show success/failure via ui_msgbox.
-    log_info "Step 9: Verifying btrbk.timer status..."
+    # 8. Verify: check that btrbk.timer is active (unit_is_active btrbk.timer) and show success/failure via ui_msgbox.
+    log_info "Step 8: Verifying btrbk.timer status..."
     if unit_is_active btrbk.timer; then
         log_success "Layer 2 setup completed: btrbk.timer is active."
         ui_msgbox "Layer 2 — Success" \

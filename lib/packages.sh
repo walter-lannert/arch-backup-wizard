@@ -4,7 +4,6 @@
 # ── Query helpers ─────────────────────────────────────────────────────────────
 
 # Check if a package is installed
-
 pkg_is_installed() {
     pacman -Qi "$1" &>/dev/null
 }
@@ -48,10 +47,11 @@ aur_install() {
 
     if [[ -z "${DETECTED_AUR_HELPER:-}" ]]; then
         ui_msgbox "AUR Helper Required" \
-            "No AUR helper (paru, yay) was detected on this system.
+            "No AUR helper (paru or yay) was detected on this system.
 
-Please install one first:
-  sudo pacman -S paru
+Please install one from the AUR (or your distribution's repository) first:
+  git clone https://aur.archlinux.org/paru-bin.git
+  cd paru-bin && makepkg -si
 
 Then re-run this wizard."
         return 1
@@ -94,16 +94,17 @@ get_layer_packages() {
 
     case "$layer" in
     1)
-        echo "snapper snap-pac"
+        local pkgs="snapper snap-pac"
         case "${DETECTED_BOOTLOADER:-}" in
-        grub) echo "grub-btrfs inotify-tools" ;;
-        limine) echo "AUR:limine-snapper-sync inotify-tools" ;;
+        grub) pkgs+=" grub-btrfs inotify-tools" ;;
+        limine) pkgs+=" AUR:limine-snapper-sync inotify-tools" ;;
             # systemd-boot has no snapshot integration package
         esac
+        echo "$pkgs"
         ;;
     2) echo "btrbk" ;;
     3) echo "pika-backup" ;;
-    4) echo "rclone pv zstd zenity age" ;;
+    4) echo "rclone pv zstd zenity age fuse3" ;;
     5) ;; # No packages needed
     esac
 }

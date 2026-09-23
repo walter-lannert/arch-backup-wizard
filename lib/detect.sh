@@ -51,10 +51,10 @@ detect_bootloader() {
 
     if [[ -f /etc/default/limine ]] || cmd_exists limine; then
         DETECTED_BOOTLOADER="limine"
+    elif bootctl is-installed &>/dev/null 2>&1 || [[ -d /boot/loader/entries ]]; then
+        DETECTED_BOOTLOADER="systemd-boot"
     elif [[ -f /etc/default/grub ]] || [[ -d /boot/grub ]]; then
         DETECTED_BOOTLOADER="grub"
-    elif [[ -d /boot/loader/entries ]] || bootctl is-installed &>/dev/null 2>&1; then
-        DETECTED_BOOTLOADER="systemd-boot"
     fi
 
     log_info "Bootloader: $DETECTED_BOOTLOADER"
@@ -101,6 +101,7 @@ detect_btrfs_subvolumes() {
     DETECTED_SUBVOLUMES=""
     DETECTED_SUBVOL_LAYOUT=""
     DETECTED_SUBVOL_MOUNTS=()
+    DETECTED_SECONDARY_MOUNTS=()
 
     if [[ "$DETECTED_ROOT_FS" == "btrfs" ]]; then
         local subvol_list=()
@@ -110,21 +111,26 @@ detect_btrfs_subvolumes() {
             local target="${BASH_REMATCH[1]}"
             local uuid="${BASH_REMATCH[2]}"
             local opts="${BASH_REMATCH[3]}"
-            
+
             if [[ "$uuid" == "$DETECTED_ROOT_UUID" ]]; then
                 if [[ "$opts" =~ subvol=([^,]+) ]]; then
                     local subvol="${BASH_REMATCH[1]}"
                     subvol="${subvol#/}"
                     [[ -z "$subvol" ]] && subvol="@"
-                    
+
                     if [[ "$subvol" != *".snapshots"* ]]; then
                         subvol_list+=("$subvol")
                         DETECTED_SUBVOL_MOUNTS+=("$target:$subvol")
                     fi
                 fi
+            else
+                # This is a different filesystem or different BTRFS UUID
+                if [[ "$target" != "/boot" && "$target" != "/boot/efi" && "$target" != "/efi" && "$target" != "/mnt"* && "$target" != "/run"* ]]; then
+                    DETECTED_SECONDARY_MOUNTS+=("$target")
+                fi
             fi
-        done < <(findmnt -n -t btrfs -P -o TARGET,UUID,OPTIONS 2>/dev/null)
-        
+        done < <(findmnt -n -P -o TARGET,UUID,OPTIONS -t btrfs,ext4,xfs,f2fs,vfat,exfat,ntfs 2>/dev/null)
+
         if (( ${#subvol_list[@]} > 0 )); then
             mapfile -t subvol_list < <(printf "%s\n" "${subvol_list[@]}" | sort -u)
             DETECTED_SUBVOLUMES=$(printf "%s\n" "${subvol_list[@]}")
@@ -161,23 +167,34 @@ detect_btrfs_subvolumes() {
 detect_system_devices() {
     DETECTED_SYSTEM_DEVS=()
     local critical_mounts=()
-    mapfile -t critical_mounts < <(lsblk -rno MOUNTPOINT 2>/dev/null | grep -v '^$' | grep -v '\[SWAP\]' || true)
-    
+    mapfile -t critical_mounts < <(lsblk -rno MOUNTPOINT 2>/dev/null | grep -v '^$' | grep -v '\[SWAP\]' | grep -vE '^(/run/media|/mnt)' || true)
+
     # Ensure standard mounts are checked even if unmounted currently (if they somehow exist)
     critical_mounts+=(/ /boot /boot/efi /efi)
-    
+
     for mnt in "${critical_mounts[@]}"; do
-        local dev
-        dev=$(findmnt -n --nofsroot -o SOURCE "$mnt" 2>/dev/null || true)
-        if [[ -n "$dev" ]]; then
+        local fstype
+        fstype=$(findmnt -n -o FSTYPE "$mnt" 2>/dev/null || true)
+
+        local devs=()
+        if [[ "$fstype" == "btrfs" ]]; then
+            # Handle multi-device BTRFS roots
+            mapfile -t devs < <(btrfs filesystem show "$mnt" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="path") print $(i+1)}' || true)
+        else
+            local dev
+            dev=$(findmnt -n --nofsroot -o SOURCE "$mnt" 2>/dev/null || true)
+            [[ -n "$dev" ]] && devs+=("$dev")
+        fi
+
+        for d in "${devs[@]}"; do
             local tree
-            tree=$(lsblk -s -nlo KNAME "$dev" 2>/dev/null || true)
+            tree=$(lsblk -s -nlo KNAME "$d" 2>/dev/null || true)
             for k in $tree; do
                 DETECTED_SYSTEM_DEVS+=("/dev/$k")
             done
-        fi
+        done
     done
-    
+
     local swaps
     swaps=$(swapon --show=NAME --noheadings 2>/dev/null || true)
     for swp in $swaps; do
@@ -187,7 +204,7 @@ detect_system_devices() {
             DETECTED_SYSTEM_DEVS+=("/dev/$k")
         done
     done
-    
+
     # Remove duplicates
     if (( ${#DETECTED_SYSTEM_DEVS[@]} > 0 )); then
         mapfile -t DETECTED_SYSTEM_DEVS < <(printf "%s\n" "${DETECTED_SYSTEM_DEVS[@]}" | sort -u)
@@ -204,7 +221,7 @@ detect_available_drives() {
 
     # Partitions with filesystem info
     DETECTED_PARTITIONS=$(lsblk -P -pno NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null |
-        grep 'TYPE="part"' |
+        grep -E 'TYPE="(part|crypt|lvm)"' |
         grep -vE 'loop|rom' || echo "")
 
     log_info "Drive scan complete"
@@ -220,28 +237,34 @@ detect_existing_backup_drive() {
     # Parse fstab explicitly with findmnt
     local fstab_entries
     fstab_entries=$(findmnt --fstab -P -o TARGET,UUID,FSTYPE 2>/dev/null || true)
-    
+
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ $line =~ TARGET=\"([^\"]*)\".*UUID=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\" ]] || true
         local target="${BASH_REMATCH[1]:-}"
         local uuid="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[3]:-}"
-        
-        if [[ -d "$target/OS_Backup" ]] || echo "$target" | grep -qi 'backup'; then
-            # Must be a btrfs entry
+
+        local is_managed_fstab=false
+        if awk -v t1="$target" -v t2="${target// /\\040}" '
+            /# BEGIN Arch Backup Wizard/{f=1; next}
+            /# END Arch Backup Wizard/{f=0}
+            f && ($2 == t1 || $2 == t2) {found=1}
+            END{exit !found}
+        ' /etc/fstab 2>/dev/null; then
+            is_managed_fstab=true
+        elif grep -qE "^[^#]*[[:space:]]+${target}[[:space:]].*#.*Arch Backup Wizard" /etc/fstab 2>/dev/null; then
+            is_managed_fstab=true
+        fi
+
+        if [[ -d "$target/OS_Backup" ]] || $is_managed_fstab; then
+            # Must be a BTRFS filesystem
             [[ "$fstype" != "btrfs" ]] && continue
-            
-            # Warn if we fall back to fuzzy match without the directory signature
-            if [[ ! -d "$target/OS_Backup" ]]; then
-                log_warn "Found potential backup drive via substring match at $target, but no OS_Backup signature found."
-                # We'll let it pass for initialization, but this restricts pure fuzzy matching from hijacking another btrfs volume with 'backup' in the name unless the user is specifically formatting it
-            fi
-            
+
             # Check if it is on the root filesystem (ignore if it's the same device)
             local target_dev
             target_dev=$(findmnt -n --nofsroot -o SOURCE "$target" 2>/dev/null || echo "")
-            
+
             # Allow fallback if the drive isn't currently mounted but has a UUID
             if [[ -z "$target_dev" && -n "$uuid" ]]; then
                 target_dev=$(blkid -U "$uuid" 2>/dev/null || echo "")
@@ -273,7 +296,7 @@ detect_existing_backup_drive() {
 
 detect_user_info() {
     DETECTED_USER=$(get_real_user)
-    DETECTED_HOME=$(get_real_home)
+    DETECTED_HOME=$(getent passwd "$DETECTED_USER" | cut -d: -f6)
     DETECTED_SHELL=$(getent passwd "$DETECTED_USER" | cut -d: -f7)
     DETECTED_HOSTNAME=$(cat /etc/hostname 2>/dev/null || uname -n || echo "localhost")
 
@@ -310,7 +333,6 @@ detect_terminal() {
 # ── Existing tool installations ───────────────────────────────────────────────
 
 detect_existing_setup() {
-
 
     # Config file existence
     DETECTED_SNAPPER_CONFIG_EXISTS=false
@@ -354,5 +376,3 @@ Hostname:        $DETECTED_HOSTNAME
 Backup Drive:    ${DETECTED_BACKUP_MOUNT:-Not configured}
 EOF
 }
-
-# Build dialog-formatted list of candidate backup partitions

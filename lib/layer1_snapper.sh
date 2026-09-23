@@ -102,9 +102,19 @@ setup_layer1() {
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
-                backup_file /etc/fstab || return 1
-                printf '\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n' \
-                    "$root_uuid" "$existing_subvol" >>/etc/fstab
+                local tmp_fstab
+                tmp_fstab=$(mktemp)
+                cp /etc/fstab "$tmp_fstab"
+                printf '\n# BEGIN Arch Backup Wizard /.snapshots Mount\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n# END Arch Backup Wizard /.snapshots Mount\n' \
+                    "$root_uuid" "$existing_subvol" >>"$tmp_fstab"
+                if ! findmnt --verify --tab-file "$tmp_fstab" &>/dev/null; then
+                    rm -f "$tmp_fstab"
+                    log_error "Generated /.snapshots fstab entry failed verification."
+                    return 1
+                fi
+                backup_file /etc/fstab || { rm -f "$tmp_fstab"; return 1; }
+                mv -T "$tmp_fstab" /etc/fstab
+                chmod 644 /etc/fstab
                 mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to mount $SNAP_DIR"
                     return 1
@@ -115,7 +125,7 @@ setup_layer1() {
         else
             log_info "Using Snapper auto-created /.snapshots subvolume."
             chmod 750 "$SNAP_DIR"
-            echo "/.snapshots" >> /var/lib/arch-backup-wizard/manifest.txt
+            record_manifest "/.snapshots"
         fi
     fi
 

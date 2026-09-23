@@ -10,7 +10,7 @@
 # 6. Generates the bi-weekly nag reminder script (~/.os_clone_nag.sh)
 # 7. Generates and enables Pika cloud sync user service and timer
 # 8. Adds the nag script to user's shell startup file (idempotent)
-# 10. Displays completion summary dialog
+# 9. Displays completion summary dialog
 
 setup_layer4() {
     log_info "── Setting up Layer 4: Cloud Offsite (rclone) ──"
@@ -41,22 +41,29 @@ setup_layer4() {
     log_info "Step 1.5: Setting up Age encryption for OS stream..."
     local age_key_dir="${target_home}/.config/arch-backup-wizard"
     local age_key_file="${age_key_dir}/cloud_os.key"
-    
+
     run_as_user mkdir -p "$age_key_dir" || return 1
-    
+
     if [[ ! -f "$age_key_file" ]]; then
-        run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1
+        if ! run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1; then
+            log_error "Failed to generate age encryption key at $age_key_file"
+            return 1
+        fi
         run_as_user chmod 600 "$age_key_file"
         log_info "Generated new age key at $age_key_file"
     else
         log_info "Using existing age key at $age_key_file"
     fi
-    
+
     local age_pubkey
-    age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file")
+    age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file" || true)
+    if [[ -z "$age_pubkey" ]]; then
+        log_error "Failed to extract public key from $age_key_file"
+        return 1
+    fi
     export AGE_PUBKEY="$age_pubkey"
     export AGE_KEYFILE="$age_key_file"
-    
+
     ui_msgbox "Encryption Key Generated" \
         "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
 
@@ -173,10 +180,11 @@ Would you like to re-run 'rclone config' to retry?
 
     # ── 4. Ask for cloud destination folder names ─────────────────────────────
     log_info "Step 4: Prompting for cloud destination folder names..."
-    local distro_name="${DETECTED_DISTRO:-Arch}"
-    distro_name="${distro_name// /_}"
+    local distro_name="${DETECTED_DISTRO:-arch}"
+    distro_name="${distro_name// /-}"
+    distro_name="${distro_name,,}"
 
-    local default_os_dir="${distro_name}_BareMetal_Clones"
+    local default_os_dir="${distro_name}-bare-metal-clones"
     local cloud_os_dir="$default_os_dir"
     while true; do
         cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
@@ -191,8 +199,9 @@ Would you like to re-run 'rclone config' to retry?
     done
     cloud_os_dir="${cloud_os_dir#/}"
     cloud_os_dir="${cloud_os_dir%/}"
+    [[ -z "$cloud_os_dir" ]] && cloud_os_dir="$default_os_dir"
 
-    local default_pika_dir="${distro_name}_Pika_Backup"
+    local default_pika_dir="${distro_name}-pika-backup"
     local cloud_pika_dir="$default_pika_dir"
     while true; do
         cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
@@ -207,6 +216,7 @@ Would you like to re-run 'rclone config' to retry?
     done
     cloud_pika_dir="${cloud_pika_dir#/}"
     cloud_pika_dir="${cloud_pika_dir%/}"
+    [[ -z "$cloud_pika_dir" ]] && cloud_pika_dir="$default_pika_dir"
 
     log_info "Cloud destination folders: OS='$cloud_os_dir', Pika='$cloud_pika_dir'"
 
@@ -248,6 +258,7 @@ Would you like to re-run 'rclone config' to retry?
     # ── 7. Generate and install Pika cloud sync service and timer ─────────────
     log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
     export BACKUP_MOUNT="$backup_mount"
+    export SYSTEMD_BACKUP_MOUNT="${backup_mount// /\\x20}"
     export CLOUD_REMOTE="$rclone_remote"
     export CLOUD_PIKA_DIR="$cloud_pika_dir"
 
@@ -259,10 +270,12 @@ Would you like to re-run 'rclone config' to retry?
 
     backup_file "$service_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
+    chmod 644 "$service_file"
     record_manifest "$service_file"
 
     backup_file "$timer_file" >/dev/null || return 1
     template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
+    chmod 644 "$timer_file"
     record_manifest "$timer_file"
 
     log_success "Installed systemd units: $service_file and $timer_file"
@@ -317,8 +330,8 @@ EOF
         log_success "Added nag script invocation to $rc_file"
     fi
 
-    # ── 10. Completion summary dialog ────────────────────────────────────────
-    log_info "Step 10: Showing completion summary..."
+    # ── 9. Completion summary dialog ────────────────────────────────────────
+    log_info "Step 9: Showing completion summary..."
     ui_msgbox "Layer 4 Setup Complete" \
         "Layer 4 (Cloud Offsite) has been successfully configured!
 
