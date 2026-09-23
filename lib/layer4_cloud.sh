@@ -333,11 +333,11 @@ EOF
         log_info "Reloading systemd daemon and enabling pika-cloud-sync.timer..."
         systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
 
-        if systemctl enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
-            log_success "Enabled and started pika-cloud-sync.timer"
-        else
+        if ! systemctl enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
             log_error "Failed to enable pika-cloud-sync.timer"
+            return 1
         fi
+        log_success "Enabled and started pika-cloud-sync.timer"
     fi
 
     # ── 9. Completion summary dialog ────────────────────────────────────────

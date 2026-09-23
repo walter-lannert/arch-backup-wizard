@@ -143,7 +143,8 @@ detect_btrfs_subvolumes() {
         local all_subvols
         all_subvols=$(btrfs subvolume list -o / 2>/dev/null | sed -n 's/.* path //p' | grep -v '\.snapshots' || true)
         local unmounted_subvols=()
-        for s in $all_subvols; do
+        while IFS= read -r s; do
+            [[ -z "$s" ]] && continue
             local found=false
             for m in "${subvol_list[@]}"; do
                 if [[ "$s" == "$m" ]]; then
@@ -154,7 +155,7 @@ detect_btrfs_subvolumes() {
             if [[ "$found" == false ]]; then
                 unmounted_subvols+=("$s")
             fi
-        done
+        done <<< "$all_subvols"
         if (( ${#unmounted_subvols[@]} > 0 )); then
             DETECTED_UNMOUNTED_SUBVOLS=$(printf "%s\n" "${unmounted_subvols[@]}")
             log_warn "Detected unmounted nested subvolumes that will not be backed up."
@@ -187,10 +188,20 @@ detect_system_devices() {
         fi
 
         for d in "${devs[@]}"; do
+            [[ -z "$d" ]] && continue
+            local canonical_d
+            canonical_d=$(realpath -q "$d" 2>/dev/null || echo "$d")
+            DETECTED_SYSTEM_DEVS+=("$d" "$canonical_d")
+
             local tree
-            tree=$(lsblk -s -nlo KNAME "$d" 2>/dev/null || true)
+            tree=$(lsblk -s -nlo PATH,KNAME "$d" 2>/dev/null || true)
             for k in $tree; do
-                DETECTED_SYSTEM_DEVS+=("/dev/$k")
+                [[ -z "$k" ]] && continue
+                local dev_node="$k"
+                [[ "$dev_node" != /* ]] && dev_node="/dev/$k"
+                local canonical_k
+                canonical_k=$(realpath -q "$dev_node" 2>/dev/null || echo "$dev_node")
+                DETECTED_SYSTEM_DEVS+=("$dev_node" "$canonical_k")
             done
         done
     done
@@ -198,10 +209,20 @@ detect_system_devices() {
     local swaps
     swaps=$(swapon --show=NAME --noheadings 2>/dev/null || true)
     for swp in $swaps; do
+        [[ -z "$swp" ]] && continue
+        local canonical_swp
+        canonical_swp=$(realpath -q "$swp" 2>/dev/null || echo "$swp")
+        DETECTED_SYSTEM_DEVS+=("$swp" "$canonical_swp")
+
         local tree
-        tree=$(lsblk -s -nlo KNAME "$swp" 2>/dev/null || true)
+        tree=$(lsblk -s -nlo PATH,KNAME "$swp" 2>/dev/null || true)
         for k in $tree; do
-            DETECTED_SYSTEM_DEVS+=("/dev/$k")
+            [[ -z "$k" ]] && continue
+            local dev_node="$k"
+            [[ "$dev_node" != /* ]] && dev_node="/dev/$k"
+            local canonical_k
+            canonical_k=$(realpath -q "$dev_node" 2>/dev/null || echo "$dev_node")
+            DETECTED_SYSTEM_DEVS+=("$dev_node" "$canonical_k")
         done
     done
 

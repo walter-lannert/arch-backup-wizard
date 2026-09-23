@@ -249,8 +249,9 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
        if [ "{{EFI_MOUNT_PATH}}" != "/boot" ]; then
            ls /boot/vmlinuz-* &>/dev/null && cp -a /boot/vmlinuz-* /boot/initramfs-*.img /boot/*-ucode.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
        fi
-       # Ensure loader entries and kernel cmdline reflect $NEW_ROOT_UUID after pacman hook regeneration:
-       sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /etc/kernel/cmdline /boot/loader/entries/*.conf {{EFI_MOUNT_PATH}}/loader/entries/*.conf 2>/dev/null || true
+       # Ensure loader entries and kernel cmdline reflect the restored root UUID after pacman hook regeneration:
+       CURRENT_ROOT_UUID=$(findmnt -n -o UUID /)
+       sed -i "s/{{ROOT_UUID}}/$CURRENT_ROOT_UUID/g" /etc/kernel/cmdline /boot/loader/entries/*.conf {{EFI_MOUNT_PATH}}/loader/entries/*.conf 2>/dev/null || true
        # Verify loader entries were recreated by the pacman hook above.
        # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
        ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (

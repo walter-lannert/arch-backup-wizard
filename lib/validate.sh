@@ -141,6 +141,17 @@ run_validation() {
             failure_issues+=("Layer 2: btrbk.timer not active")
         fi
 
+        local override_file="/etc/systemd/system/btrbk.service.d/override.conf"
+        if [[ ! -f "$override_file" ]]; then
+            l2_ok=false
+            log_warn "Layer 2 check failed: systemd drop-in override $override_file is missing"
+            failure_issues+=("Layer 2: btrbk systemd drop-in override missing")
+        elif ! grep -q "RequiresMountsFor=" "$override_file" || ! grep -q "Nice=19" "$override_file" || ! grep -q "IOSchedulingClass=idle" "$override_file"; then
+            l2_ok=false
+            log_warn "Layer 2 check failed: $override_file is missing RequiresMountsFor, Nice=19, or IOSchedulingClass=idle"
+            failure_issues+=("Layer 2: btrbk systemd drop-in missing required mount or priority directives")
+        fi
+
         if [[ -z "${BACKUP_MOUNT:-}" || ! -d "${BACKUP_MOUNT}/OS_Backup" ]]; then
             l2_ok=false
             log_warn "Layer 2 check failed: directory '${BACKUP_MOUNT:-}/OS_Backup' does not exist"

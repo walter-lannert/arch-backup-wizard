@@ -50,6 +50,7 @@ This will NOT remove:
     systemctl disable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1 || true
 
     if [[ -f /etc/conf.d/snapper ]]; then
+        backup_file /etc/conf.d/snapper || true
         sed -i 's/\bSNAPPER_CONFIGS="root\b/SNAPPER_CONFIGS="/g; s/\bSNAPPER_CONFIGS="\(.*\) root\b/SNAPPER_CONFIGS="\1/g; s/\bSNAPPER_CONFIGS="root \([^"]*\)"/SNAPPER_CONFIGS="\1"/g' /etc/conf.d/snapper
     fi
 

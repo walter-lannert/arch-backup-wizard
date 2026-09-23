@@ -235,9 +235,10 @@ EOF
             return 1
         }
         log_info "Regenerating GRUB configuration to include snapshot menu..."
-        grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG_FILE" 2>&1 || {
+        if ! grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG_FILE" 2>&1; then
             log_error "Failed to regenerate grub.cfg"
-        }
+            return 1
+        fi
         log_success "grub-btrfsd service enabled and started."
         ;;
     limine)

@@ -339,6 +339,12 @@ Mount the newly restored '{{DETECTED_ROOT_SUBVOL_STR}}' subvolume and EFI partit
   mkdir -p /mnt/target
   mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd UUID={{ROOT_UUID}} /mnt/target
 
+Create mount points for nested subvolumes:
+
+{{SUBVOL_MKDIR_CMDS}}
+Mount the corresponding subvolumes:
+
+{{ROLLBACK_SUBVOL_MOUNT_CMDS}}
 Mount the EFI partition:
   mkdir -p /mnt/target{{EFI_MOUNT_PATH}}
   mount UUID={{EFI_UUID}} /mnt/target{{EFI_MOUNT_PATH}}

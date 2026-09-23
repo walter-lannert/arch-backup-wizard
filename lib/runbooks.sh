@@ -76,12 +76,14 @@ generate_runbooks() {
         restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'
         restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+        restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
         restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$(basename \"\$SNAP\")\" \"/mnt/new_os/$sub\""$'\n'
         restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
         restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$(basename \"\$SNAP\")\""$'\n'
         restore_script+="else"$'\n'
         restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
         restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+        restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
         restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
         restore_script+="fi"$'\n'
     done <<< "$DETECTED_SUBVOLUMES"
@@ -109,12 +111,14 @@ generate_runbooks() {
         cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | pv | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
         cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/\\.btrfs\\.zst\\.age$//')"$'\n'
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+        cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
         cloud_restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$RECEIVED_NAME\" \"/mnt/new_os/$sub\""$'\n'
         cloud_restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
         cloud_restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$RECEIVED_NAME\""$'\n'
         cloud_restore_script+="else"$'\n'
         cloud_restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+        cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
         cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
         cloud_restore_script+="fi"$'\n'
     done <<< "$DETECTED_SUBVOLUMES"
@@ -129,6 +133,7 @@ generate_runbooks() {
 
     # Generate dynamic mount commands
     local mount_cmds=""
+    local rollback_mount_cmds=""
     local mkdir_cmds=""
     for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
         local mnt="${mount_pair%%:*}"
@@ -136,10 +141,12 @@ generate_runbooks() {
         if [[ "$mnt" != "/" ]]; then
             mkdir_cmds+="  mkdir -p \"/mnt/target${mnt}\""$'\n'
             mount_cmds+="  mount -o subvol=\"${sub}\",compress=zstd /dev/NEW_ROOT_PARTITION \"/mnt/target${mnt}\""$'\n'
+            rollback_mount_cmds+="  mount -o subvol=\"${sub}\",compress=zstd UUID=\"{{ROOT_UUID}}\" \"/mnt/target${mnt}\""$'\n'
         fi
     done
     export SUBVOL_MKDIR_CMDS="$mkdir_cmds"
     export SUBVOL_MOUNT_CMDS="$mount_cmds"
+    export ROLLBACK_SUBVOL_MOUNT_CMDS="$rollback_mount_cmds"
 
     # EFI Mount Path
     export EFI_MOUNT_PATH="${DETECTED_EFI_MOUNT:-/boot}"
@@ -215,8 +222,8 @@ generate_runbooks() {
         fi
     fi
 
-    # 4. Generate Cloud Recovery Runbook (only if Layer 4 and Layer 2 were configured)
-    if layer_selected "$LAYER_CLOUD" && layer_selected "$LAYER_BTRBK"; then
+    # 4. Generate Cloud Recovery Runbook (only if Layer 4 and Layer 2 were configured and active)
+    if layer_selected "$LAYER_CLOUD" && layer_selected "$LAYER_BTRBK" && [[ -n "${CLOUD_REMOTE:-}" && -n "${CLOUD_OS_DIR:-}" ]]; then
         local tpl4="$wizard_dir/templates/cloud-recovery-runbook.txt"
         local out4="$BACKUP_MOUNT/Cloud_Recovery_Runbook.txt"
 

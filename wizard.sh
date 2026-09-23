@@ -267,11 +267,16 @@ Use this drive?"; then
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
         local mountpoint="${BASH_REMATCH[5]:-}"
+        [[ -z "$dev" ]] && continue
 
         # Skip system devices (root, EFI, swap, and all their parents/children)
+        local dev_real
+        dev_real=$(realpath -q "$dev" 2>/dev/null || echo "$dev")
         local is_system=false
         for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
-            if [[ "$dev" == "$sys_dev" ]]; then
+            local sys_real
+            sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+            if [[ "$dev" == "$sys_dev" || "$dev_real" == "$sys_real" || "$dev" == "$sys_real" || "$dev_real" == "$sys_dev" ]]; then
                 is_system=true
                 break
             fi
@@ -292,11 +297,16 @@ Use this drive?"; then
         local dev="${BASH_REMATCH[1]:-}"
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
+        [[ -z "$dev" ]] && continue
 
         # Skip system devices
+        local dev_real
+        dev_real=$(realpath -q "$dev" 2>/dev/null || echo "$dev")
         local is_system=false
         for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
-            if [[ "$dev" == "$sys_dev" ]]; then
+            local sys_real
+            sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+            if [[ "$dev" == "$sys_dev" || "$dev_real" == "$sys_real" || "$dev" == "$sys_real" || "$dev_real" == "$sys_dev" ]]; then
                 is_system=true
                 break
             fi

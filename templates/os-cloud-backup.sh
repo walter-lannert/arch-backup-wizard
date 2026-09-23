@@ -4,14 +4,17 @@ set -euo pipefail
 echo "Starting Bare-Metal OS Cloud Backup..."
 
 cleanup_files=()
-trap '[[ ${#cleanup_files[@]} -gt 0 ]] && sudo -n rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT INT TERM HUP
+SUDO_KEEP_PID=""
+trap '[[ -n "${SUDO_KEEP_PID:-}" ]] && kill "$SUDO_KEEP_PID" 2>/dev/null || true; [[ ${#cleanup_files[@]} -gt 0 ]] && sudo -n rm -f "${cleanup_files[@]}" 2>/dev/null || true' EXIT INT TERM HUP
 trap 'echo -e "\n\033[0;31m[ERROR] Cloud backup encountered an unrecoverable failure. See log above.\033[0m"; read -r -p "Press Enter to close this window...";' ERR
 
 # Preemptively clean up any orphaned archives from previously killed runs
 sudo rm -f "{{BACKUP_MOUNT}}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
 
-# Authenticate sudo cleanly first so the password prompt isn't overwritten by pv
+# Authenticate sudo cleanly and spawn background keep-alive for long uploads
 sudo -v || { echo "Error: sudo authentication failed."; read -r -p "Press Enter to close this window..."; exit 1; }
+while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
+SUDO_KEEP_PID=$!
 
 uploaded_count=0
 while IFS= read -r sub; do
