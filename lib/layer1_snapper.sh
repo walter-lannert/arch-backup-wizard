@@ -196,7 +196,7 @@ EOF
 
     # Ensure /etc/conf.d/snapper includes root config if the file exists
     if [[ -f /etc/conf.d/snapper ]]; then
-        if ! grep -qE '^SNAPPER_CONFIGS=.*root' /etc/conf.d/snapper; then
+        if ! grep -qE '^SNAPPER_CONFIGS=.*\broot\b' /etc/conf.d/snapper; then
             backup_file /etc/conf.d/snapper || return 1
             if grep -q '^SNAPPER_CONFIGS=' /etc/conf.d/snapper; then
                 if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper; then

@@ -144,7 +144,6 @@ Press OK to continue."
     log_info "Configured rclone remote target: $rclone_remote"
 
     while true; do
-        clear
         log_info "Launching interactive rclone config for user $target_user..."
         run_as_user rclone config
 

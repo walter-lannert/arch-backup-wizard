@@ -51,7 +51,7 @@ This will NOT remove:
 
     if [[ -f /etc/conf.d/snapper ]]; then
         backup_file /etc/conf.d/snapper || true
-        sed -i 's/\bSNAPPER_CONFIGS="root\b/SNAPPER_CONFIGS="/g; s/\bSNAPPER_CONFIGS="\(.*\) root\b/SNAPPER_CONFIGS="\1/g; s/\bSNAPPER_CONFIGS="root \([^"]*\)"/SNAPPER_CONFIGS="\1"/g' /etc/conf.d/snapper
+        sed -E -i '/^SNAPPER_CONFIGS=/ { s/\broot\b//g; s/[[:space:]]+/ /g; s/" /"/; s/ "/"/ }' /etc/conf.d/snapper
     fi
 
     if grep -q '# BEGIN Arch Backup Wizard' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then

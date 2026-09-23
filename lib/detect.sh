@@ -125,7 +125,7 @@ detect_btrfs_subvolumes() {
                 fi
             else
                 # This is a different filesystem or different BTRFS UUID
-                if [[ "$target" != "/boot" && "$target" != "/boot/efi" && "$target" != "/efi" && "$target" != "/mnt"* && "$target" != "/run"* && "$target" != *"/Backup" ]]; then
+                if [[ "$target" != "/boot" && "$target" != "/boot/efi" && "$target" != "/efi" && "$target" != "/mnt"* && "$target" != "/run"* && "$target" != *"/Backup" && ( -z "${DETECTED_BACKUP_MOUNT:-}" || "$target" != "$DETECTED_BACKUP_MOUNT" ) ]]; then
                     DETECTED_SECONDARY_MOUNTS+=("$target")
                 fi
             fi
@@ -378,10 +378,10 @@ run_detection() {
     detect_bootloader
     detect_root_filesystem
     detect_efi
-    detect_btrfs_subvolumes
     detect_system_devices
     detect_available_drives
     detect_existing_backup_drive
+    detect_btrfs_subvolumes
     detect_user_info
     detect_terminal
     detect_existing_setup
