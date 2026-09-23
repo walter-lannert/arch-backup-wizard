@@ -71,8 +71,14 @@ This will NOT remove:
                 log_info "Removing $file"
                 if btrfs subvolume show "$file" &>/dev/null; then
                     # Before deleting, check if this is the Snapper config
-                    if [[ "$file" == "/.snapshots" ]] && cmd_exists snapper; then
-                        snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
+                    if [[ "$file" == "/.snapshots" ]]; then
+                        if mountpoint -q "/.snapshots" 2>/dev/null || findmnt -n "/.snapshots" &>/dev/null; then
+                            log_info "Unmounting /.snapshots prior to configuration removal..."
+                            umount -q "/.snapshots" >>"$LOG_FILE" 2>&1 || log_warn "Failed to unmount /.snapshots cleanly"
+                        fi
+                        if cmd_exists snapper; then
+                            snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
+                        fi
                     fi
                     # Audit-040: Only delete subvolumes if they are empty to protect user data
                     # Btrfs fails to delete if there are nested subvolumes, but checking explicitly is safer
@@ -85,19 +91,23 @@ This will NOT remove:
                     rmdir "$file" 2>/dev/null || true
                 else
                     rm -f "$file"
-                    local latest_bak
-                    # shellcheck disable=SC2012
-                    latest_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -r | head -n 1 || true)
-                    if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
-                        mv "$latest_bak" "$file"
-                        log_info "Restored previous state of $file from backup"
+                    if [[ -f "$ORIG_MANIFEST" ]] && grep -Fxq "$file" "$ORIG_MANIFEST" 2>/dev/null; then
+                        local latest_bak
+                        # shellcheck disable=SC2012
+                        latest_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -r | head -n 1 || true)
+                        if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
+                            mv "$latest_bak" "$file"
+                            log_info "Restored original pre-wizard state of $file"
+                        fi
+                    else
+                        rm -f "${file}.bak."* 2>/dev/null || true
                     fi
                 fi
 
                 # Clean up empty parent directories like /etc/systemd/system/btrbk.service.d
                 local parent_dir
                 parent_dir=$(dirname "$file")
-                if [[ -d "$parent_dir" ]]; then
+                if [[ "$parent_dir" == *"/systemd/system/"*.service.d && -d "$parent_dir" ]]; then
                     rmdir "$parent_dir" 2>/dev/null || true
                 fi
             else
@@ -105,6 +115,7 @@ This will NOT remove:
             fi
         done < "$manifest_file"
         rm -f "$manifest_file"
+        rm -f "$ORIG_MANIFEST" 2>/dev/null || true
     fi
 
     local home

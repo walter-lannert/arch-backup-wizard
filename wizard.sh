@@ -406,6 +406,7 @@ Continue?"; then
 
     _ensure_backup_mounted
 
+    export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
     log_info "Backup drive configured: dev=$BACKUP_DEV mount=$BACKUP_MOUNT UUID=$BACKUP_UUID"
 }
 
@@ -471,7 +472,7 @@ _ensure_backup_mounted() {
             die "Generated fstab entry failed verification. Aborting."
         fi
 
-        backup_file /etc/fstab
+        backup_file /etc/fstab || { rm -f "$tmp_fstab"; die "Aborted by user: declined /etc/fstab modification."; }
         mv -T "$tmp_fstab" /etc/fstab
         chmod 644 /etc/fstab
         log_info "Added backup drive to /etc/fstab"
@@ -561,6 +562,7 @@ run_dry_run_simulation() {
     generate_runbooks >/dev/null 2>&1 || true
     eval "$_saved_ui_msgbox"
     BACKUP_MOUNT="$orig_mount"
+    export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
 
     # Also render scripts into preview dir
     template_render "$WIZARD_DIR/templates/os-cloud-backup.sh" "$preview_dir/scripts/os-cloud-backup.sh" 2>/dev/null || true

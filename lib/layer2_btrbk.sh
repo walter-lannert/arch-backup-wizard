@@ -76,9 +76,10 @@ EOF
     backup_file "$override_conf" >/dev/null || return 1
 
     record_manifest "$override_conf"
+    local systemd_mount="${backup_mount// /\\x20}"
     cat <<EOF >"$override_conf"
 [Unit]
-RequiresMountsFor="$backup_mount"
+RequiresMountsFor=${systemd_mount}
 
 [Service]
 Nice=19

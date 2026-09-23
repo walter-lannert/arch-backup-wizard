@@ -180,10 +180,11 @@ Would you like to re-run 'rclone config' to retry?
 
     # ── 4. Ask for cloud destination folder names ─────────────────────────────
     log_info "Step 4: Prompting for cloud destination folder names..."
-    local distro_name="${DETECTED_DISTRO:-Arch}"
-    distro_name="${distro_name// /_}"
+    local distro_name="${DETECTED_DISTRO:-arch}"
+    distro_name="${distro_name// /-}"
+    distro_name="${distro_name,,}"
 
-    local default_os_dir="${distro_name}_BareMetal_Clones"
+    local default_os_dir="${distro_name}-bare-metal-clones"
     local cloud_os_dir="$default_os_dir"
     while true; do
         cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
@@ -200,7 +201,7 @@ Would you like to re-run 'rclone config' to retry?
     cloud_os_dir="${cloud_os_dir%/}"
     [[ -z "$cloud_os_dir" ]] && cloud_os_dir="$default_os_dir"
 
-    local default_pika_dir="${distro_name}_Pika_Backup"
+    local default_pika_dir="${distro_name}-pika-backup"
     local cloud_pika_dir="$default_pika_dir"
     while true; do
         cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
@@ -257,6 +258,7 @@ Would you like to re-run 'rclone config' to retry?
     # ── 7. Generate and install Pika cloud sync service and timer ─────────────
     log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
     export BACKUP_MOUNT="$backup_mount"
+    export SYSTEMD_BACKUP_MOUNT="${backup_mount// /\\x20}"
     export CLOUD_REMOTE="$rclone_remote"
     export CLOUD_PIKA_DIR="$cloud_pika_dir"
 

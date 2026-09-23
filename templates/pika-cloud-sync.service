@@ -2,7 +2,7 @@
 Description=Weekly Pika Backup Sync to Cloud Storage
 Wants=network-online.target
 After=network-online.target
-RequiresMountsFor="{{BACKUP_MOUNT}}"
+RequiresMountsFor={{SYSTEMD_BACKUP_MOUNT}}
 
 [Service]
 Type=oneshot

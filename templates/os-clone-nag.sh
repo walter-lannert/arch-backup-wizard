@@ -16,7 +16,7 @@ if ! flock -n 9; then exit 0; fi
 
 YEAR=$(date +%Y)
 MONTH=$(date +%m)
-DAY=$(date +%d)
+DAY=$(date +%-d)
 
 if [ "$DAY" -lt 15 ]; then
     PERIOD="1"
