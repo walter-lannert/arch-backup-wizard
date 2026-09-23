@@ -187,10 +187,12 @@ run_validation() {
             local target_user
             target_user="$(effective_user)"
             local repo_path="${BACKUP_MOUNT}/Personal/backup-${host_name}-${target_user}"
-            if [[ ! -f "$repo_path/config" ]]; then
+            local borg_ec=0
+            run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
+            if [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]] && [[ ! -f "$repo_path/config" || ! -d "$repo_path/data" ]]; then
                 l3_ok=false
-                log_warn "Layer 3 check failed: Borg repository not initialized at $repo_path"
-                failure_issues+=("Layer 3: Borg repository not initialized in Pika Backup")
+                log_warn "Layer 3 check failed: Borg repository at $repo_path is invalid or inaccessible (borg info exit code $borg_ec)"
+                failure_issues+=("Layer 3: Borg repository inaccessible or not initialized in Pika Backup")
             fi
         fi
 

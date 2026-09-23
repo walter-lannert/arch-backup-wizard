@@ -93,16 +93,17 @@ get_layer_packages() {
 
     case "$layer" in
     1)
-        echo "snapper snap-pac"
+        local pkgs="snapper snap-pac"
         case "${DETECTED_BOOTLOADER:-}" in
-        grub) echo "grub-btrfs inotify-tools" ;;
-        limine) echo "AUR:limine-snapper-sync inotify-tools" ;;
+        grub) pkgs+=" grub-btrfs inotify-tools" ;;
+        limine) pkgs+=" AUR:limine-snapper-sync inotify-tools" ;;
             # systemd-boot has no snapshot integration package
         esac
+        echo "$pkgs"
         ;;
     2) echo "btrbk" ;;
     3) echo "pika-backup" ;;
-    4) echo "rclone pv zstd zenity age" ;;
+    4) echo "rclone pv zstd zenity age fuse3" ;;
     5) ;; # No packages needed
     esac
 }

@@ -51,10 +51,10 @@ detect_bootloader() {
 
     if [[ -f /etc/default/limine ]] || cmd_exists limine; then
         DETECTED_BOOTLOADER="limine"
+    elif bootctl is-installed &>/dev/null 2>&1 || [[ -d /boot/loader/entries ]]; then
+        DETECTED_BOOTLOADER="systemd-boot"
     elif [[ -f /etc/default/grub ]] || [[ -d /boot/grub ]]; then
         DETECTED_BOOTLOADER="grub"
-    elif [[ -d /boot/loader/entries ]] || bootctl is-installed &>/dev/null 2>&1; then
-        DETECTED_BOOTLOADER="systemd-boot"
     fi
 
     log_info "Bootloader: $DETECTED_BOOTLOADER"

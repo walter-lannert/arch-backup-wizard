@@ -45,7 +45,10 @@ setup_layer4() {
     run_as_user mkdir -p "$age_key_dir" || return 1
 
     if [[ ! -f "$age_key_file" ]]; then
-        run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1
+        if ! run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1; then
+            log_error "Failed to generate age encryption key at $age_key_file"
+            return 1
+        fi
         run_as_user chmod 600 "$age_key_file"
         log_info "Generated new age key at $age_key_file"
     else
@@ -53,7 +56,11 @@ setup_layer4() {
     fi
 
     local age_pubkey
-    age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file")
+    age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file" || true)
+    if [[ -z "$age_pubkey" ]]; then
+        log_error "Failed to extract public key from $age_key_file"
+        return 1
+    fi
     export AGE_PUBKEY="$age_pubkey"
     export AGE_KEYFILE="$age_key_file"
 

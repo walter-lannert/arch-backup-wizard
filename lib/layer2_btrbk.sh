@@ -76,7 +76,6 @@ EOF
     backup_file "$override_conf" >/dev/null || return 1
 
     record_manifest "$override_conf"
-    local escaped_mount="$backup_mount"
     cat <<EOF >"$override_conf"
 [Unit]
 RequiresMountsFor="$backup_mount"

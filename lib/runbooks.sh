@@ -90,7 +90,7 @@ generate_runbooks() {
     cloud_restore_script+="#!/bin/bash"$'\n'
     cloud_restore_script+="set -euo pipefail"$'\n'
     cloud_restore_script+="echo \"Fetching list of cloud archives...\""$'\n'
-    cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$')"$'\n'
+    cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$' || true)"$'\n'
     cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'
 
     while IFS= read -r sub; do
@@ -232,7 +232,7 @@ generate_runbooks() {
                     log_info "DRY-RUN: Skipping rclone upload of $out4 to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/"
                 else
                     log_info "Uploading $out4 to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/..."
-                    run_as_user rclone copy "$out4" "${CLOUD_REMOTE}${CLOUD_OS_DIR}/" >>"$LOG_FILE" 2>&1 || true
+                    run_as_user rclone copyto "$out4" "${CLOUD_REMOTE}${CLOUD_OS_DIR}/$(basename "$out4")" >>"$LOG_FILE" 2>&1 || true
                 fi
             fi
         else
