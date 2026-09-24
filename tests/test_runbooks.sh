@@ -208,10 +208,16 @@ TMPL
     assert_match "OS Dir: /backups/os" "$content" "Cloud OS dir substituted"
     assert_match "Age Key: /root/cloud_os.key" "$content" "Age key substituted"
 
-    # Verify rclone was invoked for upload
+    # Verify rclone was invoked for upload (bounded polling for resilience)
+    local rclone_log=""
+    for _ in {1..20}; do
+        if [[ -f "$HOME/rclone_calls.log" ]]; then
+            rclone_log=$(<"$HOME/rclone_calls.log")
+            [[ -n "$rclone_log" ]] && break
+        fi
+        sleep 0.1
+    done
     assert_file_exists "$HOME/rclone_calls.log" "rclone should have been called"
-    local rclone_log
-    rclone_log=$(<"$HOME/rclone_calls.log")
     assert_match "copyto" "$rclone_log" "rclone copyto should be used for upload"
 }
 

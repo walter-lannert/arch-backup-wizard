@@ -258,6 +258,11 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 
      mkinitcpio -P
 
+   Note for Unified Kernel Image (UKI) users:
+   If your system uses systemd-ukify or kernel-install directly instead of mkinitcpio presets:
+     kernel-install add $(uname -r) /usr/lib/modules/$(uname -r)/vmlinuz
+   Or re-run your specific ukify build command.
+
 4. If you use Secure Boot (e.g., sbctl), you MUST sign the newly generated EFI binaries now, otherwise your system will not boot:
 
      sbctl sign-all
