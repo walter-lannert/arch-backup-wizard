@@ -17,7 +17,13 @@ generate_runbooks() {
 
     # Ensure BACKUP_MOUNT is set and directory exists
     if [[ -z "${BACKUP_MOUNT:-}" ]]; then
-        BACKUP_MOUNT="$(effective_home)/Backup"
+        local _home
+        _home="$(effective_home)"
+        if [[ -z "$_home" ]]; then
+            log_error "Cannot determine home directory; set BACKUP_MOUNT explicitly"
+            return 1
+        fi
+        BACKUP_MOUNT="${_home}/Backup"
         log_warn "BACKUP_MOUNT is not set; defaulting runbook destination to ${BACKUP_MOUNT}"
     fi
 
@@ -49,6 +55,8 @@ generate_runbooks() {
     export CLOUD_REMOTE="${CLOUD_REMOTE:-}"
     export CLOUD_OS_DIR="${CLOUD_OS_DIR:-}"
     export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-}"
+    export CLOUD_AGE_KEY="${CLOUD_AGE_KEY:-/root/cloud_os.key}"
+    export BACKUP_SRC_DIR="${BACKUP_SRC_DIR:-/mnt/backup/OS_Backup}"
 
     # Dynamically detect kernel and microcode for bare-metal EFI restoration
     local kernel_pkgs
@@ -67,11 +75,12 @@ generate_runbooks() {
     restore_script+="cat << 'EOF' > /tmp/restore_subvols.sh"$'\n'
     restore_script+="#!/bin/bash"$'\n'
     restore_script+="set -euo pipefail"$'\n'
+    local sub_safe
     while IFS= read -r sub; do
         [[ -z "$sub" ]] && continue
-        local sub_safe="${sub//\//_}"
+        sub_safe="${sub//\//_}"
         restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        restore_script+="SNAP=\$(find /mnt/backup/OS_Backup -maxdepth 1 -mindepth 1 -type d -name \"${sub_safe}.*\" 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
+        restore_script+="SNAP=\$(find ${BACKUP_SRC_DIR} -maxdepth 1 -mindepth 1 -type d -name \"${sub_safe}.*\" 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
         restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
         restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'
@@ -86,7 +95,7 @@ generate_runbooks() {
         restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
         restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
         restore_script+="fi"$'\n'
-    done <<< "$DETECTED_SUBVOLUMES"
+    done <<< "${DETECTED_SUBVOLUMES:-}"
     restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
     restore_script+="EOF"$'\n'
     restore_script+="chmod +x /tmp/restore_subvols.sh"$'\n'
@@ -101,14 +110,15 @@ generate_runbooks() {
     cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$' || true)"$'\n'
     cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'
 
+    local sub_safe
     while IFS= read -r sub; do
         [[ -z "$sub" ]] && continue
-        local sub_safe="${sub//\//_}"
+        sub_safe="${sub//\//_}"
         cloud_restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
         cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep \"^${sub_safe}\\.\" | sort -r | head -n 1 || true)"$'\n'
         cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
         cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
-        cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | pv | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | age -d -i ${CLOUD_AGE_KEY} | zstdcat | btrfs receive /mnt/new_os/"$'\n'
         cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/\\.btrfs\\.zst\\.age$//')"$'\n'
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
@@ -121,7 +131,7 @@ generate_runbooks() {
         cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
         cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
         cloud_restore_script+="fi"$'\n'
-    done <<< "$DETECTED_SUBVOLUMES"
+    done <<< "${DETECTED_SUBVOLUMES:-}"
     cloud_restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
     cloud_restore_script+="EOF"$'\n'
     cloud_restore_script+="chmod +x /tmp/cloud_restore_subvols.sh"$'\n'
@@ -135,13 +145,17 @@ generate_runbooks() {
     local mount_cmds=""
     local rollback_mount_cmds=""
     local mkdir_cmds=""
-    for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
+    if [[ -z "${ROOT_UUID:-}" ]]; then
+        log_warn "ROOT_UUID is empty; rollback mount commands will use a placeholder — verify before use"
+    fi
+    for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]:-}"; do
+        [[ -z "$mount_pair" ]] && continue
         local mnt="${mount_pair%%:*}"
         local sub="${mount_pair#*:}"
         if [[ "$mnt" != "/" ]]; then
             mkdir_cmds+="  mkdir -p \"/mnt/target${mnt}\""$'\n'
             mount_cmds+="  mount -o subvol=\"${sub}\",compress=zstd /dev/NEW_ROOT_PARTITION \"/mnt/target${mnt}\""$'\n'
-            rollback_mount_cmds+="  mount -o subvol=\"${sub}\",compress=zstd UUID=\"{{ROOT_UUID}}\" \"/mnt/target${mnt}\""$'\n'
+            rollback_mount_cmds+="  mount -o subvol=\"${sub}\",compress=zstd UUID=\"${ROOT_UUID:-<ROOT_UUID>}\" \"/mnt/target${mnt}\""$'\n'
         fi
     done
     export SUBVOL_MKDIR_CMDS="$mkdir_cmds"
@@ -159,21 +173,7 @@ generate_runbooks() {
         snap_layout="@.snapshots"
     fi
     export SNAPSHOT_LAYOUT_PATH="$snap_layout"
-    log_info "Exported template variables for runbook generation:"
-    log_info "  ROOT_UUID=$ROOT_UUID"
-    log_info "  EFI_UUID=$EFI_UUID"
-    log_info "  BOOTLOADER=$BOOTLOADER"
-    log_info "  USERNAME=$USERNAME"
-    log_info "  HOME_DIR=$HOME_DIR"
-    log_info "  HOSTNAME_VAL=$HOSTNAME_VAL"
-    log_info "  BACKUP_MOUNT=$BACKUP_MOUNT"
-    log_info "  BACKUP_UUID=$BACKUP_UUID"
-    log_info "  ROOT_SUBVOL=$ROOT_SUBVOL"
-    log_info "  SUBVOL_LAYOUT=$SUBVOL_LAYOUT"
-    log_info "  DISTRO=$DISTRO"
-    log_info "  CLOUD_REMOTE=$CLOUD_REMOTE"
-    log_info "  CLOUD_OS_DIR=$CLOUD_OS_DIR"
-    log_info "  CLOUD_PIKA_DIR=$CLOUD_PIKA_DIR"
+    log_debug "Runbook vars: ROOT_UUID=${ROOT_UUID} EFI_UUID=${EFI_UUID} BOOTLOADER=${BOOTLOADER} USER=${USERNAME} HOME=${HOME_DIR} HOST=${HOSTNAME_VAL} MOUNT=${BACKUP_MOUNT} BUUID=${BACKUP_UUID} SUBVOL=${ROOT_SUBVOL} LAYOUT=${SUBVOL_LAYOUT} DISTRO=${DISTRO} CLOUD=${CLOUD_REMOTE}${CLOUD_OS_DIR}"
 
     local generated_runbooks=()
     local missing_templates=()
@@ -243,7 +243,12 @@ generate_runbooks() {
                     log_info "DRY-RUN: Skipping rclone upload of $out4 to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/"
                 else
                     log_info "Uploading $out4 to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/..."
-                    run_as_user rclone copyto "$out4" "${CLOUD_REMOTE}${CLOUD_OS_DIR}/$(basename "$out4")" >>"$LOG_FILE" 2>&1 || true
+                    if run_as_user rclone copyto "$out4" "${CLOUD_REMOTE}${CLOUD_OS_DIR}/$(basename "$out4")" >>"$LOG_FILE" 2>&1; then
+                        log_success "Cloud runbook uploaded to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/"
+                    else
+                        log_error "FAILED to upload runbook to ${CLOUD_REMOTE}${CLOUD_OS_DIR}/ — the cloud copy may be stale or missing"
+                        log_warn "Re-run upload manually: rclone copyto \"$out4\" \"${CLOUD_REMOTE}${CLOUD_OS_DIR}/$(basename "$out4")\""
+                    fi
                 fi
             fi
         else
