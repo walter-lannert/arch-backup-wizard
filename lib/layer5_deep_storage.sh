@@ -7,7 +7,7 @@
 setup_layer5() {
     log_info "Setting up Layer 5: Deep Storage..."
 
-    if [[ -z "${BACKUP_MOUNT:-}" ]]; then
+    if [[ -z "${BACKUP_MOUNT}" ]]; then
         log_error "Backup mount point is not set. Please select or configure a backup drive first."
         ui_msgbox "Configuration Error" "Backup mount point is not set. Please configure the backup drive first."
         return 1
@@ -46,16 +46,11 @@ setup_layer5() {
     fi
 
     local deep_storage_dir="${BACKUP_MOUNT%/}/Deep Storage"
-    local created=0
     if [[ -L "$deep_storage_dir" ]]; then
         log_error "Deep Storage path '${deep_storage_dir}' is a symlink. Refusing to proceed."
         ui_msgbox "Configuration Error" "The Deep Storage path is a symbolic link. Remove it and re-run."
         return 1
     fi
-    if [[ ! -d "$deep_storage_dir" ]]; then
-        created=1
-    fi
-
     # Re-verify the mount is still live immediately before mutating the tree.
     if command -v mountpoint &>/dev/null; then
         local _rp
@@ -79,14 +74,17 @@ setup_layer5() {
         log_error "Cannot acquire lock file."
         return 1
     }
-    if ! flock -n 9; then
+    if ! command -v flock &>/dev/null; then
+        log_warn "flock(1) not found; skipping concurrency lock."
+    elif ! flock -n 9; then
         log_error "Another instance of Layer 5 setup is already running."
         ui_msgbox "Busy" "Another setup is in progress. Please wait."
         return 1
     fi
 
-    if ! install -d -m 0700 "$deep_storage_dir" 2>/dev/null; then
-        log_error "Failed to create $deep_storage_dir"
+    local _install_err
+    if ! _install_err="$(install -d -m 0700 "$deep_storage_dir" 2>&1)"; then
+        log_error "Failed to create $deep_storage_dir: ${_install_err}"
         return 1
     fi
     # Post-creation: confirm the path is a real directory, not a symlink
