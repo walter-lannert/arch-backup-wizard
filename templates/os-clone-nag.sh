@@ -10,6 +10,11 @@ if ! command -v zenity >/dev/null 2>&1; then
     exit 0
 fi
 
+# Ensure flock is available
+if ! command -v flock >/dev/null 2>&1; then
+    exit 0
+fi
+
 # Detect network filesystem and warn about flock reliability
 FS_TYPE=$(stat -f -c %T "{{DETECTED_HOME}}" 2>/dev/null || echo "unknown")
 case "$FS_TYPE" in
@@ -57,12 +62,12 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
     if [ -f "$IN_PROGRESS_FILE" ]; then
         # Treat marker as stale if older than 4 hours (backup should never take that long)
         STALE_THRESHOLD=$((4 * 3600))
-        NOW_EPOCH=$(date +%s)
+        NOW_EPOCH=$(date +%s 2>/dev/null) || { flock -u 9 2>/dev/null || true; exit 0; }
+        case "$NOW_EPOCH" in ''|*[!0-9]*) flock -u 9 2>/dev/null || true; exit 0 ;; esac
         FILE_EPOCH=$(stat -c %Y "$IN_PROGRESS_FILE" 2>/dev/null)
         if [ -z "$FILE_EPOCH" ]; then
             # Cannot determine age; treat as in-progress (fail-safe: do NOT remove)
             flock -u 9 2>/dev/null || true
-            rm -f "$LOCK_FILE" 2>/dev/null || true
             exit 0
         fi
         AGE=$((NOW_EPOCH - FILE_EPOCH))
@@ -72,13 +77,11 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
             rm -f "$IN_PROGRESS_FILE" 2>/dev/null || true
         else
             flock -u 9 2>/dev/null || true
-            rm -f "$LOCK_FILE" 2>/dev/null || true
             exit 0
         fi
     fi
 
-    sleep 5 &
-    wait $! 2>/dev/null
+    sleep 5
 
     ZENITY_RC=0
     timeout --kill-after=10 120 zenity --question --title="OS Cloud Backup Due" \
@@ -95,7 +98,7 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
         else
             OCN_HOME="{{DETECTED_HOME}}" OCN_TARGET="$CURRENT_TARGET" \
             {{DETECTED_TERMINAL_CMD}} setsid bash -c 'IP="$OCN_HOME/.os_cloud_backup.in_progress"; rc=0; if [ ! -x "$OCN_HOME/.os_cloud_backup.sh" ]; then echo "os-clone-nag: ERROR: $OCN_HOME/.os_cloud_backup.sh is missing or not executable" >&2; rc=127; else "$OCN_HOME/.os_cloud_backup.sh" || rc=$?; fi; rm -f "$IP" 2>/dev/null || true; if [ "$rc" -eq 0 ]; then printf "%s\n" "$OCN_TARGET" > "$OCN_HOME/.last_cloud_run" || echo "os-clone-nag: WARNING: backup succeeded but could not stamp .last_cloud_run" >&2; fi; exit "$rc"' \
-            || { rm -f "$IN_PROGRESS_FILE" 2>/dev/null || true; printf 'os-clone-nag: WARNING: failed to launch backup terminal (rc=%d)\n' "$?" >&2; printf 'os-clone-nag: WARNING: failed to launch backup terminal (rc=%d) at %s\n' "$?" "$(date -Iseconds)" >> "{{DETECTED_HOME}}/.os_clone_nag.log" 2>/dev/null; }
+            || { _rc=$?; rm -f "$IN_PROGRESS_FILE" 2>/dev/null || true; printf 'os-clone-nag: WARNING: failed to launch backup terminal (rc=%d)\n' "$_rc" >&2; printf 'os-clone-nag: WARNING: failed to launch backup terminal (rc=%d) at %s\n' "$_rc" "$(date -Iseconds)" >> "{{DETECTED_HOME}}/.os_clone_nag.log" 2>/dev/null; }
         fi
     elif [ "$ZENITY_RC" -ne 1 ]; then
         printf 'os-clone-nag: zenity failed (rc=%d)\n' "$ZENITY_RC" >&2
