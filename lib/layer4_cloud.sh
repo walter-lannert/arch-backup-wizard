@@ -64,6 +64,7 @@ setup_layer4() {
         fi
         export AGE_PUBKEY="$age_pubkey"
         export AGE_KEYFILE="$age_key_file"
+        export CLOUD_AGE_KEY="$age_key_file"
 
         ui_msgbox "Encryption Key Generated" \
             "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
@@ -247,7 +248,6 @@ Would you like to re-run 'rclone config' to retry?
         # ── 5. Generate OS cloud backup script ─────────────────────────────────────
         log_info "Step 5: Generating OS cloud backup script..."
         export BACKUP_MOUNT="$backup_mount"
-        export CLOUD_REMOTE="$rclone_remote"
         export CLOUD_OS_DIR="$cloud_os_dir"
 
         backup_file "$os_backup_script" >/dev/null || return 1
@@ -332,7 +332,6 @@ EOF
         log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
         export BACKUP_MOUNT="$backup_mount"
         export SYSTEMD_BACKUP_MOUNT="${backup_mount// /\\x20}"
-        export CLOUD_REMOTE="$rclone_remote"
         export CLOUD_PIKA_DIR="$cloud_pika_dir"
 
         # Ensure the runtime state directory and enabled sentinel exist so that
