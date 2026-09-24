@@ -105,7 +105,7 @@ Without this key, your cloud backups are completely unrecoverable in a bare-meta
     fi
     cloud_type="${cloud_type//\"/}"
 
-    local provider_label="$cloud_type"
+    local provider_label
     case "$cloud_type" in
     drive) provider_label="Google Drive" ;;
     onedrive) provider_label="Microsoft OneDrive" ;;
@@ -138,12 +138,26 @@ Press OK to continue."
     input_remote="${input_remote:-cloud}"
     input_remote="${input_remote%:}"
     input_remote="${input_remote// /_}"
+    if [[ ! "$input_remote" =~ ^[a-zA-Z0-9_]+$ ]]; then
+        ui_msgbox "Invalid Remote Name" \
+            "Remote names may only contain letters, digits, and underscores.
+Please re-enter a valid name."
+        input_remote=$(ui_inputbox "Rclone Remote" \
+            "Enter a valid rclone remote name (a-z, 0-9, _):" \
+            "cloud") || input_remote="cloud"
+        input_remote="${input_remote%:}"
+        input_remote="${input_remote// /_}"
+        [[ -z "$input_remote" ]] && input_remote="cloud"
+    fi
     [[ -z "$input_remote" ]] && input_remote="cloud"
     local rclone_remote="${input_remote}:"
 
     log_info "Configured rclone remote target: $rclone_remote"
 
+    local key_confirm_attempts=0
+    local key_confirm_max=5
     while true; do
+        key_confirm_attempts=$((key_confirm_attempts + 1))
         log_info "Launching interactive rclone config for user $target_user..."
         run_as_user rclone config
 
@@ -238,7 +252,10 @@ Would you like to re-run 'rclone config' to retry?
 
         backup_file "$os_backup_script" >/dev/null || return 1
 
-        template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"
+        if ! template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"; then
+            log_error "Failed to render OS cloud backup template."
+            return 1
+        fi
         chmod 700 "$os_backup_script"
         chown "$target_user:" "$os_backup_script"
         record_manifest "$os_backup_script"
@@ -257,7 +274,10 @@ Would you like to re-run 'rclone config' to retry?
 
         backup_file "$os_nag_script" >/dev/null || return 1
 
-        template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"
+        if ! template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"; then
+            log_error "Failed to render OS clone nag template."
+            return 1
+        fi
         chmod 700 "$os_nag_script"
         chown "$target_user:" "$os_nag_script"
         record_manifest "$os_nag_script"
@@ -318,12 +338,18 @@ EOF
         mkdir -p "$systemd_dir"
 
         backup_file "$service_file" >/dev/null || return 1
-        template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"
+        if ! template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"; then
+            log_error "Failed to render pika-cloud-sync.service template."
+            return 1
+        fi
         chmod 644 "$service_file"
         record_manifest "$service_file"
 
         backup_file "$timer_file" >/dev/null || return 1
-        template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"
+        if ! template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"; then
+            log_error "Failed to render pika-cloud-sync.timer template."
+            return 1
+        fi
         chmod 644 "$timer_file"
         record_manifest "$timer_file"
 
