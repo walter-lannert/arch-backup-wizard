@@ -76,6 +76,12 @@ run_validation() {
             failure_issues+=("Layer 1: snapper-cleanup.timer not enabled")
         fi
 
+        if ! unit_is_active snapper-cleanup.timer; then
+            l1_ok=false
+            log_warn "Layer 1 check failed: snapper-cleanup.timer is not active (running)"
+            failure_issues+=("Layer 1: snapper-cleanup.timer not active")
+        fi
+
         case "${DETECTED_BOOTLOADER:-}" in
         grub)
             if ! unit_is_enabled grub-btrfsd; then
@@ -90,6 +96,12 @@ run_validation() {
                 log_warn "Layer 1 check failed: limine-snapper-sync is not enabled"
                 failure_issues+=("Layer 1: limine-snapper-sync not enabled")
             fi
+            ;;
+        "")
+            log_warn "Layer 1 note: no bootloader detected; skipping bootloader sync check"
+            ;;
+        *)
+            log_warn "Layer 1 note: unrecognised bootloader '${DETECTED_BOOTLOADER}'; skipping bootloader sync check"
             ;;
         esac
 
@@ -135,6 +147,17 @@ run_validation() {
             failure_issues+=("Layer 2: btrbk.timer not active")
         fi
 
+        local override_file="/etc/systemd/system/btrbk.service.d/override.conf"
+        if [[ ! -f "$override_file" ]]; then
+            l2_ok=false
+            log_warn "Layer 2 check failed: systemd drop-in override $override_file is missing"
+            failure_issues+=("Layer 2: btrbk systemd drop-in override missing")
+        elif ! grep -q "RequiresMountsFor=" "$override_file" || ! grep -q "Nice=19" "$override_file" || ! grep -q "IOSchedulingClass=idle" "$override_file"; then
+            l2_ok=false
+            log_warn "Layer 2 check failed: $override_file is missing RequiresMountsFor, Nice=19, or IOSchedulingClass=idle"
+            failure_issues+=("Layer 2: btrbk systemd drop-in missing required mount or priority directives")
+        fi
+
         if [[ -z "${BACKUP_MOUNT:-}" || ! -d "${BACKUP_MOUNT}/OS_Backup" ]]; then
             l2_ok=false
             log_warn "Layer 2 check failed: directory '${BACKUP_MOUNT:-}/OS_Backup' does not exist"
@@ -142,9 +165,11 @@ run_validation() {
         fi
 
         if $l2_ok; then
+            local btrbk_cmd="btrbk"
+            [[ "$EUID" -ne 0 ]] && btrbk_cmd="sudo -n btrbk"
             if [[ "$EUID" -eq 0 ]] || sudo -n true 2>/dev/null; then
                 # shellcheck disable=SC2024
-                if ! sudo -n btrbk -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
+                if ! $btrbk_cmd -c "$BTRBK_CONF" dryrun >>"$LOG_FILE" 2>&1; then
                     l2_ok=false
                     log_warn "Layer 2 check failed: btrbk.conf failed to parse or dryrun"
                     failure_issues+=("Layer 2: btrbk configuration invalid (fails dryrun)")
@@ -188,8 +213,16 @@ run_validation() {
             target_user="$(effective_user)"
             local repo_path="${BACKUP_MOUNT}/Personal/backup-${host_name}-${target_user}"
             local borg_ec=0
-            run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
-            if [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]] && [[ ! -f "$repo_path/config" || ! -d "$repo_path/data" ]]; then
+            local borg_timeout="${BORG_INFO_TIMEOUT:-10}"
+            run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout "$borg_timeout" borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
+            if [[ ! -f "$repo_path/config" || ! -d "$repo_path/data" ]]; then
+                l3_ok=false
+                log_warn "Layer 3 check failed: Borg repository at $repo_path is missing config or data directory"
+                failure_issues+=("Layer 3: Borg repository structure incomplete at $repo_path")
+            elif [[ $borg_ec -eq 124 ]]; then
+                log_warn "Layer 3 note: 'borg info' timed out after ${borg_timeout}s (exit 124); repository may be on slow storage"
+                failure_issues+=("Layer 3: Borg repository response timed out (${borg_timeout}s)")
+            elif [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]]; then
                 l3_ok=false
                 log_warn "Layer 3 check failed: Borg repository at $repo_path is invalid or inaccessible (borg info exit code $borg_ec)"
                 failure_issues+=("Layer 3: Borg repository inaccessible or not initialized in Pika Backup")
@@ -220,68 +253,81 @@ run_validation() {
             failure_issues+=("Layer 4: rclone or age package not installed")
         fi
 
-        local age_key_file="${user_home}/.config/arch-backup-wizard/cloud_os.key"
-        if [[ ! -f "$age_key_file" ]]; then
-            l4_ok=false
-            log_warn "Layer 4 check failed: Age encryption key $age_key_file is missing"
-            failure_issues+=("Layer 4: Age encryption key missing")
-        fi
-
-        if [[ ! -f "${user_home}/.os_cloud_backup.sh" || ! -x "${user_home}/.os_cloud_backup.sh" ]]; then
-            l4_ok=false
-            log_warn "Layer 4 check failed: ${user_home}/.os_cloud_backup.sh does not exist or is not executable"
-            failure_issues+=("Layer 4: ~/.os_cloud_backup.sh missing or not executable")
-        else
-            # Extract the remote from the script and test it
-            local cloud_remote
-            cloud_remote=$(grep -oP 'rclone copy.*"\K[^"]+(?=")' "${user_home}/.os_cloud_backup.sh" | awk -F':' '{print $1":"}' | head -n 1 || true)
-            if [[ -n "$cloud_remote" ]] && ! run_as_user rclone lsd "$cloud_remote" >/dev/null 2>&1; then
+        if layer_selected "$LAYER_BTRBK"; then
+            local age_key_file="${user_home}/.config/arch-backup-wizard/cloud_os.key"
+            if [[ ! -f "$age_key_file" ]]; then
                 l4_ok=false
-                log_warn "Layer 4 check failed: 'rclone lsd $cloud_remote' failed"
-                failure_issues+=("Layer 4: rclone connection test failed for $cloud_remote")
+                log_warn "Layer 4 check failed: Age encryption key $age_key_file is missing"
+                failure_issues+=("Layer 4: Age encryption key missing")
+            fi
+
+            if [[ ! -f "${user_home}/.os_cloud_backup.sh" || ! -x "${user_home}/.os_cloud_backup.sh" ]]; then
+                l4_ok=false
+                log_warn "Layer 4 check failed: ${user_home}/.os_cloud_backup.sh does not exist or is not executable"
+                failure_issues+=("Layer 4: ~/.os_cloud_backup.sh missing or not executable")
+            else
+                # Extract the remote from the script and test it
+                local cloud_remote
+                cloud_remote=$(grep -oP 'rclone (?:copy|sync|bisync)\s+.*"\K[^"]+(?=")' "${user_home}/.os_cloud_backup.sh" 2>/dev/null | awk -F':' '{print $1":"}' | head -n 1 || true)
+                if [[ -z "$cloud_remote" ]]; then
+                    l4_ok=false
+                    log_warn "Layer 4 check failed: could not extract rclone remote from ${user_home}/.os_cloud_backup.sh"
+                    failure_issues+=("Layer 4: rclone remote not identifiable in .os_cloud_backup.sh")
+                elif ! run_as_user rclone lsd "$cloud_remote" >/dev/null 2>&1; then
+                    l4_ok=false
+                    log_warn "Layer 4 check failed: 'rclone lsd $cloud_remote' failed"
+                    failure_issues+=("Layer 4: rclone connection test failed for $cloud_remote")
+                fi
+            fi
+
+            if [[ ! -f "${user_home}/.os_clone_nag.sh" || ! -x "${user_home}/.os_clone_nag.sh" ]]; then
+                l4_ok=false
+                log_warn "Layer 4 check failed: ${user_home}/.os_clone_nag.sh does not exist or is not executable"
+                failure_issues+=("Layer 4: ~/.os_clone_nag.sh missing or not executable")
+            fi
+
+            # Check nag script hook in shell startup file or XDG autostart
+            local hook_found=false
+            local shell_bin
+            shell_bin=$(basename "${DETECTED_SHELL:-bash}")
+            local rc_file=""
+            case "$shell_bin" in
+            zsh) rc_file="${user_home}/.zshrc" ;;
+            fish) rc_file="${user_home}/.config/fish/config.fish" ;;
+            bash | *) rc_file="${user_home}/.bashrc" ;;
+            esac
+
+            local desktop_autostart="${user_home}/.config/autostart/os-clone-nag.desktop"
+            if [[ -f "$rc_file" ]] && grep -Fq ".os_clone_nag.sh" "$rc_file"; then
+                hook_found=true
+            elif [[ -f "$desktop_autostart" ]] && grep -Fq ".os_clone_nag.sh" "$desktop_autostart"; then
+                hook_found=true
+            fi
+
+            if ! $hook_found; then
+                l4_ok=false
+                log_warn "Layer 4 check failed: nag script hook not found in $rc_file or $desktop_autostart"
+                failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file") or autostart")
             fi
         fi
 
-        if [[ ! -f "${user_home}/.os_clone_nag.sh" || ! -x "${user_home}/.os_clone_nag.sh" ]]; then
-            l4_ok=false
-            log_warn "Layer 4 check failed: ${user_home}/.os_clone_nag.sh does not exist or is not executable"
-            failure_issues+=("Layer 4: ~/.os_clone_nag.sh missing or not executable")
-        fi
-
-        if [[ ! -f "/etc/systemd/system/pika-cloud-sync.timer" ]]; then
-            l4_ok=false
-            log_warn "Layer 4 check failed: /etc/systemd/system/pika-cloud-sync.timer does not exist"
-            failure_issues+=("Layer 4: pika-cloud-sync.timer missing")
-        else
-            if ! systemctl is-enabled pika-cloud-sync.timer >/dev/null 2>&1; then
+        if layer_selected "$LAYER_PIKA"; then
+            if [[ ! -f "/etc/systemd/system/pika-cloud-sync.service" || ! -f "/etc/systemd/system/pika-cloud-sync.timer" ]]; then
                 l4_ok=false
-                log_warn "Layer 4 check failed: pika-cloud-sync.timer is not enabled"
-                failure_issues+=("Layer 4: pika-cloud-sync.timer not enabled")
+                log_warn "Layer 4 check failed: pika-cloud-sync service or timer unit missing"
+                failure_issues+=("Layer 4: pika-cloud-sync systemd units missing")
+            else
+                if ! unit_is_enabled pika-cloud-sync.timer; then
+                    l4_ok=false
+                    log_warn "Layer 4 check failed: pika-cloud-sync.timer is not enabled"
+                    failure_issues+=("Layer 4: pika-cloud-sync.timer not enabled")
+                fi
+                if ! unit_is_active pika-cloud-sync.timer; then
+                    l4_ok=false
+                    log_warn "Layer 4 check failed: pika-cloud-sync.timer is not active (running)"
+                    failure_issues+=("Layer 4: pika-cloud-sync.timer not active")
+                fi
             fi
-        fi
-
-        # Check nag script hook in shell startup file or XDG autostart
-        local hook_found=false
-        local shell_bin
-        shell_bin=$(basename "${DETECTED_SHELL:-bash}")
-        local rc_file=""
-        case "$shell_bin" in
-        zsh) rc_file="${user_home}/.zshrc" ;;
-        fish) rc_file="${user_home}/.config/fish/config.fish" ;;
-        bash | *) rc_file="${user_home}/.bashrc" ;;
-        esac
-
-        local desktop_autostart="${user_home}/.config/autostart/os-clone-nag.desktop"
-        if [[ -f "$rc_file" ]] && grep -Fq ".os_clone_nag.sh" "$rc_file"; then
-            hook_found=true
-        elif [[ -f "$desktop_autostart" ]] && grep -Fq ".os_clone_nag.sh" "$desktop_autostart"; then
-            hook_found=true
-        fi
-
-        if ! $hook_found; then
-            l4_ok=false
-            log_warn "Layer 4 check failed: nag script hook not found in $rc_file or $desktop_autostart"
-            failure_issues+=("Layer 4: nag script hook missing in $(basename "$rc_file") or autostart")
         fi
 
         if $l4_ok; then
@@ -331,7 +377,7 @@ run_validation() {
         log_info "Checking /etc/fstab for backup drive mount ($BACKUP_MOUNT)..."
         local fstab_line=""
         if [[ -f /etc/fstab ]]; then
-            fstab_line=$(awk -v mnt="$BACKUP_MOUNT" '$1 !~ /^#/ && $2 == mnt {print; exit}' /etc/fstab 2>/dev/null || true)
+            fstab_line=$(awk -v m1="$BACKUP_MOUNT" -v m2="${BACKUP_MOUNT// /\\040}" '$1 !~ /^#/ && ($2 == m1 || $2 == m2) {print; exit}' /etc/fstab 2>/dev/null || true)
             if [[ -z "$fstab_line" && -n "${BACKUP_UUID:-}" ]]; then
                 fstab_line=$(awk -v uuid="UUID=$BACKUP_UUID" '$1 !~ /^#/ && $1 == uuid {print; exit}' /etc/fstab 2>/dev/null || true)
             fi
@@ -376,7 +422,7 @@ run_validation() {
     if layer_selected "$LAYER_BTRBK" && [[ ! -f "$runbook_dir/Bare_Metal_Recovery_Runbook.txt" ]]; then
         missing_runbooks+=("Layer 2 Bare-Metal Recovery Runbook (Bare_Metal_Recovery_Runbook.txt)")
     fi
-    if layer_selected "$LAYER_CLOUD" && [[ ! -f "$runbook_dir/Cloud_Recovery_Runbook.txt" ]]; then
+    if layer_selected "$LAYER_CLOUD" && layer_selected "$LAYER_BTRBK" && [[ ! -f "$runbook_dir/Cloud_Recovery_Runbook.txt" ]]; then
         missing_runbooks+=("Layer 4 Cloud Recovery Runbook (Cloud_Recovery_Runbook.txt)")
     fi
 
@@ -419,8 +465,8 @@ run_validation() {
         done
     fi
 
-    if [[ -t 1 ]] && command -v "${DIALOG_CMD:-dialog}" &>/dev/null; then
-        ui_msgbox "Validation Results" "$dashboard"
+    if [[ "${VALIDATE:-false}" != "true" ]] && [[ -t 1 ]] && [[ -n "${DIALOG_CMD:-}" ]] && command -v "$DIALOG_CMD" &>/dev/null; then
+        ui_msgbox "Validation Results" "$dashboard" || true
     fi
     echo "$dashboard"
 

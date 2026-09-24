@@ -49,7 +49,7 @@ detect_aur_helper() {
 detect_bootloader() {
     DETECTED_BOOTLOADER="unknown"
 
-    if [[ -f /etc/default/limine ]] || cmd_exists limine; then
+    if [[ -f /etc/default/limine || -f /boot/limine.conf || -f /boot/limine/limine.conf || -f /efi/limine.conf || -f /efi/limine/limine.conf ]]; then
         DETECTED_BOOTLOADER="limine"
     elif bootctl is-installed &>/dev/null 2>&1 || [[ -d /boot/loader/entries ]]; then
         DETECTED_BOOTLOADER="systemd-boot"
@@ -66,7 +66,7 @@ detect_root_filesystem() {
     DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE / 2>/dev/null || echo "")
     DETECTED_ROOT_DEV=$(findmnt -n --nofsroot -o SOURCE / 2>/dev/null || echo "")
     DETECTED_ROOT_UUID=$(findmnt -n -o UUID / 2>/dev/null || echo "")
-    DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / 2>/dev/null | grep -oP 'subvol=\K[^,]+' || echo "")
+    DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / 2>/dev/null | sed -n 's/.*subvol=\([^,]*\).*/\1/p' || echo "")
 
     log_info "Root: $DETECTED_ROOT_FS dev=$DETECTED_ROOT_DEV UUID=$DETECTED_ROOT_UUID subvol=$DETECTED_ROOT_SUBVOL"
 }
@@ -78,12 +78,11 @@ detect_efi() {
     DETECTED_EFI_UUID=""
     DETECTED_EFI_MOUNT=""
 
-    local mount
+    local mount fstype
     for mount in /boot /boot/efi /efi; do
         if findmnt -n "$mount" &>/dev/null; then
-            local fstype
             fstype=$(findmnt -n -o FSTYPE "$mount")
-            if [[ "$fstype" == "vfat" ]]; then
+            if [[ "$fstype" == "vfat" || "$fstype" == "exfat" ]]; then
                 DETECTED_EFI_MOUNT="$mount"
                 DETECTED_EFI_DEV=$(findmnt -n --nofsroot -o SOURCE "$mount")
                 DETECTED_EFI_UUID=$(findmnt -n -o UUID "$mount")
@@ -105,27 +104,28 @@ detect_btrfs_subvolumes() {
 
     if [[ "$DETECTED_ROOT_FS" == "btrfs" ]]; then
         local subvol_list=()
+        local target uuid opts subvol
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             [[ $line =~ TARGET=\"([^\"]*)\".*UUID=\"([^\"]*)\".*OPTIONS=\"([^\"]*)\" ]] || continue
-            local target="${BASH_REMATCH[1]}"
-            local uuid="${BASH_REMATCH[2]}"
-            local opts="${BASH_REMATCH[3]}"
+            target="${BASH_REMATCH[1]}"
+            uuid="${BASH_REMATCH[2]}"
+            opts="${BASH_REMATCH[3]}"
 
             if [[ "$uuid" == "$DETECTED_ROOT_UUID" ]]; then
                 if [[ "$opts" =~ subvol=([^,]+) ]]; then
-                    local subvol="${BASH_REMATCH[1]}"
+                    subvol="${BASH_REMATCH[1]}"
                     subvol="${subvol#/}"
                     [[ -z "$subvol" ]] && subvol="@"
 
-                    if [[ "$subvol" != *".snapshots"* ]]; then
+                    if [[ "$subvol" != *".snapshots"* && "$subvol" != *"@snapshots"* ]]; then
                         subvol_list+=("$subvol")
                         DETECTED_SUBVOL_MOUNTS+=("$target:$subvol")
                     fi
                 fi
             else
                 # This is a different filesystem or different BTRFS UUID
-                if [[ "$target" != "/boot" && "$target" != "/boot/efi" && "$target" != "/efi" && "$target" != "/mnt"* && "$target" != "/run"* ]]; then
+                if [[ "$target" != "/boot" && "$target" != "/boot/efi" && "$target" != "/efi" && "$target" != "/run"* && "$target" != *"/Backup" && ( -z "${DETECTED_BACKUP_MOUNT:-}" || "$target" != "$DETECTED_BACKUP_MOUNT" ) ]]; then
                     DETECTED_SECONDARY_MOUNTS+=("$target")
                 fi
             fi
@@ -138,27 +138,30 @@ detect_btrfs_subvolumes() {
         fi
         log_info "BTRFS layout: $DETECTED_SUBVOL_LAYOUT"
 
-        # Check for unmounted nested subvolumes (Audit-036)
-        DETECTED_UNMOUNTED_SUBVOLS=""
-        local all_subvols
-        all_subvols=$(btrfs subvolume list -o / 2>/dev/null | sed -n 's/.* path //p' | grep -v '\.snapshots' || true)
-        local unmounted_subvols=()
-        for s in $all_subvols; do
-            local found=false
-            for m in "${subvol_list[@]}"; do
-                if [[ "$s" == "$m" ]]; then
-                    found=true
-                    break
-                fi
-            done
-            if [[ "$found" == false ]]; then
-                unmounted_subvols+=("$s")
-            fi
+        detect_unmounted_subvolumes "${subvol_list[@]}"
+    fi
+}
+
+# ── Unmounted top-level subvolume audit ───────────────────────────────────────
+
+detect_unmounted_subvolumes() {
+    local -a mounted=("$@")
+    DETECTED_UNMOUNTED_SUBVOLS=""
+    local all_subvols
+    all_subvols=$(btrfs subvolume list -o / 2>/dev/null | sed -n 's/.* path //p' | grep -v 'snapshots' || true)
+    local unmounted_subvols=()
+    local s found m
+    while IFS= read -r s; do
+        [[ -z "$s" ]] && continue
+        found=false
+        for m in "${mounted[@]}"; do
+            [[ "$s" == "$m" ]] && { found=true; break; }
         done
-        if (( ${#unmounted_subvols[@]} > 0 )); then
-            DETECTED_UNMOUNTED_SUBVOLS=$(printf "%s\n" "${unmounted_subvols[@]}")
-            log_warn "Detected unmounted nested subvolumes that will not be backed up."
-        fi
+        $found || unmounted_subvols+=("$s")
+    done <<< "$all_subvols"
+    if (( ${#unmounted_subvols[@]} > 0 )); then
+        DETECTED_UNMOUNTED_SUBVOLS=$(printf "%s\n" "${unmounted_subvols[@]}")
+        log_warn "Detected unmounted top-level subvolumes that will not be backed up."
     fi
 }
 
@@ -167,41 +170,59 @@ detect_btrfs_subvolumes() {
 detect_system_devices() {
     DETECTED_SYSTEM_DEVS=()
     local critical_mounts=()
-    mapfile -t critical_mounts < <(lsblk -rno MOUNTPOINT 2>/dev/null | grep -v '^$' | grep -v '\[SWAP\]' | grep -vE '^(/run/media|/mnt)' || true)
+    local fstype devs dev canonical_d tree dev_node canonical_k swaps canonical_swp
+    # Only include mountpoints belonging to root filesystem subvolumes
+    if [[ -n "${DETECTED_ROOT_UUID:-}" ]]; then
+        mapfile -t critical_mounts < <(findmnt -n -l -o TARGET -S "UUID=$DETECTED_ROOT_UUID" 2>/dev/null || true)
+    elif [[ -n "${DETECTED_ROOT_DEV:-}" ]]; then
+        mapfile -t critical_mounts < <(findmnt -n -l -o TARGET -S "$DETECTED_ROOT_DEV" 2>/dev/null || true)
+    fi
 
     # Ensure standard mounts are checked even if unmounted currently (if they somehow exist)
     critical_mounts+=(/ /boot /boot/efi /efi)
+    mapfile -t critical_mounts < <(printf "%s\n" "${critical_mounts[@]}" | sort -u)
 
     for mnt in "${critical_mounts[@]}"; do
-        local fstype
         fstype=$(findmnt -n -o FSTYPE "$mnt" 2>/dev/null || true)
 
-        local devs=()
+        devs=()
         if [[ "$fstype" == "btrfs" ]]; then
             # Handle multi-device BTRFS roots
             mapfile -t devs < <(btrfs filesystem show "$mnt" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="path") print $(i+1)}' || true)
         else
-            local dev
             dev=$(findmnt -n --nofsroot -o SOURCE "$mnt" 2>/dev/null || true)
             [[ -n "$dev" ]] && devs+=("$dev")
         fi
 
         for d in "${devs[@]}"; do
-            local tree
-            tree=$(lsblk -s -nlo KNAME "$d" 2>/dev/null || true)
+            [[ -z "$d" ]] && continue
+            canonical_d=$(realpath -q "$d" 2>/dev/null || echo "$d")
+            DETECTED_SYSTEM_DEVS+=("$d" "$canonical_d")
+
+            tree=$(lsblk -s -nlo PATH "$d" 2>/dev/null || true)
             for k in $tree; do
-                DETECTED_SYSTEM_DEVS+=("/dev/$k")
+                [[ -z "$k" ]] && continue
+                dev_node="$k"
+                [[ "$dev_node" != /* ]] && dev_node="/dev/$k"
+                canonical_k=$(realpath -q "$dev_node" 2>/dev/null || echo "$dev_node")
+                DETECTED_SYSTEM_DEVS+=("$dev_node" "$canonical_k")
             done
         done
     done
 
-    local swaps
     swaps=$(swapon --show=NAME --noheadings 2>/dev/null || true)
     for swp in $swaps; do
-        local tree
-        tree=$(lsblk -s -nlo KNAME "$swp" 2>/dev/null || true)
+        [[ -z "$swp" ]] && continue
+        canonical_swp=$(realpath -q "$swp" 2>/dev/null || echo "$swp")
+        DETECTED_SYSTEM_DEVS+=("$swp" "$canonical_swp")
+
+        tree=$(lsblk -s -nlo PATH "$swp" 2>/dev/null || true)
         for k in $tree; do
-            DETECTED_SYSTEM_DEVS+=("/dev/$k")
+            [[ -z "$k" ]] && continue
+            dev_node="$k"
+            [[ "$dev_node" != /* ]] && dev_node="/dev/$k"
+            canonical_k=$(realpath -q "$dev_node" 2>/dev/null || echo "$dev_node")
+            DETECTED_SYSTEM_DEVS+=("$dev_node" "$canonical_k")
         done
     done
 
@@ -246,14 +267,17 @@ detect_existing_backup_drive() {
         local fstype="${BASH_REMATCH[3]:-}"
 
         local is_managed_fstab=false
-        if awk -v t1="$target" -v t2="${target// /\\040}" '
+        local escaped_target
+        # shellcheck disable=SC2016  # sed replacement \\& is intentional, not a bash expression
+        escaped_target=$(printf '%s' "$target" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        if TARGET="$target" awk '
             /# BEGIN Arch Backup Wizard/{f=1; next}
             /# END Arch Backup Wizard/{f=0}
-            f && ($2 == t1 || $2 == t2) {found=1}
+            f && $2 == ENVIRON["TARGET"] {found=1}
             END{exit !found}
         ' /etc/fstab 2>/dev/null; then
             is_managed_fstab=true
-        elif grep -qE "^[^#]*[[:space:]]+${target}[[:space:]].*#.*Arch Backup Wizard" /etc/fstab 2>/dev/null; then
+        elif grep -qE "^[^#]*[[:space:]]+${escaped_target}[[:space:]].*#.*Arch Backup Wizard" /etc/fstab 2>/dev/null; then
             is_managed_fstab=true
         fi
 
@@ -270,6 +294,11 @@ detect_existing_backup_drive() {
                 target_dev=$(blkid -U "$uuid" 2>/dev/null || echo "")
             fi
 
+            # If UUID was not in fstab (e.g. mounted by device node or label), resolve from device
+            if [[ -z "$uuid" && -n "$target_dev" ]]; then
+                uuid=$(blkid -s UUID -o value "$target_dev" 2>/dev/null || echo "")
+            fi
+
             local is_system=false
             if [[ -n "$target_dev" ]]; then
                 for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
@@ -280,11 +309,13 @@ detect_existing_backup_drive() {
                 done
             fi
 
-            if [[ "$is_system" == false && -n "$target_dev" ]]; then
-                DETECTED_BACKUP_MOUNT="$target"
-                DETECTED_BACKUP_UUID="$uuid"
-                DETECTED_BACKUP_DEV="$target_dev"
-                break
+            if [[ "$is_system" == false ]]; then
+                if [[ -n "$target_dev" ]] || $is_managed_fstab; then
+                    DETECTED_BACKUP_MOUNT="$target"
+                    DETECTED_BACKUP_UUID="$uuid"
+                    DETECTED_BACKUP_DEV="$target_dev"
+                    break
+                fi
             fi
         fi
     done <<<"$fstab_entries"
@@ -350,10 +381,10 @@ run_detection() {
     detect_bootloader
     detect_root_filesystem
     detect_efi
-    detect_btrfs_subvolumes
     detect_system_devices
     detect_available_drives
     detect_existing_backup_drive
+    detect_btrfs_subvolumes
     detect_user_info
     detect_terminal
     detect_existing_setup

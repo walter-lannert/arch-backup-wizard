@@ -79,6 +79,7 @@ log_info() { _log "INFO" "$*"; }
 log_warn() { _log "WARN" "$*"; }
 log_error() { _log "ERROR" "$*"; }
 log_success() { _log "OK" "$*"; }
+log_debug() { _log "DEBUG" "$*"; }
 
 # Fatal error — log, print to stderr, and exit immediately.
 #
@@ -98,7 +99,7 @@ die() {
 }
 
 # ── File helpers ──────────────────────────────────────────────────────────────
-MANIFEST_FILE="/var/lib/arch-backup-wizard/manifest.txt"
+MANIFEST_FILE="${MANIFEST_FILE:-/var/lib/arch-backup-wizard/manifest.txt}"
 
 # Record a file created by the wizard for uninstallation
 record_manifest() {
@@ -109,7 +110,7 @@ record_manifest() {
     fi
 }
 
-readonly ORIG_MANIFEST="/var/lib/arch-backup-wizard/unmanaged_orig.txt"
+ORIG_MANIFEST="${ORIG_MANIFEST:-/var/lib/arch-backup-wizard/unmanaged_orig.txt}"
 
 # Back up a file before modifying it (timestamped .bak copy)
 # Prompts for confirmation if the file already exists but is NOT tracked in the manifest
@@ -140,25 +141,33 @@ Do you want to proceed and overwrite it?"; then
         fi
 
         local backup
-        backup="${file}.bak.$(date +%s)"
+        backup="${file}.bak.$(date +%s).$$"
         cp -p "$file" "$backup"
         log_info "Backed up $file → $backup"
-        echo "$backup"
     fi
 }
 
 # Render a template file: replaces every {{KEY}} with the value of $KEY
 # Usage: template_render templates/foo.conf /etc/foo.conf
 template_render() {
-    shopt -u patsub_replacement 2>/dev/null || true
     local template="$1"
+    local _patsub_was_set
+    _patsub_was_set=$(shopt -p patsub_replacement 2>/dev/null) || _patsub_was_set=""
+    shopt -u patsub_replacement 2>/dev/null || true
     local output="$2"
     local content
+    if [[ ! -f "$template" ]]; then
+        log_error "Template not found: $template"
+        return 1
+    fi
     content=$(<"$template")
 
     # Extract unique variable names from {{…}} placeholders
     local vars
-    vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" | sort -u) || true
+    if ! vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" | sort -u) 2>/dev/null; then
+        log_error "grep -P unavailable; cannot extract placeholders from $(basename "$template")"
+        return 1
+    fi
 
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
@@ -180,11 +189,20 @@ template_render() {
     done <<<"$vars"
 
     local temp_file
-    temp_file=$(mktemp)
+    local out_dir
+    out_dir="$(dirname "$output")"
+    temp_file=$(mktemp "${out_dir}/.template.XXXXXX") || {
+        log_error "Cannot create temp file in $out_dir"
+        return 1
+    }
     printf "%s\n" "$content" >"$temp_file"
     chmod 644 "$temp_file"
     mv -T "$temp_file" "$output"
     log_info "Rendered template $(basename "$template") → $output"
+
+    if [[ -n "$_patsub_was_set" ]]; then
+        eval "$_patsub_was_set" 2>/dev/null || true
+    fi
 }
 
 # ── User / privilege helpers ──────────────────────────────────────────────────
@@ -218,7 +236,11 @@ effective_home() {
 
 # Run a command as the real (non-root) user
 run_as_user() {
-    sudo -u "$(effective_user)" "$@"
+    if [[ $EUID -eq 0 ]]; then
+        sudo -u "$(effective_user)" "$@"
+    else
+        "$@"
+    fi
 }
 
 # ── Misc helpers ──────────────────────────────────────────────────────────────
@@ -236,4 +258,20 @@ unit_is_active() {
 # Check if a systemd unit is enabled
 unit_is_enabled() {
     systemctl is-enabled --quiet "$1" 2>/dev/null
+}
+
+# Ensure /var/lib/pika-cloud-sync/ exists with the enabled sentinel.
+# Called by layer4_cloud.sh before installing the timer unit.
+ensure_pika_sync_state() {
+    local dir="/var/lib/pika-cloud-sync"
+    mkdir -p "$dir" || {
+        log_error "Failed to create $dir"
+        return 1
+    }
+    touch "$dir/enabled" || {
+        log_error "Failed to create $dir/enabled"
+        return 1
+    }
+    record_manifest "$dir/enabled"
+    log_info "Ensured $dir/enabled exists."
 }

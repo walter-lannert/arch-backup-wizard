@@ -24,11 +24,18 @@ setup_layer1() {
         log_info "Snapper root configuration already exists. Skipping subvolume creation."
     else
         # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS/EndeavourOS)
+        if [[ -z "${SNAP_DIR:-}" ]]; then
+            log_error "SNAP_DIR is not set. Layer 1 requires SNAP_DIR to be configured."
+            return 1
+        fi
         if mountpoint -q "$SNAP_DIR" 2>/dev/null || findmnt -n "$SNAP_DIR" &>/dev/null; then
             log_info "Unmounting pre-existing /.snapshots subvolume mount..."
             umount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
-                log_error "Failed to unmount $SNAP_DIR"
-                return 1
+                log_warn "Normal unmount of $SNAP_DIR failed; attempting lazy unmount..."
+                umount -l "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                    log_error "Failed to unmount $SNAP_DIR (even with lazy unmount)"
+                    return 1
+                }
             }
         fi
 
@@ -37,7 +44,7 @@ setup_layer1() {
         if [[ -e "$SNAP_DIR" ]]; then
             if btrfs subvolume show "$SNAP_DIR" &>/dev/null; then
                 log_info "Deleting existing unmounted /.snapshots subvolume on root..."
-                btrfs subvolume delete "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                btrfs subvolume delete -r "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to delete /.snapshots subvolume"
                     return 1
                 }
@@ -66,7 +73,7 @@ setup_layer1() {
         local existing_subvol=""
         local candidate
         for candidate in "@snapshots" "@.snapshots"; do
-            if btrfs subvolume list / 2>/dev/null | sed -n 's/.* path //p' | grep -qFx "$candidate"; then
+            if btrfs subvolume list / 2>/dev/null | awk '{print $NF}' | grep -qFx "$candidate"; then
                 existing_subvol="$candidate"
                 break
             fi
@@ -101,9 +108,13 @@ setup_layer1() {
                 }
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
+                if [[ -z "$root_uuid" ]]; then
+                    log_error "Cannot determine root filesystem UUID. Aborting fstab modification."
+                    return 1
+                fi
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
                 local tmp_fstab
-                tmp_fstab=$(mktemp)
+                tmp_fstab=$(mktemp /etc/.fstab.XXXXXX)
                 cp /etc/fstab "$tmp_fstab"
                 printf '\n# BEGIN Arch Backup Wizard /.snapshots Mount\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n# END Arch Backup Wizard /.snapshots Mount\n' \
                     "$root_uuid" "$existing_subvol" >>"$tmp_fstab"
@@ -115,6 +126,7 @@ setup_layer1() {
                 backup_file /etc/fstab || { rm -f "$tmp_fstab"; return 1; }
                 mv -T "$tmp_fstab" /etc/fstab
                 chmod 644 /etc/fstab
+                record_manifest /etc/fstab
                 mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to mount $SNAP_DIR"
                     return 1
@@ -196,7 +208,7 @@ EOF
 
     # Ensure /etc/conf.d/snapper includes root config if the file exists
     if [[ -f /etc/conf.d/snapper ]]; then
-        if ! grep -qE '^SNAPPER_CONFIGS=.*root' /etc/conf.d/snapper; then
+        if ! grep -qE '^SNAPPER_CONFIGS=.*\broot\b' /etc/conf.d/snapper; then
             backup_file /etc/conf.d/snapper || return 1
             if grep -q '^SNAPPER_CONFIGS=' /etc/conf.d/snapper; then
                 if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper; then
@@ -235,9 +247,10 @@ EOF
             return 1
         }
         log_info "Regenerating GRUB configuration to include snapshot menu..."
-        grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG_FILE" 2>&1 || {
+        if ! grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG_FILE" 2>&1; then
             log_error "Failed to regenerate grub.cfg"
-        }
+            return 1
+        fi
         log_success "grub-btrfsd service enabled and started."
         ;;
     limine)

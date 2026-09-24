@@ -6,4 +6,8 @@ arch-backup-wizard-preview/
 *.log
 arch-backup-wizard.log
 *.bak.*
+
+# AI
 .aider*
+.agents/
+Modelfile

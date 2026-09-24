@@ -40,15 +40,17 @@ parse_args() {
             shift
             ;;
         --validate)
-            if $UNINSTALL; then die "Error: --validate cannot be combined with --uninstall."; fi
+            if $UNINSTALL || $DRY_RUN; then die "Error: --validate cannot be combined with --uninstall or --dry-run."; fi
             VALIDATE=true
             shift
             if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
                 IFS=',' read -ra VALIDATE_LAYERS <<<"$1"
                 shift
                 # Validate each token
-                local _l
-                for _l in "${VALIDATE_LAYERS[@]}"; do
+                local _idx _l
+                for _idx in "${!VALIDATE_LAYERS[@]}"; do
+                    _l="${VALIDATE_LAYERS[_idx]// /}"
+                    VALIDATE_LAYERS[_idx]="$_l"
                     case "$_l" in
                     1 | 2 | 3 | 4 | 5) ;;
                     *) die "Invalid layer id: '$_l' (expected 1..5, or comma-separated subset, e.g. 1,3)" ;;
@@ -57,7 +59,7 @@ parse_args() {
             fi
             ;;
         --dry-run | -d)
-            if $UNINSTALL; then die "Error: --dry-run cannot be combined with --uninstall."; fi
+            if $UNINSTALL || $VALIDATE; then die "Error: --dry-run cannot be combined with --uninstall or --validate."; fi
             DRY_RUN=true
             shift
             ;;
@@ -91,6 +93,9 @@ EOF
             exit 0
             ;;
         *)
+            if $VALIDATE && [[ "$1" =~ ^[0-9,]+$ ]]; then
+                echo "Hint: layer IDs for --validate must be comma-separated without spaces (e.g. --validate 1,3)" >&2
+            fi
             echo "Unknown option: $1  (use --help)" >&2
             exit 1
             ;;
@@ -247,16 +252,18 @@ select_backup_drive() {
 
 Use this drive?"; then
             BACKUP_MOUNT="$DETECTED_BACKUP_MOUNT"
-            BACKUP_UUID="$DETECTED_BACKUP_UUID"
             BACKUP_DEV="$DETECTED_BACKUP_DEV"
+            BACKUP_UUID="${DETECTED_BACKUP_UUID:-$(blkid -s UUID -o value "$BACKUP_DEV" 2>/dev/null || echo "")}"
             log_info "Reusing existing backup drive: $BACKUP_MOUNT"
             _ensure_backup_mounted || return 1
+            export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
             return 0
         fi
     fi
 
     # Build a list of candidate partitions for a radiolist
     local choices=()
+    local seen_devs=()
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\".*MOUNTPOINT=\"([^\"]*)\" ]] || true
@@ -264,21 +271,47 @@ Use this drive?"; then
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
         local mountpoint="${BASH_REMATCH[5]:-}"
+        [[ -z "$dev" ]] && continue
 
         # Skip system devices (root, EFI, swap, and all their parents/children)
+        local dev_real
+        dev_real=$(realpath -q "$dev" 2>/dev/null || echo "$dev")
         local is_system=false
         for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
-            if [[ "$dev" == "$sys_dev" ]]; then
+            local sys_real
+            sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+            if [[ "$dev" == "$sys_dev" || "$dev_real" == "$sys_real" || "$dev" == "$sys_real" || "$dev_real" == "$sys_dev" ]]; then
                 is_system=true
                 break
             fi
         done
+        if [[ "$is_system" == false ]]; then
+            local parent
+            parent=$(lsblk -no PKNAME "$dev" 2>/dev/null || echo "")
+            if [[ -n "$parent" ]]; then
+                [[ "$parent" != /* ]] && parent="/dev/$parent"
+                local parent_real
+                parent_real=$(realpath -q "$parent" 2>/dev/null || echo "$parent")
+                for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+                    local sys_real
+                    sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+                    if [[ "$parent" == "$sys_dev" || "$parent_real" == "$sys_real" || "$parent" == "$sys_real" || "$parent_real" == "$sys_dev" ]]; then
+                        is_system=true
+                        break
+                    fi
+                done
+            fi
+        fi
         [[ "$is_system" == true ]] && continue
 
         local label="${size}"
         [[ -n "$fstype" ]] && label+="  $fstype"
         [[ -n "$mountpoint" ]] && label+="  ($mountpoint)"
 
+        if [[ " ${seen_devs[*]:-} " =~ [[:space:]]${dev}[[:space:]] ]]; then
+            continue
+        fi
+        seen_devs+=("$dev")
         choices+=("$dev" "$label" "off")
     done <<<"$DETECTED_PARTITIONS"
 
@@ -289,15 +322,37 @@ Use this drive?"; then
         local dev="${BASH_REMATCH[1]:-}"
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
+        [[ -z "$dev" ]] && continue
 
         # Skip system devices
+        local dev_real
+        dev_real=$(realpath -q "$dev" 2>/dev/null || echo "$dev")
         local is_system=false
         for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
-            if [[ "$dev" == "$sys_dev" ]]; then
+            local sys_real
+            sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+            if [[ "$dev" == "$sys_dev" || "$dev_real" == "$sys_real" || "$dev" == "$sys_real" || "$dev_real" == "$sys_dev" ]]; then
                 is_system=true
                 break
             fi
         done
+        if [[ "$is_system" == false ]]; then
+            local parent
+            parent=$(lsblk -no PKNAME "$dev" 2>/dev/null || echo "")
+            if [[ -n "$parent" ]]; then
+                [[ "$parent" != /* ]] && parent="/dev/$parent"
+                local parent_real
+                parent_real=$(realpath -q "$parent" 2>/dev/null || echo "$parent")
+                for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+                    local sys_real
+                    sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+                    if [[ "$parent" == "$sys_dev" || "$parent_real" == "$sys_real" || "$parent" == "$sys_real" || "$parent_real" == "$sys_dev" ]]; then
+                        is_system=true
+                        break
+                    fi
+                done
+            fi
+        fi
         [[ "$is_system" == true ]] && continue
 
         # Only label a disk unformatted if it has zero children and no filesystem
@@ -307,6 +362,10 @@ Use this drive?"; then
             continue
         fi
 
+        if [[ " ${seen_devs[*]:-} " =~ [[:space:]]${dev}[[:space:]] ]]; then
+            continue
+        fi
+        seen_devs+=("$dev")
         choices+=("$dev" "${size}  (UNFORMATTED — will partition)" "off")
     done <<<"$DETECTED_DRIVES"
 
@@ -367,8 +426,8 @@ Continue?"; then
                 continue
             fi
 
-            if [[ "$BACKUP_MOUNT" == *$'\n'* || "$BACKUP_MOUNT" == *$'\t'* || "$BACKUP_MOUNT" == *\\* ]]; then
-                ui_msgbox "Error" "Mount point cannot contain newlines, tabs, or backslashes."
+            if [[ "$BACKUP_MOUNT" == *$'\n'* || "$BACKUP_MOUNT" == *$'\t'* || "$BACKUP_MOUNT" == *\\* || "$BACKUP_MOUNT" == *"="* || "$BACKUP_MOUNT" == *"#"* || "$BACKUP_MOUNT" == *"%"* ]]; then
+                ui_msgbox "Error" "Mount point cannot contain newlines, tabs, backslashes, '=', '#', or '%'."
                 continue
             fi
 
@@ -440,6 +499,13 @@ No partitions or data were modified."
         fi
         partprobe "$dev" 2>/dev/null || true
         udevadm settle 2>/dev/null || true
+
+        local wait_count=0
+        while [[ ! -b "$BACKUP_DEV" ]] && (( wait_count < 5 )); do
+            sleep 1
+            ((wait_count++))
+        done
+        [[ -b "$BACKUP_DEV" ]] || die "Partition $BACKUP_DEV failed to appear after partitioning."
     fi
 
     log_info "Formatting $BACKUP_DEV as BTRFS with zstd compression"
@@ -461,7 +527,19 @@ _ensure_backup_mounted() {
     local existing_mount
     existing_mount=$(findmnt --fstab -n -o TARGET -S "UUID=$BACKUP_UUID" 2>/dev/null || echo "")
 
-    if [[ "$existing_mount" != "$BACKUP_MOUNT" ]] && ! findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1; then
+    if [[ "$existing_mount" != "$BACKUP_MOUNT" ]]; then
+        # Remove stale fstab entry for BACKUP_MOUNT if one exists
+        if findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1; then
+            local tmp_clean
+            tmp_clean=$(mktemp)
+            awk -v mp="$BACKUP_MOUNT" -v mp_esc="${BACKUP_MOUNT// /\\040}" '$2 != mp && $2 != mp_esc' /etc/fstab > "$tmp_clean"
+            backup_file /etc/fstab || { rm -f "$tmp_clean"; die "Aborted by user: declined /etc/fstab modification."; }
+            mv -T "$tmp_clean" /etc/fstab
+            chmod 644 /etc/fstab
+            log_info "Cleaned stale fstab entry for $BACKUP_MOUNT"
+        fi
+
+        # Add the new fstab entry
         local tmp_fstab
         tmp_fstab=$(mktemp)
         cp /etc/fstab "$tmp_fstab"
@@ -554,20 +632,7 @@ run_dry_run_simulation() {
         actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage\n"
     fi
 
-    # 3. Generate preview runbooks into preview sandbox
-    local orig_mount="$BACKUP_MOUNT"
-    BACKUP_MOUNT="$preview_dir/runbooks"
-
-    # Temporarily silence UI dialogs during preview generation
-    local _saved_ui_msgbox
-    _saved_ui_msgbox=$(declare -f ui_msgbox)
-    ui_msgbox() { true; }
-    generate_runbooks >/dev/null 2>&1 || true
-    eval "$_saved_ui_msgbox"
-    BACKUP_MOUNT="$orig_mount"
-    export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
-
-    # Also render scripts into preview dir
+    # Also render scripts and runbooks into preview dir
     local orig_cloud_remote="${CLOUD_REMOTE:-}"
     local orig_cloud_os_dir="${CLOUD_OS_DIR:-}"
     local orig_cloud_pika_dir="${CLOUD_PIKA_DIR:-}"
@@ -577,6 +642,15 @@ run_dry_run_simulation() {
     export CLOUD_OS_DIR="${CLOUD_OS_DIR:-arch-bare-metal-clones}"
     export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-arch-pika-backup}"
     export AGE_PUBKEY="${AGE_PUBKEY:-age1previewdummykey000000000000000000000000000000000000000000000}"
+
+    # 3. Generate preview runbooks into preview sandbox
+    local orig_mount="$BACKUP_MOUNT"
+    BACKUP_MOUNT="$preview_dir/runbooks"
+
+    # Temporarily silence UI dialogs during preview generation
+    UI_SILENT=true generate_runbooks >/dev/null 2>&1 || true
+    BACKUP_MOUNT="$orig_mount"
+    export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
 
     template_render "$WIZARD_DIR/templates/os-cloud-backup.sh" "$preview_dir/scripts/os-cloud-backup.sh" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/os-clone-nag.sh" "$preview_dir/scripts/os-clone-nag.sh" 2>/dev/null || true
@@ -644,6 +718,8 @@ main() {
         run_detection
         BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
         run_uninstall
+        # shellcheck disable=SC2317
+        exit $?
     fi
 
     # Handle --validate mode

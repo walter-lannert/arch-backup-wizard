@@ -45,17 +45,23 @@ This will NOT remove:
     systemctl disable --now grub-btrfsd >>"$LOG_FILE" 2>&1 || true
     systemctl disable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || true
 
-    log_info "Disabling pika-cloud-sync.timer..."
+    log_info "Stopping and disabling pika-cloud-sync..."
+    systemctl stop pika-cloud-sync.service >>"$LOG_FILE" 2>&1 || true
     systemctl disable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1 || true
 
     if [[ -f /etc/conf.d/snapper ]]; then
-        sed -i 's/\bSNAPPER_CONFIGS="root\b/SNAPPER_CONFIGS="/g; s/\bSNAPPER_CONFIGS="\(.*\) root\b/SNAPPER_CONFIGS="\1/g; s/\bSNAPPER_CONFIGS="root \([^"]*\)"/SNAPPER_CONFIGS="\1"/g' /etc/conf.d/snapper
+        backup_file /etc/conf.d/snapper || true
+        sed -E -i '/^SNAPPER_CONFIGS=/ { s/\broot\b//g; s/[[:space:]]+/ /g; s/" /"/; s/ "/"/ }' /etc/conf.d/snapper
+        # Comment out SNAPPER_CONFIGS if it resolved to an empty list
+        if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper 2>/dev/null; then
+            sed -i 's/^SNAPPER_CONFIGS=""/# SNAPPER_CONFIGS="" (cleared by Arch Backup Wizard uninstall)/' /etc/conf.d/snapper
+        fi
     fi
 
     if grep -q '# BEGIN Arch Backup Wizard' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
         backup_file /etc/fstab || log_warn "Could not create backup of /etc/fstab prior to cleaning"
         # Handle legacy uninstalls and new BEGIN/END tags
-        sed -i -z 's/\n# Arch Backup Wizard Mount\n[^\n]*\n//g' /etc/fstab 2>/dev/null || true
+        sed -i -z 's/\(^|\n)# Arch Backup Wizard Mount\n[^\n]*\n/\1/g' /etc/fstab 2>/dev/null || true
         sed -i '/# BEGIN Arch Backup Wizard/,/# END Arch Backup Wizard/d' /etc/fstab 2>/dev/null || true
         log_info "Removed managed entry from /etc/fstab"
     fi
@@ -92,12 +98,16 @@ This will NOT remove:
                 else
                     rm -f "$file"
                     if [[ -f "$ORIG_MANIFEST" ]] && grep -Fxq "$file" "$ORIG_MANIFEST" 2>/dev/null; then
-                        local latest_bak
+                        local orig_bak
                         # shellcheck disable=SC2012
-                        latest_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -r | head -n 1 || true)
-                        if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
-                            mv "$latest_bak" "$file"
-                            log_info "Restored original pre-wizard state of $file"
+                        orig_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -V | head -n 1 || true)
+                        if [[ -n "$orig_bak" && -f "$orig_bak" ]]; then
+                            if mv "$orig_bak" "$file"; then
+                                rm -f "${file}.bak."* 2>/dev/null || true
+                                log_info "Restored original pre-wizard state of $file"
+                            else
+                                log_error "Failed to restore $file from $orig_bak. Backup files left in place."
+                            fi
                         fi
                     else
                         rm -f "${file}.bak."* 2>/dev/null || true
@@ -116,6 +126,12 @@ This will NOT remove:
         done < "$manifest_file"
         rm -f "$manifest_file"
         rm -f "$ORIG_MANIFEST" 2>/dev/null || true
+        rmdir "/var/lib/arch-backup-wizard" 2>/dev/null || true
+    fi
+
+    # Clean up pika-cloud-sync state directory if it is now empty
+    if [[ -d /var/lib/pika-cloud-sync ]] && [[ -z "$(ls -A /var/lib/pika-cloud-sync 2>/dev/null)" ]]; then
+        rmdir /var/lib/pika-cloud-sync 2>/dev/null || true
     fi
 
     local home
@@ -123,8 +139,7 @@ This will NOT remove:
 
     # Also clean up any lingering local archives from interrupted backups
     if [[ -n "${BACKUP_MOUNT:-}" ]]; then
-        rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst" 2>/dev/null || true
-        rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst.age" 2>/dev/null || true
+        btrfs subvolume delete "${BACKUP_MOUNT}/.pika_sync_snapshot" >>"$LOG_FILE" 2>&1 || true
         rm -f "${BACKUP_MOUNT}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
     fi
 
@@ -162,6 +177,8 @@ This will NOT remove:
         rm -f "$autostart_desktop"
         log_success "Cleaned XDG autostart entry"
     fi
+
+    rm -f "$home/.os_clone_nag.lock" "$home/.last_cloud_run" 2>/dev/null || true
 
     # ── 5. Success message ────────────────────────────────────────────────────
     ui_msgbox "Uninstall Complete" \
