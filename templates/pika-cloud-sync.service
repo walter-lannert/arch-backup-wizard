@@ -22,7 +22,7 @@ ExecStartPre=+/usr/bin/sh -c 'if [ -e "{{BACKUP_MOUNT}}/.pika_sync_snapshot" ]; 
 # Take a read-only snapshot of the backup drive to ensure Borg repo consistency
 ExecStartPre=+/usr/bin/btrfs subvolume snapshot -r "{{BACKUP_MOUNT}}" "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Guard: abort sync before invoking rclone if the Borg repository is missing or invalid
-ExecStartPre=/usr/bin/sh -c 'REPO="{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal"; test -d "$REPO" || { echo "FATAL: Borg repo directory $REPO not found in snapshot" >&2; exit 1; }; test -f "$REPO/config" && test -f "$REPO/chunks" || { echo "FATAL: $REPO does not look like a valid Borg repository (missing config/chunks)" >&2; exit 1; }; test -n "$(/usr/bin/ls -A "$REPO" 2>/dev/null)" || { echo "FATAL: Borg repo $REPO is empty" >&2; exit 1; }'
+ExecStartPre=/usr/bin/sh -c 'REPO="{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal"; test -d "$REPO" || { echo "FATAL: Borg repo directory $REPO not found in snapshot" >&2; exit 1; }; test -f "$REPO/config" && test -d "$REPO/data" || { echo "FATAL: $REPO does not look like a valid Borg repository (missing config/data)" >&2; exit 1; }; test -n "$(/usr/bin/ls -A "$REPO" 2>/dev/null)" || { echo "FATAL: Borg repo $REPO is empty" >&2; exit 1; }'
 # Note: 'rclone sync' is used so the destination mirrors the source exactly,
 # keeping orphaned chunks bounded. 'rclone copy' would also work but leaves
 # unreferenced chunks on the destination until a manual 'borg compact' runs.

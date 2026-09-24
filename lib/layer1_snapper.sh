@@ -44,7 +44,7 @@ setup_layer1() {
         if [[ -e "$SNAP_DIR" ]]; then
             if btrfs subvolume show "$SNAP_DIR" &>/dev/null; then
                 log_info "Deleting existing unmounted /.snapshots subvolume on root..."
-                btrfs subvolume delete -r "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                btrfs subvolume delete -R "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to delete /.snapshots subvolume"
                     return 1
                 }
