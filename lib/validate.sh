@@ -97,6 +97,12 @@ run_validation() {
                 failure_issues+=("Layer 1: limine-snapper-sync not enabled")
             fi
             ;;
+        "")
+            log_warn "Layer 1 note: no bootloader detected; skipping bootloader sync check"
+            ;;
+        *)
+            log_warn "Layer 1 note: unrecognised bootloader '${DETECTED_BOOTLOADER}'; skipping bootloader sync check"
+            ;;
         esac
 
         if $l1_ok; then
@@ -207,8 +213,16 @@ run_validation() {
             target_user="$(effective_user)"
             local repo_path="${BACKUP_MOUNT}/Personal/backup-${host_name}-${target_user}"
             local borg_ec=0
-            run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 5 borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
-            if [[ ! -f "$repo_path/config" || ! -d "$repo_path/data" ]] || [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]]; then
+            local borg_timeout="${BORG_INFO_TIMEOUT:-10}"
+            run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout "$borg_timeout" borg info "$repo_path" >/dev/null 2>&1 || borg_ec=$?
+            if [[ ! -f "$repo_path/config" || ! -d "$repo_path/data" ]]; then
+                l3_ok=false
+                log_warn "Layer 3 check failed: Borg repository at $repo_path is missing config or data directory"
+                failure_issues+=("Layer 3: Borg repository structure incomplete at $repo_path")
+            elif [[ $borg_ec -eq 124 ]]; then
+                log_warn "Layer 3 note: 'borg info' timed out after ${borg_timeout}s (exit 124); repository may be on slow storage"
+                failure_issues+=("Layer 3: Borg repository response timed out (${borg_timeout}s)")
+            elif [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]]; then
                 l3_ok=false
                 log_warn "Layer 3 check failed: Borg repository at $repo_path is invalid or inaccessible (borg info exit code $borg_ec)"
                 failure_issues+=("Layer 3: Borg repository inaccessible or not initialized in Pika Backup")
@@ -254,8 +268,12 @@ run_validation() {
             else
                 # Extract the remote from the script and test it
                 local cloud_remote
-                cloud_remote=$(grep -oP 'rclone copy.*"\K[^"]+(?=")' "${user_home}/.os_cloud_backup.sh" | awk -F':' '{print $1":"}' | head -n 1 || true)
-                if [[ -n "$cloud_remote" ]] && ! run_as_user rclone lsd "$cloud_remote" >/dev/null 2>&1; then
+                cloud_remote=$(grep -oP 'rclone (?:copy|sync|bisync)\s+.*"\K[^"]+(?=")' "${user_home}/.os_cloud_backup.sh" 2>/dev/null | awk -F':' '{print $1":"}' | head -n 1 || true)
+                if [[ -z "$cloud_remote" ]]; then
+                    l4_ok=false
+                    log_warn "Layer 4 check failed: could not extract rclone remote from ${user_home}/.os_cloud_backup.sh"
+                    failure_issues+=("Layer 4: rclone remote not identifiable in .os_cloud_backup.sh")
+                elif ! run_as_user rclone lsd "$cloud_remote" >/dev/null 2>&1; then
                     l4_ok=false
                     log_warn "Layer 4 check failed: 'rclone lsd $cloud_remote' failed"
                     failure_issues+=("Layer 4: rclone connection test failed for $cloud_remote")
