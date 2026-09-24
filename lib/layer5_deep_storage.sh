@@ -97,7 +97,7 @@ setup_layer5() {
     # exec is a special builtin: a redirection failure would exit the shell
     # before any || / if-! guard could fire.  The touch() call above already
     # validated that the path is creatable and writable, so this is safe.
-    exec 9<>"$_lockfile" # shellcheck disable=SC2317
+    exec 9<>"$_lockfile"
     if ! command -v flock &>/dev/null; then
         log_warn "flock(1) not found; falling back to mkdir-based lock."
         local _lockdir="${BACKUP_MOUNT%/}/.deep_storage_setup.lock.d"
@@ -160,7 +160,7 @@ setup_layer5() {
           || "$target_user" == *')'* || "$target_user" == *'>'* \
           || "$target_user" == *'<'* || "$target_user" == *'*'* \
           || "$target_user" == *'?'* || "$target_user" == *'['* \
-          || "$target_user" == *']'* || "$target_user" == *'\\'* ]]; then
+          || "$target_user" == *']'* || "$target_user" == *"\\"* ]]; then
         log_warn "effective_user returned unexpected value: '${target_user}'. Skipping chown."
         target_user=""
     fi
