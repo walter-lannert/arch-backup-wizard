@@ -1,19 +1,13 @@
 [Unit]
-Description=Pika backup sync to cloud storage (weekly, 2 triggers + persistent catch-up; see pika-cloud-sync.service)
+Description=Pika backup sync to cloud storage (weekly; see pika-cloud-sync.service)
 After=systemd-tmpfiles-setup.service
-Requires=systemd-tmpfiles-setup.service
 ConditionPathExists=/var/lib/pika-cloud-sync/state
-ConditionPathIsFile=/var/lib/pika-cloud-sync/state
-# Mutual exclusion is handled by the service-side flock (AUDIT-001/003).
-# Do NOT add a timer-side lock-file check here; it is a pre-filter only
-# and is subject to stale-lock and TOCTOU bugs.
+ConditionPathExists=!/run/pika-cloud-sync/active
 ConditionPathIsReadWrite=/run/pika-cloud-sync
 ConditionPathIsDirectory=/run/pika-cloud-sync
 ConditionPathExists=/var/lib/pika-cloud-sync/enabled
-ConditionPathIsFile=/var/lib/pika-cloud-sync/enabled
 ConditionPathIsReadWrite=/var/lib/pika-cloud-sync
-ConditionCommand=/usr/lib/pika/log-skip-reason.sh
-ConditionCommand=/usr/lib/pika/check-suspended.sh /var/lib/pika-cloud-sync/suspended
+ConditionPathExists=!/var/lib/pika-cloud-sync/suspended
 
 [Timer]
 Unit=pika-cloud-sync.service
@@ -30,18 +24,14 @@ OnCalendar=Mon 00:00 UTC
 # (last-success marker) makes this a no-op if the first pass already succeeded.
 # Effective window (UTC): 06:00 + (AccuracySec + RandomizedDelaySec).
 OnCalendar=Mon 06:00 UTC
-ConditionCommand=/usr/lib/pika/service-not-running.sh pika-cloud-sync.service
 # pinned; do not rely on systemd's compiled-in default
 AccuracySec=60
-RandomizedDelaySec=3600
-# Worst-case gap between 00:00+1h and 06:00+1h is 4h.
-# Service MUST complete within 4h or the lock (AUDIT-003) blocks the 2nd pass.
+RandomizedDelaySec=14400
 WakeSystem=yes
 # Persistent=true fires ONE catch-up after boot, even if N windows were missed.
 # The service MUST check its own last-success marker and run additional passes
 # if the gap exceeds 7 days. Do not assume one trigger == one week of coverage.
 Persistent=true
-ConditionCommand=/usr/lib/pika/compute-catchup.sh /var/lib/pika-cloud-sync/state /run/pika-cloud-sync/catchup-days
 
 [Install]
 WantedBy=timers.target

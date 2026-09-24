@@ -4,11 +4,15 @@
 # ── Query helpers ─────────────────────────────────────────────────────────────
 
 # Check if a package is installed (used by backup/restore modules)
-pkg_is_intact() {
+pkg_is_installed() {
     [[ -n "${1:-}" ]] || return 1
     pacman -Qi "$1" &>/dev/null || return 1
     # Verify file integrity; return 1 if the package is broken
     pacman -Qkk "$1" &>/dev/null
+}
+
+pkg_is_intact() {
+    pkg_is_installed "$@"
 }
 
 # ── Shared guards ─────────────────────────────────────────────────────────────
@@ -67,8 +71,8 @@ Check the wizard configuration."
     # Integrity probe: warn if any target package is in a broken/half-installed state
     local broken=()
     for p in "${to_install[@]}"; do
-        if run_as_user sudo pacman -Qi "$p" &>/dev/null; then
-            if ! run_as_user sudo pacman -Qkk "$p" &>/dev/null; then
+        if pacman -Qi "$p" &>/dev/null; then
+            if ! pacman -Qkk "$p" &>/dev/null; then
                 broken+=("$p")
             fi
         fi
@@ -182,8 +186,8 @@ Check the wizard configuration."
     # Integrity probe: warn if any target package is in a broken/half-installed state
     local broken=()
     for p in "${to_install[@]}"; do
-        if run_as_user sudo pacman -Qi "$p" &>/dev/null; then
-            if ! run_as_user sudo pacman -Qkk "$p" &>/dev/null; then
+        if pacman -Qi "$p" &>/dev/null; then
+            if ! pacman -Qkk "$p" &>/dev/null; then
                 broken+=("$p")
             fi
         fi
@@ -289,6 +293,11 @@ Expected a value between 1 and 5."
         return 1
     fi
 
+    # Layer 5 (Deep Storage) does not require any packages
+    if [[ "$layer" -eq 5 ]]; then
+        return 0
+    fi
+
     local all_pkgs
     if ! all_pkgs=$(get_layer_packages "$layer"); then
         log_error "get_layer_packages failed for layer $layer"
@@ -301,8 +310,14 @@ Expected a value between 1 and 5."
     local -a pkg_list=()
     local aur_name
     [[ -n "$all_pkgs" ]] && read -ra pkg_list <<< "$all_pkgs"
+    local _invalid_re='[][[:space:]/@#;|&$]'
     for pkg in "${pkg_list[@]}"; do
         [[ -z "$pkg" ]] && continue
+        # Reject tokens that are clearly not valid package names
+        if [[ "$pkg" =~ $_invalid_re ]]; then
+            log_error "Skipping invalid token from layer $layer: '$pkg'" >&2
+            continue
+        fi
         if [[ "$pkg" == AUR:* ]]; then
             aur_name="${pkg#AUR:}"
             [[ -n "$aur_name" ]] || { log_error "Empty AUR package name in layer $layer"; return 1; }
