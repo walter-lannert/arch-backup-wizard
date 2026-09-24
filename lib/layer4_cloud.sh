@@ -335,6 +335,13 @@ EOF
         export CLOUD_REMOTE="$rclone_remote"
         export CLOUD_PIKA_DIR="$cloud_pika_dir"
 
+        # Ensure the runtime state directory and enabled sentinel exist so that
+        # pika-cloud-sync.timer's ConditionPathExists guards are satisfied.
+        local pika_state_dir="/var/lib/pika-cloud-sync"
+        mkdir -p "$pika_state_dir"
+        touch "$pika_state_dir/enabled"
+        record_manifest "$pika_state_dir/enabled"
+
         mkdir -p "$systemd_dir"
 
         backup_file "$service_file" >/dev/null || return 1

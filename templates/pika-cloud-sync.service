@@ -28,6 +28,7 @@ ExecStartPre=/usr/bin/sh -c 'REPO="{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal
 # unreferenced chunks on the destination until a manual 'borg compact' runs.
 ExecStart=/usr/bin/rclone sync "{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v --max-delete 100000 --checksum --bwlimit 50M
 # Clean up the snapshot (success path)
+ExecStartPost=+/usr/bin/sh -c 'date +%s > /var/lib/pika-cloud-sync/state'
 ExecStartPost=-+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Release concurrency lock (success path)
 ExecStartPost=-+/usr/bin/sh -c 'rm -f /run/pika-cloud-sync/active'

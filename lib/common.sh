@@ -258,3 +258,19 @@ unit_is_active() {
 unit_is_enabled() {
     systemctl is-enabled --quiet "$1" 2>/dev/null
 }
+
+# Ensure /var/lib/pika-cloud-sync/ exists with the enabled sentinel.
+# Called by layer4_cloud.sh before installing the timer unit.
+ensure_pika_sync_state() {
+    local dir="/var/lib/pika-cloud-sync"
+    mkdir -p "$dir" || {
+        log_error "Failed to create $dir"
+        return 1
+    }
+    touch "$dir/enabled" || {
+        log_error "Failed to create $dir/enabled"
+        return 1
+    }
+    record_manifest "$dir/enabled"
+    log_info "Ensured $dir/enabled exists."
+}
