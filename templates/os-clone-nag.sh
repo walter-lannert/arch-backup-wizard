@@ -33,9 +33,9 @@ esac
 LOCK_FILE="$LOCK_DIR/lock"
 exec 9>"$LOCK_FILE" || exit 0
 flock -n 9
-FL_RC=$?
-if [ "$FL_RC" -ne 0 ]; then
-    printf 'os-clone-nag: could not acquire lock (flock rc=%d)\n' "$FL_RC" \
+FLOCK_RC=$?
+if [ "$FLOCK_RC" -ne 0 ]; then
+    printf 'os-clone-nag: could not acquire lock (flock rc=%d)\n' "$FLOCK_RC" \
         >> "$_LOG_FILE" 2>/dev/null
     exit 0
 fi
@@ -106,8 +106,15 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
         --cancel-label="Later" || ZENITY_RC=$?
 
     if [ "$ZENITY_RC" -eq 0 ]; then
+        # Re-check marker to close the window opened by the zenity dialog
+        if [ -f "$IN_PROGRESS_FILE" ]; then
+            printf 'os-clone-nag: in-progress marker appeared during dialog; skipping\n' \
+                >> "$_LOG_FILE" 2>/dev/null
+            flock -u 9 2>/dev/null || true
+            exit 0
+        fi
         # Create in-progress marker BEFORE spawning terminal (closes TOCTOU race)
-        if ! touch "$IN_PROGRESS_FILE" 2>/dev/null; then
+        if ! ( set -o noclobber; touch "$IN_PROGRESS_FILE" ) 2>/dev/null; then
             printf 'os-clone-nag: FATAL: cannot create in-progress marker, aborting\n' >&2
             printf 'os-clone-nag: FATAL: cannot create in-progress marker at %s\n' "$(date -Iseconds)" \
                 >> "$_LOG_FILE" 2>/dev/null
