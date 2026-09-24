@@ -345,6 +345,11 @@ source /tmp/recovery_env.sh
      ls /boot/vmlinuz-* /boot/initramfs-*.img &>/dev/null \
          || { echo "FATAL: no kernel/initramfs found in /boot after install." >&2; exit 1; }
 
+   Note for Unified Kernel Image (UKI) users:
+   If your system uses systemd-ukify or kernel-install directly instead of mkinitcpio presets:
+     kernel-install add $(uname -r) /usr/lib/modules/$(uname -r)/vmlinuz
+   Or re-run your specific ukify build command.
+
 4. If you use Secure Boot (e.g., sbctl), you MUST sign the newly generated EFI binaries now, otherwise your system will not boot:
 
      sbctl sign-all
@@ -421,6 +426,12 @@ The OS clone restored the base system and applications. Personal data
        exit 1
    fi
    ls -la /mnt/cloud_repo
+
+   # TIP: In minimal Live USB environments where FUSE daemonization may stall,
+   # you can alternatively run the mount in the background (&) without --daemon,
+   # or open a second terminal tab to run the foreground mount command while
+   # performing Borg extraction in the primary shell:
+   #   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --vfs-cache-mode minimal --read-only &
 
 3. Locate your Borg repository:
    Depending on whether the entire repository was synced or a subfolder:
