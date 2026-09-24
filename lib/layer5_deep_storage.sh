@@ -29,6 +29,22 @@ setup_layer5() {
         return 1
     fi
 
+    # Reject well-known virtual / special filesystems where a "Deep Storage"
+    # directory is meaningless or dangerous.
+    local _rejected_prefixes=(
+        "/dev" "/proc" "/sys" "/run" "/boot/efi"
+    )
+    local _rp
+    _rp="$(realpath -m -- "${BACKUP_MOUNT}" 2>/dev/null)" || _rp="${BACKUP_MOUNT}"
+    local _rp_noslash="${_rp%/}"
+    for _prefix in "${_rejected_prefixes[@]}"; do
+        if [[ "${_rp_noslash}" == "${_prefix}" || "${_rp_noslash}" == "${_prefix}"/* ]]; then
+            log_error "BACKUP_MOUNT '${BACKUP_MOUNT}' resolves to a special/virtual filesystem (${_prefix})."
+            ui_msgbox "Configuration Error" "The selected path is on a virtual filesystem. Please select a real backup partition."
+            return 1
+        fi
+    done
+
     # Must exist and be a directory (not a file, not a dangling symlink)
     if [[ ! -d "${BACKUP_MOUNT}" ]]; then
         log_error "Backup mount point '${BACKUP_MOUNT}' does not exist or is not a directory."
@@ -69,13 +85,30 @@ setup_layer5() {
     fi
 
     # Acquire an exclusive lock to prevent concurrent setup invocations.
+    # NOTE: This lock file is intentionally left on the backup drive after
+    #       setup completes.  Removing it would reintroduce a TOCTOU race.
+    #       It is a zero-byte (or near-zero-byte) hidden file and is safe to
+    #       ignore in backup/sync tooling.
     local _lockfile="${BACKUP_MOUNT%/}/.deep_storage_setup.lock"
-    exec 9>"$_lockfile" || {
-        log_error "Cannot acquire lock file."
+    if ! touch "$_lockfile" 2>/dev/null; then
+        log_error "Cannot create lock file '${_lockfile}'."
         return 1
-    }
+    fi
+    # exec is a special builtin: a redirection failure would exit the shell
+    # before any || / if-! guard could fire.  The touch() call above already
+    # validated that the path is creatable and writable, so this is safe.
+    exec 9<>"$_lockfile" # shellcheck disable=SC2317
     if ! command -v flock &>/dev/null; then
-        log_warn "flock(1) not found; skipping concurrency lock."
+        log_warn "flock(1) not found; falling back to mkdir-based lock."
+        local _lockdir="${BACKUP_MOUNT%/}/.deep_storage_setup.lock.d"
+        if ! mkdir "$_lockdir" 2>/dev/null; then
+            log_error "Another instance of Layer 5 setup is already running."
+            ui_msgbox "Busy" "Another setup is in progress. Please wait."
+            exec 9>&-
+            return 1
+        fi
+        # Clean up the lock directory on exit.
+        trap 'rmdir "$_lockdir" 2>/dev/null' RETURN
     elif ! flock -n 9; then
         log_error "Another instance of Layer 5 setup is already running."
         ui_msgbox "Busy" "Another setup is in progress. Please wait."
@@ -120,7 +153,14 @@ setup_layer5() {
     target_user="$(effective_user 2>/dev/null)"
     target_user="${target_user:-}"
     # Reject multi-line or obviously malformed values
-    if [[ "$target_user" == *$'\n'* || "$target_user" == *' '* ]]; then
+    if [[ "$target_user" == *$'\n'* || "$target_user" == *' '* \
+          || "$target_user" == *';'* || "$target_user" == *'|'* \
+          || "$target_user" == *'&'* || "$target_user" == *'$'* \
+          || "$target_user" == *'`'* || "$target_user" == *'('* \
+          || "$target_user" == *')'* || "$target_user" == *'>'* \
+          || "$target_user" == *'<'* || "$target_user" == *'*'* \
+          || "$target_user" == *'?'* || "$target_user" == *'['* \
+          || "$target_user" == *']'* || "$target_user" == *'\\'* ]]; then
         log_warn "effective_user returned unexpected value: '${target_user}'. Skipping chown."
         target_user=""
     fi
@@ -130,7 +170,16 @@ setup_layer5() {
         fi
     fi
 
-    ui_msgbox "Layer 5: Deep Storage" \
+    # Verify that the 0700 mode was actually applied (non-POSIX FS may ignore it).
+    local _actual_mode
+    _actual_mode="$(stat -c '%a' "$deep_storage_dir" 2>/dev/null)" || _actual_mode=""
+    if [[ "$_actual_mode" != "700" ]]; then
+        log_warn "WARNING: '${deep_storage_dir}' has mode ${_actual_mode:-unknown}, not 0700."
+        log_warn "The underlying filesystem may not enforce Unix permissions (e.g. exFAT, FAT32, NTFS)."
+        log_warn "Files in this directory may be readable by other local users."
+    fi
+
+    if ! ui_msgbox "Layer 5: Deep Storage" \
         "Deep Storage is available at:
 ${deep_storage_dir}
 
@@ -145,6 +194,9 @@ files under your physical control only.
 
 Simply copy files into this directory manually
 whenever you need to archive something."
+    then
+        log_warn "Could not display GUI confirmation; verify Layer 5 status in the log."
+    fi
 
     log_success "Layer 5: Deep Storage directory created at ${deep_storage_dir}"
 }
