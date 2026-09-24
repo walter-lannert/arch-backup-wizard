@@ -180,8 +180,12 @@ $formatted_exclusions
                 return 1
             }
             local _log="${LOG_FILE:-/tmp/pika-backup-launch.log}"
+            local _wayland="${WAYLAND_DISPLAY:-}"
+            if [[ -z "$_wayland" && -e "/run/user/${target_uid}/wayland-0" ]]; then
+                _wayland="wayland-0"
+            fi
             run_as_user env DISPLAY="${DISPLAY:-:0}" \
-                WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+                WAYLAND_DISPLAY="$_wayland" \
                 XDG_RUNTIME_DIR="/run/user/${target_uid}" \
                 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${target_uid}/bus" \
                 pika-backup >>"$_log" 2>&1 &

@@ -61,7 +61,7 @@ This will NOT remove:
     if grep -q '# BEGIN Arch Backup Wizard' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
         backup_file /etc/fstab || log_warn "Could not create backup of /etc/fstab prior to cleaning"
         # Handle legacy uninstalls and new BEGIN/END tags
-        sed -i -z 's/\(^|\n)# Arch Backup Wizard Mount\n[^\n]*\n/\1/g' /etc/fstab 2>/dev/null || true
+        sed -i -z 's/\(^\|\n\)# Arch Backup Wizard Mount\n[^\n]*\n/\1/g' /etc/fstab 2>/dev/null || true
         sed -i '/# BEGIN Arch Backup Wizard/,/# END Arch Backup Wizard/d' /etc/fstab 2>/dev/null || true
         log_info "Removed managed entry from /etc/fstab"
     fi
@@ -78,12 +78,14 @@ This will NOT remove:
                 if btrfs subvolume show "$file" &>/dev/null; then
                     # Before deleting, check if this is the Snapper config
                     if [[ "$file" == "/.snapshots" ]]; then
+                        # Remove snapper config first (before unmounting)
+                        if cmd_exists snapper; then
+                            snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
+                        fi
                         if mountpoint -q "/.snapshots" 2>/dev/null || findmnt -n "/.snapshots" &>/dev/null; then
                             log_info "Unmounting /.snapshots prior to configuration removal..."
                             umount -q "/.snapshots" >>"$LOG_FILE" 2>&1 || log_warn "Failed to unmount /.snapshots cleanly"
-                        fi
-                        if cmd_exists snapper; then
-                            snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
+                            rmdir "/.snapshots" 2>/dev/null || true
                         fi
                     fi
                     # Audit-040: Only delete subvolumes if they are empty to protect user data
