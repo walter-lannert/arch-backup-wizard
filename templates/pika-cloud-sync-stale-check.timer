@@ -3,6 +3,7 @@ Description=Daily staleness check for Pika cloud sync (escalates if gap > 8 days
 
 [Timer]
 OnCalendar=daily
+RandomizedDelaySec=30min
 AccuracySec=300
 Persistent=true
 
