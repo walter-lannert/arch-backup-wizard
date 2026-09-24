@@ -79,6 +79,7 @@ log_info() { _log "INFO" "$*"; }
 log_warn() { _log "WARN" "$*"; }
 log_error() { _log "ERROR" "$*"; }
 log_success() { _log "OK" "$*"; }
+log_debug() { _log "DEBUG" "$*"; }
 
 # Fatal error — log, print to stderr, and exit immediately.
 #

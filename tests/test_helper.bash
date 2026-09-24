@@ -28,6 +28,7 @@ setup_test_env() {
     mkdir -p "$MOCK_DIR"
     export PATH="$MOCK_DIR:$ORIG_PATH"
     export HOME="$TEST_TEMP_DIR/home"
+    export UI_SILENT="true"
     mkdir -p "$HOME"
 }
 
@@ -42,7 +43,7 @@ teardown_test_env() {
 # Usage: mock_cmd <command_name> <shell_script_body>
 mock_cmd() {
     local cmd="$1"
-    local body="$2"
+    local body="${2:-true}"
     local target="$MOCK_DIR/$cmd"
     cat <<EOF > "$target"
 #!/usr/bin/env bash
@@ -169,4 +170,16 @@ test_summary() {
         done
         return 1
     fi
+}
+
+# Discover and run all test_* functions, then print a summary.
+run_tests() {
+    local test_funcs
+    test_funcs="$(compgen -A function | grep '^test_' | grep -v '^test_summary$' | sort)" || true
+
+    for func in ${test_funcs}; do
+        run_test "${func}"
+    done
+
+    test_summary
 }
