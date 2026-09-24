@@ -8,8 +8,13 @@ Description=Weekly (Mon 00:00) Pika backup sync to cloud storage - pika-cloud-sy
 # NOTE: OnCalendar uses the host's local TZ. A TZ change silently shifts the
 # UTC window. The service unit MUST log the effective UTC timestamp at start
 # so operators can detect drift. Do NOT rely on this comment alone.
-OnCalendar=weekly
-AccuracySec=60
+OnCalendar=Mon 00:00
+# Safety-net: same-day retry window. If the 00:00 pass fails (network,
+# credential rotation, I/O), this second trigger gives the service one more
+# chance before the next weekly cycle. The service's idempotency check
+# (last-success marker) makes this a no-op if the first pass already succeeded.
+OnCalendar=Mon 06:00
+AccuracySec=60   # pinned; do not rely on systemd's compiled-in default
 RandomizedDelaySec=3600
 # Persistent=true fires ONE catch-up after boot, even if N windows were missed.
 # The service MUST check its own last-success marker and run additional passes
