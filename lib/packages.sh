@@ -4,7 +4,7 @@
 # ── Query helpers ─────────────────────────────────────────────────────────────
 
 # Check if a package is installed (used by backup/restore modules)
-pkg_is_installed() {
+pkg_is_intact() {
     [[ -n "${1:-}" ]] || return 1
     pacman -Qi "$1" &>/dev/null || return 1
     # Verify file integrity; return 1 if the package is broken
@@ -67,8 +67,8 @@ Check the wizard configuration."
     # Integrity probe: warn if any target package is in a broken/half-installed state
     local broken=()
     for p in "${to_install[@]}"; do
-        if pacman -Qi "$p" &>/dev/null; then
-            if ! pacman -Qkk "$p" &>/dev/null; then
+        if run_as_user sudo pacman -Qi "$p" &>/dev/null; then
+            if ! run_as_user sudo pacman -Qkk "$p" &>/dev/null; then
                 broken+=("$p")
             fi
         fi
@@ -182,8 +182,8 @@ Check the wizard configuration."
     # Integrity probe: warn if any target package is in a broken/half-installed state
     local broken=()
     for p in "${to_install[@]}"; do
-        if pacman -Qi "$p" &>/dev/null; then
-            if ! pacman -Qkk "$p" &>/dev/null; then
+        if run_as_user sudo pacman -Qi "$p" &>/dev/null; then
+            if ! run_as_user sudo pacman -Qkk "$p" &>/dev/null; then
                 broken+=("$p")
             fi
         fi
@@ -301,14 +301,8 @@ Expected a value between 1 and 5."
     local -a pkg_list=()
     local aur_name
     [[ -n "$all_pkgs" ]] && read -ra pkg_list <<< "$all_pkgs"
-    local _invalid_re='[][[:space:]/@#;|&$]'
     for pkg in "${pkg_list[@]}"; do
         [[ -z "$pkg" ]] && continue
-        # Reject tokens that are clearly not valid package names
-        if [[ "$pkg" =~ $_invalid_re ]]; then
-            log_error "Skipping invalid token from layer $layer: '$pkg'" >&2
-            continue
-        fi
         if [[ "$pkg" == AUR:* ]]; then
             aur_name="${pkg#AUR:}"
             [[ -n "$aur_name" ]] || { log_error "Empty AUR package name in layer $layer"; return 1; }
@@ -317,6 +311,15 @@ Expected a value between 1 and 5."
             pacman_pkgs+=("$pkg")
         fi
     done
+
+    if [[ ${#pacman_pkgs[@]} -eq 0 && ${#aur_pkgs[@]} -eq 0 ]]; then
+        log_error "install_layer_packages: layer $layer produced no valid packages; aborting"
+        ui_msgbox "Config Error" \
+            "Layer $layer resolved to zero installable packages.
+This is likely a configuration or parsing error.
+Check the wizard logs for details."
+        return 1
+    fi
 
     if [[ ${#pacman_pkgs[@]} -gt 0 ]]; then
         pkg_install "${pacman_pkgs[@]}" || return 1
@@ -346,7 +349,16 @@ ensure_dialog() {
             echo "FATAL: sudo authentication failed. Verify sudo access." >&2
             return 1
         }
-        run_as_user sudo pacman -S --noconfirm --needed dialog >>"$LOG_FILE" 2>&1 || {
+        run_as_user sudo -n true 2>>"$LOG_FILE" || {
+            echo "FATAL: sudo token expired before dialog install. Re-authenticate and re-run." >&2
+            return 1
+        }
+        local _dlg="dialog"
+        _validate_pkg_name "$_dlg" || {
+            echo "FATAL: internal error: invalid package name '$_dlg'" >&2
+            return 1
+        }
+        run_as_user sudo pacman -S --noconfirm --needed "$_dlg" >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
             return 1
         }
