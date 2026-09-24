@@ -80,6 +80,15 @@ subvolume swap:
   5. Rebuild bootloader entries if necessary.
 This ensures the subvolume mounted at '/' is genuinely the rolled-back snapshot.
 
+[NOTE: UNIFIED KERNEL IMAGES (UKI / systemd-stub / ukify)]
+--------------------------------------------------------------------------------
+If your system uses a Unified Kernel Image (UKI / systemd-stub / ukify),
+the kernel and initramfs live in the ESP, NOT in the root subvolume.
+Rolling back the subvolume does NOT roll back the UKI.
+You must additionally restore the correct .efi UKI file in the ESP
+(e.g., from a backup or by rebuilding with 'ukify' inside the chroot).
+Verify with: ls /boot/EFI/Linux/*.efi
+
 
 ================================================================================
 SECTION 2: SCENARIO A — QUICK ROLLBACK FROM A RUNNING SYSTEM
@@ -101,6 +110,11 @@ Review the list and select the snapshot number (NNN) from before the issue occur
 snapshots with relevant descriptions).
 
 Note down your target snapshot number: NNN
+
+Quick integrity sanity check (optional but recommended):
+  sudo btrfs subvolume list /mnt/btrfs-top | grep "path {{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot"
+  sudo btrfs filesystem df /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot
+If the snapshot does not appear or shows zero used space, DO NOT proceed.
 
 --------------------------------------------------------------------------------
 STEP 2: MOUNT TOP-LEVEL BTRFS FILESYSTEM
@@ -130,7 +144,7 @@ Verify the snapshot directory exists:
 Create a new writable subvolume '{{DETECTED_ROOT_SUBVOL_STR}}.new' directly from the snapshot:
 
   sudo btrfs subvolume snapshot /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new
-  sudo btrfs property set -ts /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new ro false
+  # (btrfs subvolume snapshot without -r already creates a read-write snapshot)
 
 --------------------------------------------------------------------------------
 STEP 4: SWAP SUBVOLUMES ({{DETECTED_ROOT_SUBVOL_STR}} AND {{DETECTED_ROOT_SUBVOL_STR}}.new)
@@ -139,6 +153,11 @@ Rename the current running '{{DETECTED_ROOT_SUBVOL_STR}}' subvolume to '{{DETECT
 
   sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}} /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old
   sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}
+
+  [CRITICAL] If the system crashes between the two mv commands above,
+  boot from Live USB, mount the top-level, and run:
+    mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}
+  to restore the '@' subvolume before proceeding.
 
 At this point, the directory name '{{DETECTED_ROOT_SUBVOL_STR}}' points to your chosen snapshot.
 
@@ -153,12 +172,19 @@ from '{{DETECTED_ROOT_SUBVOL_STR}}.old' into the new '{{DETECTED_ROOT_SUBVOL_STR
 Execute the following migration steps:
 
 1. Prepare snapshot directories in the new '{{DETECTED_ROOT_SUBVOL_STR}}':
-  sudo rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk && sudo mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
+  sudo rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk 2>/dev/null || \
+    (echo "WARNING: .snapshots_btrbk is not empty. Inspect before deleting:" && \
+     ls -la /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk && \
+     sudo rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk)
+  sudo mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
 
 2. Migrate or create Snapper's .snapshots mountpoint in {{DETECTED_ROOT_SUBVOL_STR}}:
   if [ -e "/mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots" ]; then
       sudo rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || sudo rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
-      sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || true
+      if ! sudo mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots; then
+          echo "ERROR: Failed to migrate .snapshots. DO NOT proceed to cleanup."
+          echo "       Manually verify: ls -la /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots"
+      fi
   fi
   sudo mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
   sudo chmod 750 /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
@@ -198,19 +224,30 @@ Your active bootloader detected during wizard setup: {{BOOTLOADER}}
 Run the command corresponding to your bootloader:
 
   - If using Limine:
-      sudo limine-mkinitcpio
+      sudo mkinitcpio -P
+      sudo limine          # re-install / update Limine bootloader
+      # (or: sudo limine-mkinitcpio, if your distribution provides that wrapper)
 
   - If using GRUB:
+      sudo mkinitcpio -P
       sudo grub-mkconfig -o /boot/grub/grub.cfg
 
   - If using systemd-boot:
       sudo mkinitcpio -P
+
+  [NOTE] If your system uses a Unified Kernel Image (UKI / systemd-stub / ukify),
+  the kernel and initramfs live in the ESP, NOT in the root subvolume.
+  Rolling back the subvolume does NOT roll back the UKI.
+  You must additionally restore the correct .efi UKI file in the ESP
+  (e.g., from a backup or by rebuilding with 'ukify' inside the chroot).
+  Verify with: ls /boot/EFI/Linux/*.efi
 
 --------------------------------------------------------------------------------
 STEP 8: UNMOUNT AND REBOOT
 --------------------------------------------------------------------------------
 Unmount the top-level BTRFS filesystem and reboot:
 
+  sudo btrfs filesystem sync /mnt/btrfs-top
   sudo umount /mnt/btrfs-top
   sudo reboot
 
@@ -270,6 +307,11 @@ To inspect snapshot descriptions and timestamps:
 
 Identify the target snapshot number: NNN
 
+Quick integrity sanity check (optional but recommended):
+  btrfs subvolume list /mnt/btrfs-top | grep "path {{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot"
+  btrfs filesystem df /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot
+If the snapshot does not appear or shows zero used space, DO NOT proceed.
+
 --------------------------------------------------------------------------------
 STEP 3: CREATE NEW {{DETECTED_ROOT_SUBVOL_STR}} SUBVOLUME AND SWAP SUBVOLUMES
 --------------------------------------------------------------------------------
@@ -277,16 +319,20 @@ Create writable snapshot '{{DETECTED_ROOT_SUBVOL_STR}}.new' from the chosen snap
 
   # If snapshots are at /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}:
   btrfs subvolume snapshot /mnt/btrfs-top/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new
-  btrfs property set -ts /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new ro false
+  # (btrfs subvolume snapshot without -r already creates a read-write snapshot)
 
   # (OR if snapshots are nested inside the root subvolume):
   # btrfs subvolume snapshot /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/{{SNAPSHOT_LAYOUT_PATH}}/NNN/snapshot /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new
-  # btrfs property set -ts /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new ro false
 
 Swap the subvolumes:
 
   mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}} /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old
   mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}
+
+  [CRITICAL] If the system crashes between the two mv commands above,
+  boot from Live USB, mount the top-level, and run:
+    mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.new /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}
+  to restore the '@' subvolume before proceeding.
 
 --------------------------------------------------------------------------------
 STEP 4: MIGRATE NESTED SUBVOLUMES (.snapshots & .snapshots_btrbk)
@@ -294,12 +340,19 @@ STEP 4: MIGRATE NESTED SUBVOLUMES (.snapshots & .snapshots_btrbk)
 [CRITICAL: Preserving snapshot history and btrbk state]
 
 1. Prepare snapshot directories in the new '{{DETECTED_ROOT_SUBVOL_STR}}':
-  rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk && mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
+  rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk 2>/dev/null || \
+    (echo "WARNING: .snapshots_btrbk is not empty. Inspect before deleting:" && \
+     ls -la /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk && \
+     rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk)
+  mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
 
 2. Migrate or create Snapper's .snapshots mountpoint in {{DETECTED_ROOT_SUBVOL_STR}}:
   if [ -e "/mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots" ]; then
       rmdir /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || rm -rf /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
-      mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots 2>/dev/null || true
+      if ! mv /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots; then
+          echo "ERROR: Failed to migrate .snapshots. DO NOT proceed to cleanup."
+          echo "       Manually verify: ls -la /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}.old/.snapshots"
+      fi
   fi
   mkdir -p /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
   chmod 750 /mnt/btrfs-top/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
@@ -329,6 +382,7 @@ Query subvolume ID and set default:
 
 Unmount the top-level mount point:
 
+  btrfs filesystem sync /mnt/btrfs-top
   umount /mnt/btrfs-top
 
 --------------------------------------------------------------------------------
@@ -337,7 +391,7 @@ STEP 6: MOUNT FILESYSTEM HIERARCHY FOR CHROOT
 Mount the newly restored '{{DETECTED_ROOT_SUBVOL_STR}}' subvolume and EFI partition to prepare for chroot:
 
   mkdir -p /mnt/target
-  mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd UUID={{ROOT_UUID}} /mnt/target
+  mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},{{ROOT_MOUNT_OPTIONS}} UUID={{ROOT_UUID}} /mnt/target
 
 Create mount points for nested subvolumes:
 
@@ -359,13 +413,23 @@ STEP 7: REBUILD BOOTLOADER INSIDE CHROOT
 Inside the chroot, rebuild the bootloader for: {{BOOTLOADER}}
 
   - If Limine:
-      limine-mkinitcpio
+      mkinitcpio -P
+      limine          # re-install / update Limine bootloader
+      # (or: limine-mkinitcpio, if your distribution provides that wrapper)
 
   - If GRUB:
+      mkinitcpio -P
       grub-mkconfig -o /boot/grub/grub.cfg
 
   - If systemd-boot:
       mkinitcpio -P
+
+  [NOTE] If your system uses a Unified Kernel Image (UKI / systemd-stub / ukify),
+  the kernel and initramfs live in the ESP, NOT in the root subvolume.
+  Rolling back the subvolume does NOT roll back the UKI.
+  You must additionally restore the correct .efi UKI file in the ESP
+  (e.g., from a backup or by rebuilding with 'ukify' inside the chroot).
+  Verify with: ls /boot/EFI/Linux/*.efi
 
 --------------------------------------------------------------------------------
 STEP 8: EXIT CHROOT, UNMOUNT, AND REBOOT
