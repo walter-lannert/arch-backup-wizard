@@ -123,7 +123,7 @@ Please verify your user has sudo access and try again."
 Please re-authenticate and re-run the wizard."
         return 1
     fi
-    if ! run_as_user sudo pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
+    if ! pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "pacman install failed: ${to_install[*]}"
         ui_msgbox "Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
@@ -403,7 +403,7 @@ ensure_dialog() {
             echo "FATAL: internal error: invalid package name '$_dlg'" >&2
             return 1
         }
-        run_as_user sudo pacman -S --noconfirm --needed "$_dlg" >>"$LOG_FILE" 2>&1 || {
+        pacman -S --noconfirm --needed "$_dlg" >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
             return 1
         }

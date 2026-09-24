@@ -160,6 +160,10 @@ run_test() {
 
 test_summary() {
     echo "--------------------------------------------------------------------------------"
+    if (( TESTS_RUN == 0 )); then
+        echo -e "${CLR_RED}NO TESTS RUN: Test suite discovered 0 tests${CLR_RESET}"
+        return 1
+    fi
     if (( TESTS_FAILED == 0 )); then
         echo -e "${CLR_GREEN}ALL TESTS PASSED: $TESTS_PASSED / $TESTS_RUN${CLR_RESET}"
         return 0
