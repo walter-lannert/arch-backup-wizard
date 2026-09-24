@@ -58,7 +58,9 @@ setup_layer5() {
 
     # Re-verify the mount is still live immediately before mutating the tree.
     if command -v mountpoint &>/dev/null; then
-        if ! mountpoint -q "${BACKUP_MOUNT}" 2>/dev/null; then
+        local _rp
+        _rp="$(realpath -m -- "${BACKUP_MOUNT}" 2>/dev/null)" || _rp="${BACKUP_MOUNT}"
+        if ! mountpoint -q "${_rp}" 2>/dev/null; then
             log_error "Backup drive was unmounted during setup. Aborting."
             ui_msgbox "Configuration Error" "The backup drive was disconnected during setup. Please reconnect it and re-run."
             return 1
@@ -70,29 +72,50 @@ setup_layer5() {
         ui_msgbox "Configuration Error" "The backup drive is mounted read-only. Remount it read-write and re-run."
         return 1
     fi
-    mkdir -p "$deep_storage_dir" || {
-        log_error "Failed to create $deep_storage_dir"
+
+    # Acquire an exclusive lock to prevent concurrent setup invocations.
+    local _lockfile="${BACKUP_MOUNT%/}/.deep_storage_setup.lock"
+    exec 9>"$_lockfile" || {
+        log_error "Cannot acquire lock file."
         return 1
     }
+    if ! flock -n 9; then
+        log_error "Another instance of Layer 5 setup is already running."
+        ui_msgbox "Busy" "Another setup is in progress. Please wait."
+        return 1
+    fi
+
+    if ! install -d -m 0700 "$deep_storage_dir" 2>/dev/null; then
+        log_error "Failed to create $deep_storage_dir"
+        return 1
+    fi
+    # Post-creation: confirm the path is a real directory, not a symlink
+    if [[ -L "$deep_storage_dir" ]]; then
+        log_error "Deep Storage path became a symlink during creation. Removing."
+        rm -f "$deep_storage_dir"
+        return 1
+    fi
 
     # Post-creation sanity: confirm the new inode actually lives on the
     # expected device (guards against the narrow window where the drive
     # was swapped for a different block device between the two checks).
     local expected_dev actual_dev
-    expected_dev="$(stat -c '%d' "${BACKUP_MOUNT}" 2>/dev/null)" || expected_dev=""
-    actual_dev="$(stat -c '%d' "$deep_storage_dir" 2>/dev/null)" || actual_dev=""
-    if [[ -n "$expected_dev" && -n "$actual_dev" && "$expected_dev" != "$actual_dev" ]]; then
-        log_error "Deep Storage directory landed on a different device than the backup mount. Removing."
+    expected_dev="$(stat -c '%d' "${BACKUP_MOUNT}" 2>/dev/null)" || {
+        log_error "stat failed on BACKUP_MOUNT; cannot verify device identity."
+        return 1
+    }
+    actual_dev="$(stat -c '%d' "$deep_storage_dir" 2>/dev/null)" || {
+        log_error "stat failed on Deep Storage dir; cannot verify device identity."
         rmdir "$deep_storage_dir" 2>/dev/null
+        return 1
+    }
+    if [[ "$expected_dev" != "$actual_dev" ]]; then
+        log_error "Deep Storage directory landed on a different device than the backup mount. Removing."
+        if ! rmdir "$deep_storage_dir" 2>/dev/null; then
+            log_warn "Could not remove orphaned '${deep_storage_dir}' (non-empty?). Manual cleanup required."
+        fi
         ui_msgbox "Configuration Error" "The backup drive changed during setup. Please re-select it and re-run."
         return 1
-    fi
-
-    # Only set permissions on first creation to preserve any user-chosen
-    # tighter mode on subsequent runs.
-    if [[ "$created" -eq 1 ]]; then
-        chmod 0700 "$deep_storage_dir" 2>/dev/null || \
-            log_warn "Could not set permissions on '${deep_storage_dir}'."
     fi
 
     local target_user
