@@ -98,7 +98,7 @@ die() {
 }
 
 # ── File helpers ──────────────────────────────────────────────────────────────
-MANIFEST_FILE="/var/lib/arch-backup-wizard/manifest.txt"
+MANIFEST_FILE="${MANIFEST_FILE:-/var/lib/arch-backup-wizard/manifest.txt}"
 
 # Record a file created by the wizard for uninstallation
 record_manifest() {
@@ -109,7 +109,7 @@ record_manifest() {
     fi
 }
 
-readonly ORIG_MANIFEST="/var/lib/arch-backup-wizard/unmanaged_orig.txt"
+ORIG_MANIFEST="${ORIG_MANIFEST:-/var/lib/arch-backup-wizard/unmanaged_orig.txt}"
 
 # Back up a file before modifying it (timestamped .bak copy)
 # Prompts for confirmation if the file already exists but is NOT tracked in the manifest
