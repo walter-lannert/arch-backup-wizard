@@ -150,6 +150,27 @@ test_mixed_layers_partial_failure() {
     assert_match "Issues were detected" "$output" "Should report issues detected"
 }
 
+# ── Test 7: CLI mode bypasses dialog and prints to stdout ─────────────────────
+test_validate_cli_mode_skips_dialog() {
+    _setup_validate_env
+    source "$REPO_DIR/lib/common.sh"
+    source "$REPO_DIR/lib/validate.sh"
+
+    VALIDATE=true
+    local ui_msgbox_invoked=false
+    ui_msgbox() {
+        ui_msgbox_invoked=true
+    }
+
+    SELECTED_LAYERS=()
+    local output rc=0
+    output=$(run_validation 2>/dev/null) || rc=$?
+
+    assert_eq "0" "$rc" "run_validation should return 0 in CLI mode when all checks pass"
+    assert_match "All checks passed" "$output" "Should print dashboard to stdout"
+    assert_eq "false" "$ui_msgbox_invoked" "ui_msgbox must NOT be called in CLI mode"
+}
+
 echo "=== Running tests for lib/validate.sh ==="
 run_test test_all_layers_skipped "All layers skipped (no selection)"
 run_test test_layer5_happy_path "Layer 5 happy path (directory exists)"
@@ -157,4 +178,5 @@ run_test test_layer5_missing_directory "Layer 5 degraded (directory missing)"
 run_test test_layer2_package_missing "Layer 2 failure (package not installed)"
 run_test test_layer1_package_missing "Layer 1 failure (package not installed)"
 run_test test_mixed_layers_partial_failure "Mixed layers (partial failure)"
+run_test test_validate_cli_mode_skips_dialog "CLI mode bypasses dialog UI"
 test_summary

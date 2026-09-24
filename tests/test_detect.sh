@@ -80,9 +80,65 @@ test_detect_bootloader() {
     assert_ne "" "$DETECTED_BOOTLOADER" "Bootloader should be detected"
 }
 
+# Test 5: System devices detection scopes to root UUID and excludes secondary drives
+test_detect_system_devices() {
+    _setup_detect_env
+    source "$REPO_DIR/lib/common.sh"
+    source "$REPO_DIR/lib/detect.sh"
+
+    export DETECTED_ROOT_UUID="root-uuid-1111"
+    export DETECTED_ROOT_DEV="/dev/nvme0n1p2"
+
+    # shellcheck disable=SC2016
+    mock_cmd findmnt '
+        for arg in "$@"; do
+            if [[ "$arg" == "UUID=root-uuid-1111" ]]; then
+                echo "/"
+                echo "/home"
+                return 0
+            fi
+        done
+        if [[ "$*" == *"-o FSTYPE"* ]]; then
+            echo "btrfs"
+            return 0
+        fi
+        if [[ "$*" == *"-o SOURCE"* ]]; then
+            echo "/dev/nvme0n1p2"
+            return 0
+        fi
+        return 0
+    '
+    mock_cmd btrfs 'echo "path /dev/nvme0n1p2"'
+    # shellcheck disable=SC2016
+    mock_cmd lsblk '
+        if [[ "$*" == *"/dev/nvme0n1p2"* ]]; then
+            echo "/dev/nvme0n1p2"
+            echo "/dev/nvme0n1"
+            return 0
+        fi
+        return 0
+    '
+    mock_cmd swapon 'echo "/dev/zram0"'
+
+    detect_system_devices
+
+    # Verify root NVMe partitions are classified as system devices
+    local found_nvme=false
+    local found_sda=false
+    local dev
+    for dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+        [[ "$dev" == "/dev/nvme0n1p2" ]] && found_nvme=true
+        [[ "$dev" == "/dev/sda1" ]] && found_sda=true
+    done
+
+    assert_eq "true" "$found_nvme" "Root device /dev/nvme0n1p2 must be in DETECTED_SYSTEM_DEVS"
+    assert_eq "false" "$found_sda" "Secondary device /dev/sda1 must NOT be in DETECTED_SYSTEM_DEVS"
+}
+
 echo "=== Running tests for lib/detect.sh ==="
 run_test test_detect_distro "Distro detection"
 run_test test_detect_aur_helper "AUR helper detection"
 run_test test_detect_root_filesystem "Root filesystem detection"
 run_test test_detect_bootloader "Bootloader detection"
+run_test test_detect_system_devices "System devices exclusion scoping"
 test_summary
