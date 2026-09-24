@@ -1,21 +1,26 @@
 [Unit]
-Description=Weekly (Mon 00:00) Pika backup sync to cloud storage - pika-cloud-sync.service
+Description=Pika backup sync to cloud storage (weekly, see pika-cloud-sync.timer)
+ConditionPathExists=/var/lib/pika-cloud-sync/state
+ConditionPathExists=!/run/pika-cloud-sync/active
+ConditionPathExists=/var/lib/systemd/timers
 
 [Timer]
-# Triggers Monday 00:00 local time. systemd may batch within AccuracySec
-# (default 60 s) and adds up to RandomizedDelaySec (3600 s) of jitter,
-# so the effective window is roughly 00:00 – 01:01 local.
-# NOTE: OnCalendar uses the host's local TZ. A TZ change silently shifts the
-# UTC window. The service unit MUST log the effective UTC timestamp at start
+# Triggers Monday 00:00 UTC. systemd may batch within AccuracySec
+# (60 s) and adds up to RandomizedDelaySec (3600 s) of jitter,
+# so the effective window is roughly 00:00 – 01:01 UTC.
+# NOTE: Schedule is pinned to UTC to eliminate TZ ambiguity.
+# The service unit MUST log the effective UTC timestamp at start
 # so operators can detect drift. Do NOT rely on this comment alone.
-OnCalendar=Mon 00:00
+OnCalendar=Mon 00:00 UTC
 # Safety-net: same-day retry window. If the 00:00 pass fails (network,
 # credential rotation, I/O), this second trigger gives the service one more
 # chance before the next weekly cycle. The service's idempotency check
 # (last-success marker) makes this a no-op if the first pass already succeeded.
-OnCalendar=Mon 06:00
-AccuracySec=60   # pinned; do not rely on systemd's compiled-in default
+# Effective window (UTC): 06:00 – 07:01.
+OnCalendar=Mon 06:00 UTC
+AccuracySec=60  # pinned; do not rely on systemd's compiled-in default
 RandomizedDelaySec=3600
+WakeSystem=yes
 # Persistent=true fires ONE catch-up after boot, even if N windows were missed.
 # The service MUST check its own last-success marker and run additional passes
 # if the gap exceeds 7 days. Do not assume one trigger == one week of coverage.
