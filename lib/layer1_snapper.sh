@@ -66,7 +66,7 @@ setup_layer1() {
         local existing_subvol=""
         local candidate
         for candidate in "@snapshots" "@.snapshots"; do
-            if btrfs subvolume list / 2>/dev/null | sed -n 's/.* path //p' | grep -qFx "$candidate"; then
+            if btrfs subvolume list / 2>/dev/null | awk '{print $NF}' | grep -qFx "$candidate"; then
                 existing_subvol="$candidate"
                 break
             fi
@@ -101,9 +101,13 @@ setup_layer1() {
                 }
             else
                 local root_uuid="${DETECTED_ROOT_UUID:-$(findmnt -n -o UUID / 2>/dev/null || echo "")}"
+                if [[ -z "$root_uuid" ]]; then
+                    log_error "Cannot determine root filesystem UUID. Aborting fstab modification."
+                    return 1
+                fi
                 log_info "Adding $existing_subvol mount entry to /etc/fstab (UUID=$root_uuid)..."
                 local tmp_fstab
-                tmp_fstab=$(mktemp)
+                tmp_fstab=$(mktemp /etc/.fstab.XXXXXX)
                 cp /etc/fstab "$tmp_fstab"
                 printf '\n# BEGIN Arch Backup Wizard /.snapshots Mount\nUUID=%s /.snapshots btrfs subvol=%s,defaults,noatime,compress=zstd 0 0\n# END Arch Backup Wizard /.snapshots Mount\n' \
                     "$root_uuid" "$existing_subvol" >>"$tmp_fstab"
@@ -115,6 +119,7 @@ setup_layer1() {
                 backup_file /etc/fstab || { rm -f "$tmp_fstab"; return 1; }
                 mv -T "$tmp_fstab" /etc/fstab
                 chmod 644 /etc/fstab
+                record_manifest /etc/fstab
                 mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to mount $SNAP_DIR"
                     return 1
