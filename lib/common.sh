@@ -140,7 +140,7 @@ Do you want to proceed and overwrite it?"; then
         fi
 
         local backup
-        backup="${file}.bak.$(date +%s)"
+        backup="${file}.bak.$(date +%s).$$"
         cp -p "$file" "$backup"
         log_info "Backed up $file → $backup"
     fi
@@ -149,15 +149,24 @@ Do you want to proceed and overwrite it?"; then
 # Render a template file: replaces every {{KEY}} with the value of $KEY
 # Usage: template_render templates/foo.conf /etc/foo.conf
 template_render() {
-    shopt -u patsub_replacement 2>/dev/null || true
     local template="$1"
+    local _patsub_was_set
+    _patsub_was_set=$(shopt -p patsub_replacement 2>/dev/null) || _patsub_was_set=""
+    shopt -u patsub_replacement 2>/dev/null || true
     local output="$2"
     local content
+    if [[ ! -f "$template" ]]; then
+        log_error "Template not found: $template"
+        return 1
+    fi
     content=$(<"$template")
 
     # Extract unique variable names from {{…}} placeholders
     local vars
-    vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" | sort -u) || true
+    if ! vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" | sort -u) 2>/dev/null; then
+        log_error "grep -P unavailable; cannot extract placeholders from $(basename "$template")"
+        return 1
+    fi
 
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
@@ -179,11 +188,20 @@ template_render() {
     done <<<"$vars"
 
     local temp_file
-    temp_file=$(mktemp)
+    local out_dir
+    out_dir="$(dirname "$output")"
+    temp_file=$(mktemp "${out_dir}/.template.XXXXXX") || {
+        log_error "Cannot create temp file in $out_dir"
+        return 1
+    }
     printf "%s\n" "$content" >"$temp_file"
     chmod 644 "$temp_file"
     mv -T "$temp_file" "$output"
     log_info "Rendered template $(basename "$template") → $output"
+
+    if [[ -n "$_patsub_was_set" ]]; then
+        eval "$_patsub_was_set" 2>/dev/null || true
+    fi
 }
 
 # ── User / privilege helpers ──────────────────────────────────────────────────
