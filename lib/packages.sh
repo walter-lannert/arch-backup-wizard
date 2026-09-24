@@ -31,7 +31,7 @@ _validate_pkg_name() {
     local name="${1:-}"
     [[ -n "$name" ]] || return 1
     # pacman package names: start with alphanumeric, then alphanumeric + . _ + -
-    [[ "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+-]*$ ]] || return 1
+    [[ "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,255}$ ]] || return 1
     return 0
 }
 
@@ -88,7 +88,7 @@ or manually repairing before continuing."
     log_info "Installing via pacman: ${to_install[*]}"
     ui_infobox "Installing Packages" "Installing: ${to_install[*]}..."
 
-    if ! run_as_user sudo -v 2>>"$LOG_FILE"; then
+    if ! run_as_user sudo -v; then
         log_error "sudo authentication failed; cannot proceed with pacman install"
         ui_msgbox "Privilege Error" \
             "sudo authentication failed.
@@ -112,7 +112,8 @@ Please re-authenticate and re-run the wizard."
 
     local still_broken=()
     for p in "${to_install[@]}"; do
-        if pacman -Qi "$p" &>/dev/null && ! pacman -Qkk "$p" &>/dev/null; then
+        if run_as_user sudo pacman -Qi "$p" &>/dev/null && \
+           ! run_as_user sudo pacman -Qkk "$p" &>/dev/null; then
             still_broken+=("$p")
         fi
     done
@@ -203,7 +204,7 @@ or manually repairing before continuing."
         "Installing via $DETECTED_AUR_HELPER: ${to_install[*]}..."
 
     # Ensure the user has an active sudo token to prevent hidden prompts during UI execution
-    if ! run_as_user sudo -v 2>>"$LOG_FILE"; then
+    if ! run_as_user sudo -v; then
         log_error "sudo authentication failed; cannot proceed with AUR install"
         ui_msgbox "Privilege Error" \
             "sudo authentication failed.
@@ -231,7 +232,8 @@ or remove the specific build directory manually, then re-run."
 
     local still_broken=()
     for p in "${to_install[@]}"; do
-        if pacman -Qi "$p" &>/dev/null && ! pacman -Qkk "$p" &>/dev/null; then
+        if run_as_user sudo pacman -Qi "$p" &>/dev/null && \
+           ! run_as_user sudo pacman -Qkk "$p" &>/dev/null; then
             still_broken+=("$p")
         fi
     done
@@ -262,7 +264,7 @@ get_layer_packages() {
         limine) pkgs+=" AUR:limine-snapper-sync inotify-tools" ;;
         systemd-boot) ;;  # no snapshot-integration package available
         *)
-            log_info "No snapshot-integration package for bootloader: ${DETECTED_BOOTLOADER:-unknown}" >&2
+            log_info "No snapshot-integration package for bootloader: ${DETECTED_BOOTLOADER:-unknown}"
             ;;
         esac
         printf '%s\n' "$pkgs"
@@ -299,10 +301,10 @@ Expected a value between 1 and 5."
     local -a pkg_list=()
     local aur_name
     [[ -n "$all_pkgs" ]] && read -ra pkg_list <<< "$all_pkgs"
+    local _invalid_re='[][[:space:]/@#;|&$]'
     for pkg in "${pkg_list[@]}"; do
         [[ -z "$pkg" ]] && continue
         # Reject tokens that are clearly not valid package names
-        local _invalid_re='[][\s/@#;|&$]'
         if [[ "$pkg" =~ $_invalid_re ]]; then
             log_error "Skipping invalid token from layer $layer: '$pkg'" >&2
             continue
@@ -340,11 +342,11 @@ ensure_dialog() {
             echo "FATAL: LOG_FILE is unset, a directory, or not writable. Check the wizard configuration." >&2
             return 1
         fi
-        run_as_user sudo -v 2>>"$LOG_FILE" || {
+        run_as_user sudo -v || {
             echo "FATAL: sudo authentication failed. Verify sudo access." >&2
             return 1
         }
-        run_as_user pacman -S --noconfirm --needed dialog >>"$LOG_FILE" 2>&1 || {
+        run_as_user sudo pacman -S --noconfirm --needed dialog >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
             return 1
         }
