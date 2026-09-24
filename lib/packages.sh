@@ -17,10 +17,21 @@ _log_file_usable() {
     local lf="${1:-}"
     [[ -n "$lf" ]] || return 1
     [[ -d "$lf" ]] && return 1
+    # Reject special files (FIFOs, sockets, devices) that would block or misbehave on >> redirect
+    [[ -p "$lf" || -S "$lf" || -c "$lf" || -b "$lf" ]] && return 1
     local dir
     dir="$(dirname "$lf")"
     [[ -w "$dir" ]] || return 1
     [[ -e "$lf" && ! -w "$lf" ]] && return 1
+    return 0
+}
+
+# Validate that a string is a plausible pacman package name (prevents option injection)
+_validate_pkg_name() {
+    local name="${1:-}"
+    [[ -n "$name" ]] || return 1
+    # pacman package names: start with alphanumeric, then alphanumeric + . _ + -
+    [[ "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+-]*$ ]] || return 1
     return 0
 }
 
@@ -32,6 +43,19 @@ pkg_install() {
     if [[ ${#to_install[@]} -eq 0 ]]; then
         return 0
     fi
+
+    # Validate all package names before doing any work (prevents option injection)
+    local _bad_name
+    for _bad_name in "${to_install[@]}"; do
+        if ! _validate_pkg_name "$_bad_name"; then
+            log_error "Invalid package name rejected: '$_bad_name'"
+            ui_msgbox "Config Error" \
+                "Invalid package name detected: '$_bad_name'
+Package names must start with an alphanumeric character and contain
+only letters, digits, dots, hyphens, underscores, or plus signs."
+            return 1
+        fi
+    done
 
     if ! _log_file_usable "${LOG_FILE:-}"; then
         log_error "LOG_FILE is unset, a directory, or not writable; aborting"
@@ -79,7 +103,7 @@ Please verify your user has sudo access and try again."
 Please re-authenticate and re-run the wizard."
         return 1
     fi
-    if ! run_as_user pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
+    if ! run_as_user sudo pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "pacman install failed: ${to_install[*]}"
         ui_msgbox "Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
@@ -133,6 +157,19 @@ Re-run detection or install the helper manually."
     if [[ ${#to_install[@]} -eq 0 ]]; then
         return 0
     fi
+
+    # Validate all package names before doing any work (prevents option injection)
+    local _bad_name
+    for _bad_name in "${to_install[@]}"; do
+        if ! _validate_pkg_name "$_bad_name"; then
+            log_error "Invalid AUR package name rejected: '$_bad_name'"
+            ui_msgbox "Config Error" \
+                "Invalid AUR package name detected: '$_bad_name'
+Package names must start with an alphanumeric character and contain
+only letters, digits, dots, hyphens, underscores, or plus signs."
+            return 1
+        fi
+    done
 
     if ! _log_file_usable "${LOG_FILE:-}"; then
         log_error "LOG_FILE is unset, a directory, or not writable; aborting"
@@ -240,7 +277,16 @@ get_layer_packages() {
 # ── Convenience: install everything a layer needs ─────────────────────────────
 
 install_layer_packages() {
-    local layer="$1"
+    local layer="${1:-}"
+    # Validate layer number early to avoid silent no-op on bad input
+    if ! [[ "$layer" =~ ^[1-5]$ ]]; then
+        log_error "install_layer_packages: invalid layer '$layer' (expected 1-5)"
+        ui_msgbox "Config Error" \
+            "Invalid layer number: '$layer'
+Expected a value between 1 and 5."
+        return 1
+    fi
+
     local all_pkgs
     if ! all_pkgs=$(get_layer_packages "$layer"); then
         log_error "get_layer_packages failed for layer $layer"
@@ -255,8 +301,9 @@ install_layer_packages() {
     [[ -n "$all_pkgs" ]] && read -ra pkg_list <<< "$all_pkgs"
     for pkg in "${pkg_list[@]}"; do
         [[ -z "$pkg" ]] && continue
-        # Reject tokens that are clearly not valid package names (contain spaces, brackets, etc.)
-        if [[ "$pkg" =~ \[|\] ]]; then
+        # Reject tokens that are clearly not valid package names
+        local _invalid_re='[][\s/@#;|&$]'
+        if [[ "$pkg" =~ $_invalid_re ]]; then
             log_error "Skipping invalid token from layer $layer: '$pkg'" >&2
             continue
         fi
