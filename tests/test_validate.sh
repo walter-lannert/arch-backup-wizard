@@ -158,6 +158,7 @@ test_validate_cli_mode_skips_dialog() {
 
     VALIDATE=true
     local ui_msgbox_invoked=false
+    # shellcheck disable=SC2329
     ui_msgbox() {
         ui_msgbox_invoked=true
     }

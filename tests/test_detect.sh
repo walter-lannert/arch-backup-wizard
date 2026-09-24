@@ -39,16 +39,19 @@ test_detect_aur_helper() {
     source "$REPO_DIR/lib/detect.sh"
 
     # Scenario A: only paru available
+    # shellcheck disable=SC2329
     cmd_exists() { [[ "$1" == "paru" ]]; }
     detect_aur_helper
     assert_eq "paru" "$DETECTED_AUR_HELPER" "paru preferred when available"
 
     # Scenario B: only yay available
+    # shellcheck disable=SC2329
     cmd_exists() { [[ "$1" == "yay" ]]; }
     detect_aur_helper
     assert_eq "yay" "$DETECTED_AUR_HELPER" "yay selected when paru unavailable"
 
     # Scenario C: neither available
+    # shellcheck disable=SC2329
     cmd_exists() { return 1; }
     detect_aur_helper
     assert_eq "" "$DETECTED_AUR_HELPER" "empty when neither available"
