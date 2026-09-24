@@ -1,14 +1,13 @@
 [Unit]
-Description=Weekly (Mon 00:00) Pika backup sync to cloud storage → pika-cloud-sync.service
-Wants=pika-cloud-sync.service
+Description=Weekly (Mon 00:00) Pika backup sync to cloud storage - pika-cloud-sync.service
 
 [Timer]
 Unit=pika-cloud-sync.service
+# Triggers Monday 00:00 local time ± 1 min accuracy + up to 1 h random delay.
+# If the host timezone changes, the effective UTC window shifts accordingly.
 OnCalendar=weekly
 RandomizedDelaySec=3600
 Persistent=true
-ConditionPathIsDirectory={{BACKUP_MOUNT}}/Personal
-ConditionDirectoryNotEmpty={{BACKUP_MOUNT}}/Personal
 
 [Install]
 WantedBy=timers.target
