@@ -98,9 +98,12 @@ This will NOT remove:
                         # shellcheck disable=SC2012
                         orig_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -V | head -n 1 || true)
                         if [[ -n "$orig_bak" && -f "$orig_bak" ]]; then
-                            mv "$orig_bak" "$file"
-                            rm -f "${file}.bak."* 2>/dev/null || true
-                            log_info "Restored original pre-wizard state of $file"
+                            if mv "$orig_bak" "$file"; then
+                                rm -f "${file}.bak."* 2>/dev/null || true
+                                log_info "Restored original pre-wizard state of $file"
+                            else
+                                log_error "Failed to restore $file from $orig_bak. Backup files left in place."
+                            fi
                         fi
                     else
                         rm -f "${file}.bak."* 2>/dev/null || true
@@ -128,7 +131,6 @@ This will NOT remove:
     # Also clean up any lingering local archives from interrupted backups
     if [[ -n "${BACKUP_MOUNT:-}" ]]; then
         btrfs subvolume delete "${BACKUP_MOUNT}/.pika_sync_snapshot" >>"$LOG_FILE" 2>&1 || true
-        rm -f "${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst"* 2>/dev/null || true
         rm -f "${BACKUP_MOUNT}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
     fi
 
