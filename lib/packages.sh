@@ -5,6 +5,7 @@
 
 # Check if a package is installed
 pkg_is_installed() {
+    [[ -n "${1:-}" ]] || return 1
     pacman -Qi "$1" &>/dev/null
 }
 
@@ -17,7 +18,8 @@ pkg_install() {
         return 0
     fi
 
-    if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" ]]; then
+    if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" \
+          || ( -e "${LOG_FILE}" && ! -w "${LOG_FILE}" ) ]]; then
         log_error "LOG_FILE is unset or not writable; aborting install"
         ui_msgbox "Config Error" "LOG_FILE is not set or not writable.
 Check the wizard configuration."
@@ -28,7 +30,7 @@ Check the wizard configuration."
     log_info "Installing via pacman: ${to_install[*]}"
     ui_infobox "Installing Packages" "Installing: ${to_install[*]}..."
 
-    if ! pacman -S --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
+    if ! pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "pacman install failed: ${to_install[*]}"
         ui_msgbox "Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
@@ -59,7 +61,8 @@ Then re-run this wizard."
         return 0
     fi
 
-    if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" ]]; then
+    if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" \
+          || ( -e "${LOG_FILE}" && ! -w "${LOG_FILE}" ) ]]; then
         log_error "LOG_FILE is unset or not writable; aborting install"
         ui_msgbox "Config Error" "LOG_FILE is not set or not writable.
 Check the wizard configuration."
@@ -126,10 +129,13 @@ install_layer_packages() {
     local aur_pkgs=()
 
     local -a pkg_list=()
-    readarray -t pkg_list <<< "$all_pkgs"
+    [[ -n "$all_pkgs" ]] && read -ra pkg_list <<< "$all_pkgs"
     for pkg in "${pkg_list[@]}"; do
+        [[ -z "$pkg" ]] && continue
         if [[ "$pkg" == AUR:* ]]; then
-            aur_pkgs+=("${pkg#AUR:}")
+            local aur_name="${pkg#AUR:}"
+            [[ -n "$aur_name" ]] || { log_error "Empty AUR package name in layer $layer"; return 1; }
+            aur_pkgs+=("$aur_name")
         else
             pacman_pkgs+=("$pkg")
         fi
@@ -155,7 +161,8 @@ ensure_dialog() {
             exit 1
         fi
         echo "Installing 'dialog' (required for the wizard UI)..."
-        if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" ]]; then
+        if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" \
+              || ( -e "${LOG_FILE}" && ! -w "${LOG_FILE}" ) ]]; then
             echo "FATAL: LOG_FILE is unset or not writable. Check the wizard configuration." >&2
             exit 1
         fi
