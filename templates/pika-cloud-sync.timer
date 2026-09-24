@@ -2,11 +2,18 @@
 Description=Weekly (Mon 00:00) Pika backup sync to cloud storage - pika-cloud-sync.service
 
 [Timer]
-Unit=pika-cloud-sync.service
-# Triggers Monday 00:00 local time ± 1 min accuracy + up to 1 h random delay.
-# If the host timezone changes, the effective UTC window shifts accordingly.
+# Triggers Monday 00:00 local time. systemd may batch within AccuracySec
+# (default 60 s) and adds up to RandomizedDelaySec (3600 s) of jitter,
+# so the effective window is roughly 00:00 – 01:01 local.
+# NOTE: OnCalendar uses the host's local TZ. A TZ change silently shifts the
+# UTC window. The service unit MUST log the effective UTC timestamp at start
+# so operators can detect drift. Do NOT rely on this comment alone.
 OnCalendar=weekly
+AccuracySec=60
 RandomizedDelaySec=3600
+# Persistent=true fires ONE catch-up after boot, even if N windows were missed.
+# The service MUST check its own last-success marker and run additional passes
+# if the gap exceeds 7 days. Do not assume one trigger == one week of coverage.
 Persistent=true
 
 [Install]
