@@ -70,7 +70,7 @@ Options:
 | **1** | `snapper`, `snap-pac`, `grub-btrfs` OR `limine-snapper-sync` (AUR) |
 | **2** | `btrbk` |
 | **3** | `pika-backup` (includes `borg`) |
-| **4** | `rclone`, `pv`, `zstd`, `zenity` |
+| **4** | `rclone`, `pv`, `zstd`, `zenity`, `age` |
 | **5** | *(none)* |
 
 ---
@@ -183,6 +183,8 @@ To override detections, you can export these variables before running the wizard
 ```
 arch-backup-wizard/
 ├── wizard.sh              # Main entry point
+├── INTERFACE_MAP.md       # Global architecture & variable contract
+├── Makefile               # Build automation (linting & tests)
 ├── lib/
 │   ├── common.sh          # Logging, helpers, template rendering
 │   ├── ui.sh              # dialog/whiptail wrappers
@@ -191,22 +193,48 @@ arch-backup-wizard/
 │   ├── layer1_snapper.sh  # Snapper setup
 │   ├── layer2_btrbk.sh    # btrbk setup
 │   ├── layer3_pika.sh     # Pika Backup setup
-│   ├── layer4_cloud.sh    # Cloud offsite setup
+│   ├── layer4_cloud.sh    # Cloud offsite setup (Age encryption)
 │   ├── layer5_deep_storage.sh # Deep Storage setup
 │   ├── runbooks.sh        # Recovery runbook generator
 │   ├── validate.sh        # Post-setup health checks
 │   └── uninstall.sh       # Clean removal
-└── templates/             # Config and runbook templates
+├── templates/             # Config and runbook templates
+└── tests/                 # Automated hermetic test suite
+    ├── test_helper.bash   # Zero-dependency test & mock framework
+    ├── test_common.sh     # Tests for lib/common.sh
+    ├── test_detect.sh     # Tests for lib/detect.sh
+    ├── test_packages.sh   # Tests for lib/packages.sh
+    ├── test_runbooks.sh   # Tests for lib/runbooks.sh
+    └── test_validate.sh   # Tests for lib/validate.sh
 ```
 
 ---
 
 ## Testing & Development
 
-You can test the wizard safely without modifying your primary system:
+The repository includes a comprehensive, hermetic automated unit test suite requiring zero external dependencies:
 
-- **Linting & Formatting:** Ensure code meets quality standards by running `make check` (runs ShellCheck) and format with `shfmt -i 4 -w .`.
-- **Dry Run Simulation:** Run `sudo ./wizard.sh --dry-run` to simulate system detection, package planning, drive selection, and template rendering without making changes.
+- **Full Verification Suite:**
+  ```bash
+  make all     # Runs ShellCheck across all scripts followed by all unit tests
+  ```
+- **Automated Unit Tests:**
+  ```bash
+  make test    # Runs all 27 unit tests across lib/ modules
+  ```
+- **Linting & Code Quality:**
+  ```bash
+  make check   # Runs ShellCheck with strict error checking
+  ```
+- **Live Health Validation:**
+  ```bash
+  sudo ./wizard.sh --validate        # Validate all 5 layers
+  sudo ./wizard.sh --validate 1,2,3  # Validate specific layer subset
+  ```
+- **Dry-Run Simulation:**
+  ```bash
+  sudo ./wizard.sh --dry-run
+  ```
 - **Headless QEMU / KVM Sandbox:** Developers can launch an isolated virtual machine running the official Arch Linux cloud image with a virtual secondary drive:
   ```bash
   qemu-system-x86_64 -enable-kvm -m 4G -smp 4 -nographic \
