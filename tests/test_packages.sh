@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=tests/test_helper.bash
 source "$SCRIPT_DIR/test_helper.bash"
 
 # Shared mock setup
@@ -22,8 +23,13 @@ _setup_pkg_env() {
     # Default mocks
     # shellcheck disable=SC2016
     mock_cmd sudo '
-while [[ $# -gt 0 && "$1" == -* ]]; do
-    shift
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -u) shift 2 ;;
+        -*) shift ;;
+        sudo) shift ;;
+        *) break ;;
+    esac
 done
 if [[ $# -gt 0 ]]; then
     exec "$@"

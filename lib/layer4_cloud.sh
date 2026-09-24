@@ -155,10 +155,7 @@ Please re-enter a valid name."
 
     log_info "Configured rclone remote target: $rclone_remote"
 
-    local key_confirm_attempts=0
-    local key_confirm_max=5
     while true; do
-        key_confirm_attempts=$((key_confirm_attempts + 1))
         log_info "Launching interactive rclone config for user $target_user..."
         run_as_user rclone config
 

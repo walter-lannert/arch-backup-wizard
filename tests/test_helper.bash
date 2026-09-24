@@ -9,7 +9,9 @@ set -euo pipefail
 CLR_RESET="\033[0m"
 CLR_RED="\033[1;31m"
 CLR_GREEN="\033[1;32m"
+# shellcheck disable=SC2034
 CLR_YELLOW="\033[1;33m"
+# shellcheck disable=SC2034
 CLR_BLUE="\033[1;34m"
 
 TESTS_RUN=0

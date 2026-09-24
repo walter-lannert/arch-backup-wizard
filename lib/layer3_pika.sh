@@ -78,6 +78,7 @@ setup_layer3() {
     # 4. Show a smart exclusion checklist using ui_checklist
     log_info "Step 4: Prompting user for backup exclusions..."
     local raw_exclusions=""
+    # shellcheck disable=SC2088
     if ! raw_exclusions=$(ui_checklist "Backup Exclusions" \
         "Select directories to EXCLUDE from home backups:" \
         "Downloads" "~/Downloads (temporary files)" "on" \
@@ -125,6 +126,7 @@ setup_layer3() {
         local count=0
         for excl in "${selected_exclusions[@]}"; do
             local display_path
+            # shellcheck disable=SC2088
             case "$excl" in
             /* | ~/*) display_path="${excl}" ;;
             Trash) display_path="Trash" ;;

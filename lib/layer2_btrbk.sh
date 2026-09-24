@@ -124,11 +124,11 @@ The initial OS clone may fail. Continue anyway?"
 
     local _v
     for _v in BTRBK_SNAP_MIN BTRBK_SNAP BTRBK_TARGET_MIN BTRBK_TARGET; do
-        if ! [[ "${!_v:-}" =~ ^[0-9]+$ ]] || [[ "${!_v}" -lt 1 ]]; then
-            log_error "$_v is unset or not a positive integer (got '${!_v:-}')."
+        if ! [[ "${!_v:-}" =~ ^([0-9]+[dwmy]?|latest|no)$ ]]; then
+            log_error "$_v is unset or invalid retention format (got '${!_v:-}')."
             return 1
         fi
-        if [[ "${!_v}" -gt 10000 ]]; then
+        if [[ "${!_v}" =~ ^[0-9]+$ ]] && [[ "${!_v}" -gt 10000 ]]; then
             log_warn "$_v is set to ${!_v}, which is unusually high. btrbk will retain ${!_v} snapshots."
         fi
     done
@@ -192,9 +192,9 @@ EOF
 
 volume "${mnt}"
   snapshot_dir               "${SNAP_DIR_BTRBK#/}"
-  snapshot_name              "${subvol_safe}"
   subvolume .
-  target send-receive "${backup_mount}/OS_Backup"
+    snapshot_name              "${subvol_safe}"
+    target send-receive "${backup_mount}/OS_Backup"
 EOF
     done
 

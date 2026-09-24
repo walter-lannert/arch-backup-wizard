@@ -7,12 +7,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=tests/test_helper.bash
 source "$SCRIPT_DIR/test_helper.bash"
 source "$REPO_DIR/lib/common.sh"
 source "$REPO_DIR/lib/runbooks.sh"
 
 # ── Override UI functions (defined in lib/ui.sh) to avoid interactive prompts ─
 ui_msgbox() {
+    # shellcheck disable=SC2034
     UI_MSGBOX_TITLE="$1"
     UI_MSGBOX_BODY="$2"
     return 0
