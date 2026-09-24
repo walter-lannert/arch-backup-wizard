@@ -11,25 +11,24 @@ pkg_is_installed() {
 # ── Install from official repos ───────────────────────────────────────────────
 
 pkg_install() {
-    local packages=("$@")
-    local to_install=()
-
-    for pkg in "${packages[@]}"; do
-        if pkg_is_installed "$pkg"; then
-            log_info "Already installed: $pkg"
-        else
-            to_install+=("$pkg")
-        fi
-    done
+    local to_install=("$@")
 
     if [[ ${#to_install[@]} -eq 0 ]]; then
         return 0
     fi
 
+    if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" ]]; then
+        log_error "LOG_FILE is unset or not writable; aborting install"
+        ui_msgbox "Config Error" "LOG_FILE is not set or not writable.
+Check the wizard configuration."
+        return 1
+    fi
+
+    # --needed is the idempotency guard: pacman skips packages already in the local DB.
     log_info "Installing via pacman: ${to_install[*]}"
     ui_infobox "Installing Packages" "Installing: ${to_install[*]}..."
 
-    if ! pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
+    if ! pacman -S --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "pacman install failed: ${to_install[*]}"
         ui_msgbox "Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
@@ -42,8 +41,7 @@ pkg_install() {
 # ── Install from AUR ──────────────────────────────────────────────────────────
 
 aur_install() {
-    local packages=("$@")
-    local to_install=()
+    local to_install=("$@")
 
     if [[ -z "${DETECTED_AUR_HELPER:-}" ]]; then
         ui_msgbox "AUR Helper Required" \
@@ -57,16 +55,15 @@ Then re-run this wizard."
         return 1
     fi
 
-    for pkg in "${packages[@]}"; do
-        if pkg_is_installed "$pkg"; then
-            log_info "Already installed (AUR): $pkg"
-        else
-            to_install+=("$pkg")
-        fi
-    done
-
     if [[ ${#to_install[@]} -eq 0 ]]; then
         return 0
+    fi
+
+    if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" ]]; then
+        log_error "LOG_FILE is unset or not writable; aborting install"
+        ui_msgbox "Config Error" "LOG_FILE is not set or not writable.
+Check the wizard configuration."
+        return 1
     fi
 
     log_info "Installing via $DETECTED_AUR_HELPER: ${to_install[*]}"
@@ -74,7 +71,13 @@ Then re-run this wizard."
         "Installing via $DETECTED_AUR_HELPER: ${to_install[*]}..."
 
     # Ensure the user has an active sudo token to prevent hidden prompts during UI execution
-    run_as_user sudo -v || true
+    if ! run_as_user sudo -v 2>>"$LOG_FILE"; then
+        log_error "sudo authentication failed; cannot proceed with AUR install"
+        ui_msgbox "Privilege Error" \
+            "sudo authentication failed.
+Please verify your user has sudo access and try again."
+        return 1
+    fi
     if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "AUR install failed: ${to_install[*]}"
         ui_msgbox "AUR Package Error" \
@@ -96,9 +99,12 @@ get_layer_packages() {
     1)
         local pkgs="snapper snap-pac"
         case "${DETECTED_BOOTLOADER:-}" in
-        grub) pkgs+=" grub-btrfs inotify-tools" ;;
+        grub)   pkgs+=" AUR:grub-btrfs inotify-tools" ;;
         limine) pkgs+=" AUR:limine-snapper-sync inotify-tools" ;;
-            # systemd-boot has no snapshot integration package
+        systemd-boot) ;;  # no snapshot-integration package available
+        *)
+            log_info "No snapshot-integration package for bootloader: ${DETECTED_BOOTLOADER:-unknown}"
+            ;;
         esac
         echo "$pkgs"
         ;;
@@ -119,8 +125,9 @@ install_layer_packages() {
     local pacman_pkgs=()
     local aur_pkgs=()
 
-    # shellcheck disable=SC2086    # intentional word-split of space-separated package list
-    for pkg in $all_pkgs; do
+    local -a pkg_list=()
+    readarray -t pkg_list <<< "$all_pkgs"
+    for pkg in "${pkg_list[@]}"; do
         if [[ "$pkg" == AUR:* ]]; then
             aur_pkgs+=("${pkg#AUR:}")
         else
@@ -148,7 +155,11 @@ ensure_dialog() {
             exit 1
         fi
         echo "Installing 'dialog' (required for the wizard UI)..."
-        pacman -S --noconfirm dialog >>"$LOG_FILE" 2>&1 || {
+        if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" ]]; then
+            echo "FATAL: LOG_FILE is unset or not writable. Check the wizard configuration." >&2
+            exit 1
+        fi
+        pacman -S --noconfirm --needed dialog >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
             exit 1
         }
