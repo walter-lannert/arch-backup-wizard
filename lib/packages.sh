@@ -6,7 +6,22 @@
 # Check if a package is installed (used by backup/restore modules)
 pkg_is_installed() {
     [[ -n "${1:-}" ]] || return 1
-    pacman -Qi "$1" &>/dev/null
+    pacman -Qi "$1" &>/dev/null || return 1
+    # Verify file integrity; return 1 if the package is broken
+    pacman -Qkk "$1" &>/dev/null
+}
+
+# ── Shared guards ─────────────────────────────────────────────────────────────
+
+_log_file_usable() {
+    local lf="${1:-}"
+    [[ -n "$lf" ]] || return 1
+    [[ -d "$lf" ]] && return 1
+    local dir
+    dir="$(dirname "$lf")"
+    [[ -w "$dir" ]] || return 1
+    [[ -e "$lf" && ! -w "$lf" ]] && return 1
+    return 0
 }
 
 # ── Install from official repos ───────────────────────────────────────────────
@@ -18,12 +33,31 @@ pkg_install() {
         return 0
     fi
 
-    if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" \
-          || ( -e "${LOG_FILE}" && ! -w "${LOG_FILE}" ) ]]; then
-        log_error "LOG_FILE is unset or not writable; aborting install"
-        ui_msgbox "Config Error" "LOG_FILE is not set or not writable.
+    if ! _log_file_usable "${LOG_FILE:-}"; then
+        log_error "LOG_FILE is unset, a directory, or not writable; aborting"
+        ui_msgbox "Config Error" "LOG_FILE is not set, is a directory, or is not writable.
 Check the wizard configuration."
         return 1
+    fi
+
+    # Integrity probe: warn if any target package is in a broken/half-installed state
+    local broken=()
+    for p in "${to_install[@]}"; do
+        if pacman -Qi "$p" &>/dev/null; then
+            if ! pacman -Qkk "$p" &>/dev/null; then
+                broken+=("$p")
+            fi
+        fi
+    done
+    if [[ ${#broken[@]} -gt 0 ]]; then
+        log_warn "Packages in a broken state (will be skipped by --needed): ${broken[*]}"
+        ui_msgbox "Warning" \
+            "The following packages appear to be in a broken/half-installed state:
+${broken[*]}
+
+--needed will skip them. Consider running:
+  sudo pacman -U $(pacman -Qq | tr '\n' ' ')
+or manually repairing before continuing."
     fi
 
     # --needed is the idempotency guard: pacman skips packages already in the local DB.
@@ -35,6 +69,14 @@ Check the wizard configuration."
         ui_msgbox "Privilege Error" \
             "sudo authentication failed.
 Please verify your user has sudo access and try again."
+        return 1
+    fi
+    # Re-assert immediately before the privileged call to minimise the expiry window
+    if ! run_as_user sudo -n true 2>>"$LOG_FILE"; then
+        log_error "sudo token expired before pacman invocation"
+        ui_msgbox "Privilege Error" \
+            "Your sudo session expired before the install could start.
+Please re-authenticate and re-run the wizard."
         return 1
     fi
     if ! run_as_user pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
@@ -64,16 +106,44 @@ Then re-run this wizard."
         return 1
     fi
 
+    if ! command -v "$DETECTED_AUR_HELPER" &>/dev/null; then
+        log_error "AUR helper '$DETECTED_AUR_HELPER' is not found in PATH"
+        ui_msgbox "AUR Helper Missing" \
+            "The detected AUR helper '$DETECTED_AUR_HELPER' is not in PATH.
+It may have been uninstalled or renamed.
+Re-run detection or install the helper manually."
+        return 1
+    fi
+
     if [[ ${#to_install[@]} -eq 0 ]]; then
         return 0
     fi
 
-    if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" \
-          || ( -e "${LOG_FILE}" && ! -w "${LOG_FILE}" ) ]]; then
-        log_error "LOG_FILE is unset or not writable; aborting install"
-        ui_msgbox "Config Error" "LOG_FILE is not set or not writable.
+    if ! _log_file_usable "${LOG_FILE:-}"; then
+        log_error "LOG_FILE is unset, a directory, or not writable; aborting"
+        ui_msgbox "Config Error" "LOG_FILE is not set, is a directory, or is not writable.
 Check the wizard configuration."
         return 1
+    fi
+
+    # Integrity probe: warn if any target package is in a broken/half-installed state
+    local broken=()
+    for p in "${to_install[@]}"; do
+        if pacman -Qi "$p" &>/dev/null; then
+            if ! pacman -Qkk "$p" &>/dev/null; then
+                broken+=("$p")
+            fi
+        fi
+    done
+    if [[ ${#broken[@]} -gt 0 ]]; then
+        log_warn "Packages in a broken state (will be skipped by --needed): ${broken[*]}"
+        ui_msgbox "Warning" \
+            "The following packages appear to be in a broken/half-installed state:
+${broken[*]}
+
+--needed will skip them. Consider running:
+  sudo pacman -U $(pacman -Qq | tr '\n' ' ')
+or manually repairing before continuing."
     fi
 
     log_info "Installing via $DETECTED_AUR_HELPER: ${to_install[*]}"
@@ -88,10 +158,22 @@ Check the wizard configuration."
 Please verify your user has sudo access and try again."
         return 1
     fi
+    # Re-assert immediately before the privileged call to minimise the expiry window
+    if ! run_as_user sudo -n true 2>>"$LOG_FILE"; then
+        log_error "sudo token expired before AUR helper invocation"
+        ui_msgbox "Privilege Error" \
+            "Your sudo session expired before the install could start.
+Please re-authenticate and re-run the wizard."
+        return 1
+    fi
     if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "AUR install failed: ${to_install[*]}"
         ui_msgbox "AUR Package Error" \
-            "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
+            "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details.\n\n
+If the build failed, the helper's cache may contain partial artifacts.
+You can clean them with:
+  $DETECTED_AUR_HELPER -Sc
+or remove the specific build directory manually, then re-run."
         return 1
     fi
 
@@ -116,11 +198,11 @@ get_layer_packages() {
             log_info "No snapshot-integration package for bootloader: ${DETECTED_BOOTLOADER:-unknown}" >&2
             ;;
         esac
-        echo "$pkgs"
+        printf '%s\n' "$pkgs"
         ;;
-    2) echo "btrbk" ;;
-    3) echo "pika-backup" ;;
-    4) echo "rclone pv zstd zenity age fuse3" ;;
+    2) printf '%s\n' "btrbk" ;;
+    3) printf '%s\n' "pika-backup" ;;
+    4) printf '%s\n' "rclone pv zstd zenity age fuse3" ;;
     5) ;; # No packages needed
     esac
 }
@@ -144,7 +226,7 @@ install_layer_packages() {
     for pkg in "${pkg_list[@]}"; do
         [[ -z "$pkg" ]] && continue
         # Reject tokens that are clearly not valid package names (contain spaces, brackets, etc.)
-        if [[ "$pkg" =~ [[:space:]]|\[|\] ]]; then
+        if [[ "$pkg" =~ \[|\] ]]; then
             log_error "Skipping invalid token from layer $layer: '$pkg'" >&2
             continue
         fi
@@ -177,9 +259,8 @@ ensure_dialog() {
             exit 1
         fi
         echo "Installing 'dialog' (required for the wizard UI)..."
-        if [[ -z "${LOG_FILE:-}" || ! -w "$(dirname "${LOG_FILE:-/dev/null}")" \
-              || ( -e "${LOG_FILE}" && ! -w "${LOG_FILE}" ) ]]; then
-            echo "FATAL: LOG_FILE is unset or not writable. Check the wizard configuration." >&2
+        if ! _log_file_usable "${LOG_FILE:-}"; then
+            echo "FATAL: LOG_FILE is unset, a directory, or not writable. Check the wizard configuration." >&2
             exit 1
         fi
         run_as_user sudo -v 2>>"$LOG_FILE" || {
