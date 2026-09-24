@@ -171,6 +171,7 @@ Run the following block of code in your terminal:
 set -o pipefail
 {{CLOUD_RECOVERY_SCRIPT}}
 RC=$?
+set +o pipefail
 if [[ $RC -ne 0 ]]; then
     echo "FATAL: Cloud OS restore script exited with code $RC. Aborting." >&2
     echo "  Do NOT proceed to Step 4. Inspect the new drive with:" >&2
@@ -178,6 +179,14 @@ if [[ $RC -ne 0 ]]; then
     echo "    btrfs filesystem df /mnt/new_os" >&2
     exit 1
 fi
+# Verify the received subvolume tree is structurally complete
+# (btrfs check --readonly below covers this, but fail fast on obvious gaps):
+for d in etc usr var home; do
+    if [[ ! -d "/mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/$d" ]]; then
+        echo "FATAL: expected directory '$d' missing after btrfs receive." >&2
+        exit 1
+    fi
+done
 
 # --- post-condition: root subvolume must exist and be non-empty ---
 if [[ ! -d "/mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/etc" ]]; then
@@ -191,7 +200,8 @@ for f in etc/os-release etc/passwd usr/bin/bash; do
         exit 1
     fi
 done
-# BTRFS-level integrity check (fast: checks tree structure, not data blocks)
+# BTRFS-level integrity check (checks tree structure, not data blocks).
+# NOTE: On large drives (>= 2 TB) this can take 10-30 minutes. Do not interrupt.
 btrfs check --readonly /dev/NEW_ROOT_PARTITION \
     || { echo "FATAL: btrfs check reported errors. Aborting." >&2; exit 1; }
 echo "OK: root subvolume populated and BTRFS tree consistent. Proceeding to Step 4."
@@ -201,6 +211,7 @@ echo "OK: root subvolume populated and BTRFS tree consistent. Proceeding to Step
   mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
   mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
   chmod 750 /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  chmod 750 /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
 
 
 --------------------------------------------------------------------------------
@@ -208,7 +219,7 @@ STEP 4: SET '{{DETECTED_ROOT_SUBVOL_STR}}' AS BTRFS DEFAULT SUBVOLUME
 --------------------------------------------------------------------------------
 Find the subvolume ID of '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as the default:
 
-  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | awk -v sv="{{DETECTED_ROOT_SUBVOL_STR}}" '$NF == sv {print $2}')
+  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | awk -v sv="{{DETECTED_ROOT_SUBVOL_STR}}" '$NF == "/" sv || $NF == sv {print $2}')
   if [[ -z "$ROOT_SUBVOL_ID" ]]; then
       echo "FATAL: subvolume '{{DETECTED_ROOT_SUBVOL_STR}}' not found in /mnt/new_os." >&2
       echo "  Available subvolumes:" >&2
@@ -308,6 +319,15 @@ source /tmp/recovery_env.sh
 2. Rebuild the EFI partition by reinstalling your kernel and microcode packages:
    [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz), microcode, and automatically recreates systemd-boot loader entries via pacman hooks]
 
+   # Determine your kernel packages. If you are unsure, inspect the restored
+   # package list (available after Step 3):
+   #   grep -E '^\(linux|ucode' /mnt/target/var/log/pacman.log | tail -20
+   # Typical values:
+   #   KERNEL_PKGS="linux linux-headers intel-ucode"
+   #   KERNEL_PKGS="linux linux-headers amd-ucode"
+   #   KERNEL_PKGS="linux-lts linux-lts-headers intel-ucode"
+   export KERNEL_PKGS="${KERNEL_PKGS:-}"
+
      if [[ -z "${KERNEL_PKGS:-}" ]]; then
          echo "FATAL: KERNEL_PKGS is empty. Cannot determine which kernel to reinstall." >&2
          echo "  Expected packages, e.g.: linux linux-headers intel-ucode" >&2
@@ -352,7 +372,10 @@ source /tmp/recovery_env.sh
        fi
        # Ensure loader entries and kernel cmdline reflect the restored root UUID after pacman hook regeneration:
        CURRENT_ROOT_UUID=$(findmnt -n -o UUID /)
-       sed -i "s/{{ROOT_UUID}}/$CURRENT_ROOT_UUID/g" /etc/kernel/cmdline /boot/loader/entries/*.conf {{EFI_MOUNT_PATH}}/loader/entries/*.conf 2>/dev/null || true
+       # Verify no stale original UUID remains after pacman hook regeneration:
+       if grep -rq "{{ROOT_UUID}}" /etc/kernel/cmdline /boot/loader/entries/ {{EFI_MOUNT_PATH}}/loader/entries/ 2>/dev/null; then
+           echo "WARNING: Stale original UUID found in loader entries after pacman hooks." >&2
+       fi
        # Verify loader entries were recreated by the pacman hook above.
        # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
        ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (
@@ -386,7 +409,8 @@ The OS clone restored the base system and applications. Personal data
 
    # Wait for the FUSE mount to become ready (bounded, up to 30 s):
    for i in $(seq 1 30); do
-       if mountpoint -q /mnt/cloud_repo 2>/dev/null && ls /mnt/cloud_repo &>/dev/null; then
+       if mountpoint -q /mnt/cloud_repo 2>/dev/null \
+          && timeout 5 ls /mnt/cloud_repo &>/dev/null; then
            break
        fi
        sleep 1
@@ -408,6 +432,10 @@ The OS clone restored the base system and applications. Personal data
 
    borg list "$REPO_PATH"
 
+   # Pick the most recent archive name from the list above, then set:
+   #   export ARCHIVE_NAME="2025-01-15-030000-Fri"
+   # (or whichever archive you want to restore)
+
 5. Extract files into the new root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
 
    # --- pre-check: verify repo integrity ---
@@ -422,6 +450,7 @@ The OS clone restored the base system and applications. Personal data
    cd /mnt/target
    borg extract --progress "$REPO_PATH::<ARCHIVE_NAME>" \
        || { echo "FATAL: borg extract failed (rc=$?). Aborting." >&2; exit 1; }
+   cd /
 
    # --- post-check: home dir must be non-empty ---
    if [[ -z "$(ls -A /mnt/target/home/{{USERNAME}} 2>/dev/null)" ]]; then
@@ -465,6 +494,9 @@ STEP 9: CLEANUP AND REBOOT
          exit 1
      fi
      echo "All mounts released. Rebooting."
+
+   # Remove the Age private key from the Live environment:
+   rm -f /root/cloud_os.key
 
 4. Reboot:
 
