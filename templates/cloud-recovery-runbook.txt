@@ -123,6 +123,14 @@ STEP 2: PARTITION AND FORMAT NEW NVME / SSD
    echo "New EFI UUID:  $NEW_EFI_UUID"
    echo "New Root UUID: $NEW_ROOT_UUID"
 
+   # Persist recovery variables for cross-session safety
+   cat > /tmp/recovery_env.sh <<'ENVEOF'
+NEW_EFI_UUID="${NEW_EFI_UUID}"
+NEW_ROOT_UUID="${NEW_ROOT_UUID}"
+ENVEOF
+   chmod 644 /tmp/recovery_env.sh
+   echo "Variables saved to /tmp/recovery_env.sh — source this in any new shell."
+
 
 --------------------------------------------------------------------------------
 STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
@@ -176,7 +184,17 @@ if [[ ! -d "/mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/etc" ]]; then
     echo "FATAL: {{DETECTED_ROOT_SUBVOL_STR}}/etc not found after restore. Aborting." >&2
     exit 1
 fi
-echo "OK: root subvolume populated. Proceeding to Step 4."
+# Verify critical files survived the stream
+for f in etc/os-release etc/passwd usr/bin/bash; do
+    if [[ ! -s "/mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/$f" ]]; then
+        echo "FATAL: critical file '$f' missing or empty after restore. Aborting." >&2
+        exit 1
+    fi
+done
+# BTRFS-level integrity check (fast: checks tree structure, not data blocks)
+btrfs check --readonly /dev/NEW_ROOT_PARTITION \
+    || { echo "FATAL: btrfs check reported errors. Aborting." >&2; exit 1; }
+echo "OK: root subvolume populated and BTRFS tree consistent. Proceeding to Step 4."
 
 6. Create snapshot placeholder directories inside the new root:
 
@@ -190,7 +208,7 @@ STEP 4: SET '{{DETECTED_ROOT_SUBVOL_STR}}' AS BTRFS DEFAULT SUBVOLUME
 --------------------------------------------------------------------------------
 Find the subvolume ID of '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as the default:
 
-  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep ' path {{DETECTED_ROOT_SUBVOL_STR}}$' | awk '{print $2}')
+  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep -P "\tpath \Q{{DETECTED_ROOT_SUBVOL_STR}}\E$" | awk '{print $2}')
   if [[ -z "$ROOT_SUBVOL_ID" ]]; then
       echo "FATAL: subvolume '{{DETECTED_ROOT_SUBVOL_STR}}' not found in /mnt/new_os." >&2
       echo "  Available subvolumes:" >&2
@@ -211,6 +229,7 @@ STEP 5: MOUNT ALL SUBVOLUMES FOR CHROOT
 --------------------------------------------------------------------------------
 Mount '{{DETECTED_ROOT_SUBVOL_STR}}' as the root filesystem:
 
+  source /tmp/recovery_env.sh
   mkdir -p /mnt/target
   mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd /dev/NEW_ROOT_PARTITION /mnt/target \
       || { echo "FATAL: root subvolume mount failed. Aborting." >&2; exit 1; }
@@ -232,6 +251,7 @@ Mount the new EFI partition:
 STEP 6: UPDATE ALL UUIDs IN CONFIGURATION FILES [CRITICAL]
 --------------------------------------------------------------------------------
 [CRITICAL WARNING: DRIVE UUID MISMATCH]
+source /tmp/recovery_env.sh
 Original Root UUID: {{ROOT_UUID}}
 Original EFI UUID:  {{EFI_UUID}}
 New Root UUID:      $NEW_ROOT_UUID
@@ -279,6 +299,8 @@ fi
 --------------------------------------------------------------------------------
 STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 --------------------------------------------------------------------------------
+source /tmp/recovery_env.sh
+
 1. Enter the chroot environment:
 
      arch-chroot /mnt/target
@@ -286,7 +308,12 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 2. Rebuild the EFI partition by reinstalling your kernel and microcode packages:
    [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz), microcode, and automatically recreates systemd-boot loader entries via pacman hooks]
 
-     pacman -Sy --noconfirm {{KERNEL_PKGS}} \
+     if [[ -z "${KERNEL_PKGS:-}" ]]; then
+         echo "FATAL: KERNEL_PKGS is empty. Cannot determine which kernel to reinstall." >&2
+         echo "  Expected packages, e.g.: linux linux-headers intel-ucode" >&2
+         exit 1
+     fi
+     pacman -Sy --noconfirm $KERNEL_PKGS \
          || { echo "FATAL: kernel package install failed. Aborting." >&2; exit 1; }
 
 3. Ensure initramfs is fully generated (pacman hooks usually do this, but force it to be safe):
@@ -351,7 +378,7 @@ The OS clone restored the base system and applications. Personal data
 2. Outside the chroot, mount the cloud repository using rclone:
 
    mkdir -p /mnt/cloud_repo
-   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon --vfs-cache-mode full
+   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon --vfs-cache-mode minimal --read-only
 
    # Wait for the FUSE mount to become ready (bounded, up to 30 s):
    for i in $(seq 1 30); do
@@ -383,6 +410,11 @@ The OS clone restored the base system and applications. Personal data
    borg check --verify-data "$REPO_PATH" \
        || { echo "FATAL: Borg repo failed integrity check. Aborting." >&2; exit 1; }
 
+   if [[ -z "${ARCHIVE_NAME:-}" ]]; then
+       echo "FATAL: ARCHIVE_NAME is empty. List archives with:" >&2
+       echo "  borg list '$REPO_PATH'" >&2
+       exit 1
+   fi
    cd /mnt/target
    borg extract --progress "$REPO_PATH::<ARCHIVE_NAME>" \
        || { echo "FATAL: borg extract failed (rc=$?). Aborting." >&2; exit 1; }
