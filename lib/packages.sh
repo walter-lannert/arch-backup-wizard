@@ -56,7 +56,7 @@ Check the wizard configuration."
 ${broken[*]}
 
 --needed will skip them. Consider running:
-  sudo pacman -U $(pacman -Qq | tr '\n' ' ')
+  sudo pacman -U ${broken[*]}
 or manually repairing before continuing."
     fi
 
@@ -86,6 +86,21 @@ Please re-authenticate and re-run the wizard."
         return 1
     fi
 
+    local still_broken=()
+    for p in "${to_install[@]}"; do
+        if pacman -Qi "$p" &>/dev/null && ! pacman -Qkk "$p" &>/dev/null; then
+            still_broken+=("$p")
+        fi
+    done
+    if [[ ${#still_broken[@]} -gt 0 ]]; then
+        log_error "Packages remain broken after install: ${still_broken[*]}"
+        ui_msgbox "Incomplete Install" \
+            "The following packages are still in a broken state after install:
+${still_broken[*]}
+
+Run 'pacman -U ${still_broken[*]}' to force-reinstall them."
+        return 1
+    fi
     log_success "Installed: ${to_install[*]}"
 }
 
@@ -142,7 +157,7 @@ Check the wizard configuration."
 ${broken[*]}
 
 --needed will skip them. Consider running:
-  sudo pacman -U $(pacman -Qq | tr '\n' ' ')
+  sudo pacman -U ${broken[*]}
 or manually repairing before continuing."
     fi
 
@@ -177,6 +192,21 @@ or remove the specific build directory manually, then re-run."
         return 1
     fi
 
+    local still_broken=()
+    for p in "${to_install[@]}"; do
+        if pacman -Qi "$p" &>/dev/null && ! pacman -Qkk "$p" &>/dev/null; then
+            still_broken+=("$p")
+        fi
+    done
+    if [[ ${#still_broken[@]} -gt 0 ]]; then
+        log_error "Packages remain broken after AUR install: ${still_broken[*]}"
+        ui_msgbox "Incomplete Install" \
+            "The following packages are still in a broken state after install:
+${still_broken[*]}
+
+Run '$DETECTED_AUR_HELPER -U ${still_broken[*]}' to force-reinstall them."
+        return 1
+    fi
     log_success "Installed from AUR: ${to_install[*]}"
 }
 
@@ -256,24 +286,24 @@ ensure_dialog() {
     if ! cmd_exists dialog && ! cmd_exists whiptail; then
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
             echo "FATAL: 'dialog' or 'whiptail' is required for the wizard UI. Since --dry-run is active, it will not be installed automatically. Please install it manually: sudo pacman -S dialog" >&2
-            exit 1
+            return 1
         fi
         echo "Installing 'dialog' (required for the wizard UI)..."
         if ! _log_file_usable "${LOG_FILE:-}"; then
             echo "FATAL: LOG_FILE is unset, a directory, or not writable. Check the wizard configuration." >&2
-            exit 1
+            return 1
         fi
         run_as_user sudo -v 2>>"$LOG_FILE" || {
             echo "FATAL: sudo authentication failed. Verify sudo access." >&2
-            exit 1
+            return 1
         }
         run_as_user pacman -S --noconfirm --needed dialog >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
-            exit 1
+            return 1
         }
         if ! cmd_exists dialog && ! cmd_exists whiptail; then
             echo "FATAL: 'dialog' was installed but is not found in PATH. Check your PATH." >&2
-            exit 1
+            return 1
         fi
     fi
 }
