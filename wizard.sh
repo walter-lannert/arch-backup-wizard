@@ -264,6 +264,7 @@ Use this drive?"; then
     # Build a list of candidate partitions for a radiolist
     local choices=()
     local seen_devs=()
+    local _first_choice=true
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\".*MOUNTPOINT=\"([^\"]*)\" ]] || true
@@ -312,7 +313,9 @@ Use this drive?"; then
             continue
         fi
         seen_devs+=("$dev")
-        choices+=("$dev" "$label" "off")
+        local _sel="off"
+        [[ "$_first_choice" == true ]] && _sel="on" && _first_choice=false
+        choices+=("$dev" "$label" "$_sel")
     done <<<"$DETECTED_PARTITIONS"
 
     # Also offer unformatted whole disks
@@ -366,7 +369,9 @@ Use this drive?"; then
             continue
         fi
         seen_devs+=("$dev")
-        choices+=("$dev" "${size}  (UNFORMATTED — will partition)" "off")
+        local _sel="off"
+        [[ "$_first_choice" == true ]] && _sel="on" && _first_choice=false
+        choices+=("$dev" "${size}  (UNFORMATTED — will partition)" "$_sel")
     done <<<"$DETECTED_DRIVES"
 
     if [[ ${#choices[@]} -eq 0 ]]; then
@@ -378,12 +383,16 @@ Please connect a secondary drive and re-run the wizard."
     fi
 
     local selected
-    selected=$(ui_radiolist "Backup Drive" \
-        "Select the drive/partition for backups:" \
-        "${choices[@]}") || die "Aborted at drive selection."
-
-    selected="${selected//\"/}"
-    [[ -z "$selected" ]] && die "No backup drive selected."
+    while true; do
+        selected=$(ui_radiolist "Backup Drive" \
+            "Select the drive/partition for backups:" \
+            "${choices[@]}") || die "Aborted at drive selection."
+        selected="${selected//\"/}"
+        if [[ -n "$selected" ]]; then
+            break
+        fi
+        ui_msgbox "Selection Required" "Please select a backup drive/partition (use Space to toggle, Enter to confirm)."
+    done
     BACKUP_DEV="$selected"
 
     # Determine if this needs formatting
@@ -391,7 +400,9 @@ Please connect a secondary drive and re-run the wizard."
     fstype=$(lsblk -no FSTYPE "$BACKUP_DEV" 2>/dev/null || echo "")
 
     if [[ -z "$fstype" ]] || [[ "$fstype" != "btrfs" ]]; then
-        if ui_confirm_destructive "Format Drive" \
+        if $DRY_RUN; then
+            _format_backup_drive
+        elif ui_confirm_destructive "Format Drive" \
             "The selected device ($BACKUP_DEV) is not BTRFS.
 
 It needs to be formatted as BTRFS for backup storage.
@@ -531,7 +542,7 @@ _ensure_backup_mounted() {
         # Remove stale fstab entry for BACKUP_MOUNT if one exists
         if findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1; then
             local tmp_clean
-            tmp_clean=$(mktemp)
+            tmp_clean=$(mktemp /etc/fstab.tmp.XXXXXX)
             awk -v mp="$BACKUP_MOUNT" -v mp_esc="${BACKUP_MOUNT// /\\040}" '$2 != mp && $2 != mp_esc' /etc/fstab > "$tmp_clean"
             backup_file /etc/fstab || { rm -f "$tmp_clean"; die "Aborted by user: declined /etc/fstab modification."; }
             mv -T "$tmp_clean" /etc/fstab
@@ -541,7 +552,7 @@ _ensure_backup_mounted() {
 
         # Add the new fstab entry
         local tmp_fstab
-        tmp_fstab=$(mktemp)
+        tmp_fstab=$(mktemp /etc/fstab.tmp.XXXXXX)
         cp /etc/fstab "$tmp_fstab"
 
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
@@ -589,47 +600,47 @@ run_dry_run_simulation() {
     for l in "${SELECTED_LAYERS[@]}"; do
         local pkgs
         pkgs=$(get_layer_packages "$l")
-        [[ -n "$pkgs" ]] && pkg_info+="  Layer $l: $pkgs\n"
+        [[ -n "$pkgs" ]] && pkg_info+="  Layer $l: $pkgs"$'\n'
     done
 
     # 2. Collect actions per layer
     local actions=""
     if layer_selected "$LAYER_SNAPPER"; then
-        actions+="• Layer 1 (Snapper):\n"
-        actions+="  - Configure /etc/snapper/configs/root\n"
-        actions+="  - Enable snapper-cleanup.timer\n"
+        actions+="• Layer 1 (Snapper):"$'\n'
+        actions+="  - Configure /etc/snapper/configs/root"$'\n'
+        actions+="  - Enable snapper-cleanup.timer"$'\n'
         case "$DETECTED_BOOTLOADER" in
-        grub) actions+="  - Enable grub-btrfsd.service\n" ;;
-        limine) actions+="  - limine-snapper-sync boot integration\n" ;;
-        systemd-boot) actions+="  - Manual snapshot swap rollback\n" ;;
+        grub) actions+="  - Enable grub-btrfsd.service"$'\n' ;;
+        limine) actions+="  - limine-snapper-sync boot integration"$'\n' ;;
+        systemd-boot) actions+="  - Manual snapshot swap rollback"$'\n' ;;
         esac
     fi
 
     if layer_selected "$LAYER_BTRBK"; then
-        actions+="• Layer 2 (btrbk):\n"
-        actions+="  - Configure $BTRBK_CONF\n"
-        actions+="  - Target: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/OS_Backup\n"
-        actions+="  - Create systemd override (Nice=19, Idle I/O)\n"
-        actions+="  - Enable btrbk.timer (daily clones)\n"
+        actions+="• Layer 2 (btrbk):"$'\n'
+        actions+="  - Configure $BTRBK_CONF"$'\n'
+        actions+="  - Target: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/OS_Backup"$'\n'
+        actions+="  - Create systemd override (Nice=19, Idle I/O)"$'\n'
+        actions+="  - Enable btrbk.timer (daily clones)"$'\n'
     fi
 
     if layer_selected "$LAYER_PIKA"; then
-        actions+="• Layer 3 (Pika Backup):\n"
-        actions+="  - Borg repo: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Personal/backup-${DETECTED_HOSTNAME}-${DETECTED_USER}\n"
-        actions+="  - Guided GUI setup (hourly schedule, retention)\n"
+        actions+="• Layer 3 (Pika Backup):"$'\n'
+        actions+="  - Borg repo: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Personal/backup-${DETECTED_HOSTNAME}-${DETECTED_USER}"$'\n'
+        actions+="  - Guided GUI setup (hourly schedule, retention)"$'\n'
     fi
 
     if layer_selected "$LAYER_CLOUD"; then
-        actions+="• Layer 4 (Cloud Offsite):\n"
-        actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh\n"
-        actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh\n"
-        actions+="  - System timer (running as user): pika-cloud-sync.timer\n"
-        actions+="  - Shell startup nag integration: ${DETECTED_SHELL}\n"
+        actions+="• Layer 4 (Cloud Offsite):"$'\n'
+        actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh"$'\n'
+        actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh"$'\n'
+        actions+="  - System timer (running as user): pika-cloud-sync.timer"$'\n'
+        actions+="  - Shell startup nag integration: ${DETECTED_SHELL}"$'\n'
     fi
 
     if layer_selected "$LAYER_DEEP"; then
-        actions+="• Layer 5 (Deep Storage):\n"
-        actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage\n"
+        actions+="• Layer 5 (Deep Storage):"$'\n'
+        actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage"$'\n'
     fi
 
     # Also render scripts and runbooks into preview dir
