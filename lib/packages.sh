@@ -328,7 +328,7 @@ Expected a value between 1 and 5."
     local pacman_pkgs=()
     local aur_pkgs=()
 
-    local -a pkg_list
+    local -a pkg_list=()
     local aur_name
     if [[ -n "$all_pkgs" ]]; then
         # Use mapfile to handle multi-line output safely
@@ -339,7 +339,7 @@ Expected a value between 1 and 5."
         read -ra pkg_list <<< "$_flat"
     fi
     local _invalid_re='[][[:space:]/@#;|&$]'
-    for pkg in "${pkg_list[@]}"; do
+    for pkg in "${pkg_list[@]+"${pkg_list[@]}"}"; do
         [[ -z "$pkg" ]] && continue
         # Reject tokens that are clearly not valid package names
         if [[ "$pkg" =~ $_invalid_re ]]; then
@@ -356,6 +356,12 @@ Expected a value between 1 and 5."
     done
 
     if [[ ${#pacman_pkgs[@]} -eq 0 && ${#aur_pkgs[@]} -eq 0 ]]; then
+        # Layer 1 with systemd-boot legitimately has only base packages;
+        # only error if the layer is expected to produce AUR packages but none were parsed.
+        if [[ "$layer" -eq 1 && "${DETECTED_BOOTLOADER:-}" == "systemd-boot" ]]; then
+            log_info "Layer 1 (systemd-boot): no snapshot-integration package available; base packages only."
+            return 0
+        fi
         log_error "install_layer_packages: layer $layer produced no valid packages; aborting"
         ui_msgbox "Config Error" \
             "Layer $layer resolved to zero installable packages.

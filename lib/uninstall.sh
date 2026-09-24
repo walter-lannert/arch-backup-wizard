@@ -52,12 +52,16 @@ This will NOT remove:
     if [[ -f /etc/conf.d/snapper ]]; then
         backup_file /etc/conf.d/snapper || true
         sed -E -i '/^SNAPPER_CONFIGS=/ { s/\broot\b//g; s/[[:space:]]+/ /g; s/" /"/; s/ "/"/ }' /etc/conf.d/snapper
+        # Comment out SNAPPER_CONFIGS if it resolved to an empty list
+        if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper 2>/dev/null; then
+            sed -i 's/^SNAPPER_CONFIGS=""/# SNAPPER_CONFIGS="" (cleared by Arch Backup Wizard uninstall)/' /etc/conf.d/snapper
+        fi
     fi
 
     if grep -q '# BEGIN Arch Backup Wizard' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
         backup_file /etc/fstab || log_warn "Could not create backup of /etc/fstab prior to cleaning"
         # Handle legacy uninstalls and new BEGIN/END tags
-        sed -i -z 's/\n# Arch Backup Wizard Mount\n[^\n]*\n//g' /etc/fstab 2>/dev/null || true
+        sed -i -z 's/\(^|\n)# Arch Backup Wizard Mount\n[^\n]*\n/\1/g' /etc/fstab 2>/dev/null || true
         sed -i '/# BEGIN Arch Backup Wizard/,/# END Arch Backup Wizard/d' /etc/fstab 2>/dev/null || true
         log_info "Removed managed entry from /etc/fstab"
     fi
@@ -123,6 +127,11 @@ This will NOT remove:
         rm -f "$manifest_file"
         rm -f "$ORIG_MANIFEST" 2>/dev/null || true
         rmdir "/var/lib/arch-backup-wizard" 2>/dev/null || true
+    fi
+
+    # Clean up pika-cloud-sync state directory if it is now empty
+    if [[ -d /var/lib/pika-cloud-sync ]] && [[ -z "$(ls -A /var/lib/pika-cloud-sync 2>/dev/null)" ]]; then
+        rmdir /var/lib/pika-cloud-sync 2>/dev/null || true
     fi
 
     local home
