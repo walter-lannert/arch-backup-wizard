@@ -34,9 +34,9 @@ setup_layer5() {
     local _rejected_prefixes=(
         "/dev" "/proc" "/sys" "/run" "/boot/efi"
     )
-    local _rp
+    local _rp _rp_noslash
     _rp="$(realpath -m -- "${BACKUP_MOUNT}" 2>/dev/null)" || _rp="${BACKUP_MOUNT}"
-    local _rp_noslash="${_rp%/}"
+    _rp_noslash="${_rp%/}"
     for _prefix in "${_rejected_prefixes[@]}"; do
         if [[ "${_rp_noslash}" == "${_prefix}" || "${_rp_noslash}" == "${_prefix}"/* ]]; then
             log_error "BACKUP_MOUNT '${BACKUP_MOUNT}' resolves to a special/virtual filesystem (${_prefix})."
@@ -61,6 +61,18 @@ setup_layer5() {
         return 1
     fi
 
+    # Reject ephemeral / in-memory filesystems: a "Deep Storage" directory
+    # on tmpfs or ramfs is lost on reboot, defeating the archival purpose.
+    local _fstype
+    _fstype="$(stat -f -c '%T' "${BACKUP_MOUNT}" 2>/dev/null)" || _fstype=""
+    case "${_fstype}" in
+        tmpfs|ramfs|devtmpfs|efivarfs|cgroup*|proc|sysfs|debugfs|tracefs|securityfs|pstore|bpf|configfs|fusectl|mqueue|hugetlbfs|nsfs|rpc_pipefs|autofs|binfmt_misc|selinuxfs)
+            log_error "BACKUP_MOUNT '${BACKUP_MOUNT}' is on an ephemeral filesystem (${_fstype}). Data would be lost on reboot."
+            ui_msgbox "Configuration Error" "The backup drive is on an in-memory or virtual filesystem. Data stored here will be lost on reboot. Please select a persistent block-device partition."
+            return 1
+            ;;
+    esac
+
     local deep_storage_dir="${BACKUP_MOUNT%/}/Deep Storage"
     if [[ -L "$deep_storage_dir" ]]; then
         log_error "Deep Storage path '${deep_storage_dir}' is a symlink. Refusing to proceed."
@@ -69,7 +81,6 @@ setup_layer5() {
     fi
     # Re-verify the mount is still live immediately before mutating the tree.
     if command -v mountpoint &>/dev/null; then
-        local _rp
         _rp="$(realpath -m -- "${BACKUP_MOUNT}" 2>/dev/null)" || _rp="${BACKUP_MOUNT}"
         if ! mountpoint -q "${_rp}" 2>/dev/null; then
             log_error "Backup drive was unmounted during setup. Aborting."
@@ -94,9 +105,11 @@ setup_layer5() {
         log_error "Cannot create lock file '${_lockfile}'."
         return 1
     fi
-    # exec is a special builtin: a redirection failure would exit the shell
-    # before any || / if-! guard could fire.  The touch() call above already
-    # validated that the path is creatable and writable, so this is safe.
+    chmod 0600 "$_lockfile" 2>/dev/null || true
+    # exec is a special builtin: in a non-interactive shell a failed
+    # redirection exits the shell before any || / if-! guard can fire.
+    # The touch() call above already validated that the file exists and
+    # is writable, so this redirection is safe.
     exec 9<>"$_lockfile"
     if ! command -v flock &>/dev/null; then
         log_warn "flock(1) not found; falling back to mkdir-based lock."
@@ -112,6 +125,7 @@ setup_layer5() {
     elif ! flock -n 9; then
         log_error "Another instance of Layer 5 setup is already running."
         ui_msgbox "Busy" "Another setup is in progress. Please wait."
+        exec 9>&-
         return 1
     fi
 
