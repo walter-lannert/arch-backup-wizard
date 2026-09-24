@@ -99,10 +99,19 @@ setup_layer3() {
     local -a selected_exclusions=()
     if [[ -n "$raw_exclusions" ]]; then
         # Dialog outputs space-separated quoted tags.
-        # Parse safely without eval: strip surrounding quotes, split on whitespace.
+        # Parse by respecting quoted groups (handles multi-word tags like "VirtualBox VMs").
         local _cleaned
         _cleaned="${raw_exclusions//\"/}"
-        read -ra selected_exclusions <<< "$_cleaned"
+        # Re-quote each whitespace-delimited token that was originally quoted,
+        # then use a safe word-split that preserves multi-word entries.
+        # Strategy: replace the known multi-word tags with a placeholder, split, then restore.
+        local _tmp="${_cleaned//VirtualBox VMs/__VB_VM__}"
+        read -ra selected_exclusions <<< "$_tmp"
+        local -a _restored=()
+        for _tok in "${selected_exclusions[@]}"; do
+            _restored+=("${_tok//__VB_VM__/VirtualBox VMs}")
+        done
+        selected_exclusions=("${_restored[@]}")
     fi
     log_info "Selected exclusions: ${selected_exclusions[*]:-(none)}"
 
@@ -127,7 +136,7 @@ setup_layer3() {
                 count=1
             elif ((count < 3)) && ((${#current_bullet} + ${#display_path} + 2 <= 64)); then
                 current_bullet+=", ${display_path}"
-                ((count++))
+                count=$((count + 1))
             else
                 formatted_exclusions+="${current_bullet}"$'\n'
                 current_bullet="      • ${display_path}"
@@ -137,7 +146,6 @@ setup_layer3() {
         [[ -n "$current_bullet" ]] && formatted_exclusions+="${current_bullet}"
     fi
 
-    local DLG_H=22
     ui_msgbox "Pika Backup Setup" \
         "Pika Backup needs to be configured through its GUI.
 
@@ -161,20 +169,24 @@ $formatted_exclusions
         if ! command -v pika-backup &>/dev/null; then
             log_warn "pika-backup binary not found on PATH. Please launch it manually from the application menu."
             ui_msgbox "Pika Backup" "pika-backup was not found on PATH. Please launch it from your application menu."
-            return 0
+            # Do NOT return 0 — the layer is not configured.
+            # Fall through to Step 7 so the user can confirm (or deny) and
+            # Step 8 will report the repo as uninitialised.
+            log_warn "Skipping auto-launch; proceeding to manual confirmation."
+        else
+            local target_uid
+            target_uid=$(id -u "$target_user" 2>/dev/null) || {
+                log_error "Could not resolve UID for user '$target_user'."
+                return 1
+            }
+            local _log="${LOG_FILE:-/tmp/pika-backup-launch.log}"
+            run_as_user env DISPLAY="${DISPLAY:-:0}" \
+                WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+                XDG_RUNTIME_DIR="/run/user/${target_uid}" \
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${target_uid}/bus" \
+                pika-backup >>"$_log" 2>&1 &
+            disown $! 2>/dev/null || true
         fi
-        local target_uid
-        target_uid=$(id -u "$target_user" 2>/dev/null) || {
-            log_error "Could not resolve UID for user '$target_user'."
-            return 1
-        }
-        local _log="${LOG_FILE:-/tmp/pika-backup-launch.log}"
-        run_as_user env DISPLAY="${DISPLAY:-:0}" \
-            WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
-            XDG_RUNTIME_DIR="/run/user/${target_uid}" \
-            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${target_uid}/bus" \
-            pika-backup >>"$_log" 2>&1 &
-        disown $! 2>/dev/null || true
     fi
 
     # 7. Ask the user to confirm when they've finished configuring Pika
