@@ -3,7 +3,7 @@
 
 # ── Query helpers ─────────────────────────────────────────────────────────────
 
-# Check if a package is installed
+# Check if a package is installed (used by backup/restore modules)
 pkg_is_installed() {
     [[ -n "${1:-}" ]] || return 1
     pacman -Qi "$1" &>/dev/null
@@ -30,7 +30,14 @@ Check the wizard configuration."
     log_info "Installing via pacman: ${to_install[*]}"
     ui_infobox "Installing Packages" "Installing: ${to_install[*]}..."
 
-    if ! pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
+    if ! run_as_user sudo -v 2>>"$LOG_FILE"; then
+        log_error "sudo authentication failed; cannot proceed with pacman install"
+        ui_msgbox "Privilege Error" \
+            "sudo authentication failed.
+Please verify your user has sudo access and try again."
+        return 1
+    fi
+    if ! run_as_user pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         log_error "pacman install failed: ${to_install[*]}"
         ui_msgbox "Package Error" \
             "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
@@ -106,7 +113,7 @@ get_layer_packages() {
         limine) pkgs+=" AUR:limine-snapper-sync inotify-tools" ;;
         systemd-boot) ;;  # no snapshot-integration package available
         *)
-            log_info "No snapshot-integration package for bootloader: ${DETECTED_BOOTLOADER:-unknown}"
+            log_info "No snapshot-integration package for bootloader: ${DETECTED_BOOTLOADER:-unknown}" >&2
             ;;
         esac
         echo "$pkgs"
@@ -123,17 +130,26 @@ get_layer_packages() {
 install_layer_packages() {
     local layer="$1"
     local all_pkgs
-    all_pkgs=$(get_layer_packages "$layer")
+    if ! all_pkgs=$(get_layer_packages "$layer"); then
+        log_error "get_layer_packages failed for layer $layer"
+        return 1
+    fi
 
     local pacman_pkgs=()
     local aur_pkgs=()
 
     local -a pkg_list=()
+    local aur_name
     [[ -n "$all_pkgs" ]] && read -ra pkg_list <<< "$all_pkgs"
     for pkg in "${pkg_list[@]}"; do
         [[ -z "$pkg" ]] && continue
+        # Reject tokens that are clearly not valid package names (contain spaces, brackets, etc.)
+        if [[ "$pkg" =~ [[:space:]]|\[|\] ]]; then
+            log_error "Skipping invalid token from layer $layer: '$pkg'" >&2
+            continue
+        fi
         if [[ "$pkg" == AUR:* ]]; then
-            local aur_name="${pkg#AUR:}"
+            aur_name="${pkg#AUR:}"
             [[ -n "$aur_name" ]] || { log_error "Empty AUR package name in layer $layer"; return 1; }
             aur_pkgs+=("$aur_name")
         else
@@ -166,9 +182,17 @@ ensure_dialog() {
             echo "FATAL: LOG_FILE is unset or not writable. Check the wizard configuration." >&2
             exit 1
         fi
-        pacman -S --noconfirm --needed dialog >>"$LOG_FILE" 2>&1 || {
+        run_as_user sudo -v 2>>"$LOG_FILE" || {
+            echo "FATAL: sudo authentication failed. Verify sudo access." >&2
+            exit 1
+        }
+        run_as_user pacman -S --noconfirm --needed dialog >>"$LOG_FILE" 2>&1 || {
             echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
             exit 1
         }
+        if ! cmd_exists dialog && ! cmd_exists whiptail; then
+            echo "FATAL: 'dialog' was installed but is not found in PATH. Check your PATH." >&2
+            exit 1
+        fi
     fi
 }
