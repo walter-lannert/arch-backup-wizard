@@ -44,6 +44,17 @@ setup_layer2() {
         return 1
     fi
 
+    local _tgt_fstype
+    _tgt_fstype=$(findmnt -no FSTYPE --target "$backup_mount" 2>/dev/null)
+    if [[ "$_tgt_fstype" != "btrfs" ]]; then
+        log_error "Backup target $backup_mount is filesystem type '$_tgt_fstype'. btrbk send-receive requires btrfs on the target."
+        ui_msgbox "Configuration Error" \
+            "The backup drive at $backup_mount is $_tgt_fstype, not btrfs.
+btrbk send-receive requires a btrfs target.
+Please format the backup drive as btrfs and re-run Layer 2."
+        return 1
+    fi
+
     # Verify the backup target is on a different physical device than every
     # source subvolume mount.
     local _src_dev _bdev
