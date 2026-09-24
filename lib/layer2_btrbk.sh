@@ -26,6 +26,10 @@ setup_layer2() {
 
     if [[ -z "${BACKUP_MOUNT:-}" ]]; then
         log_error "BACKUP_MOUNT is not set. Layer 2 requires a configured backup drive."
+        return 1
+    fi
+    if [[ -z "${SNAP_DIR_BTRBK:-}" ]]; then
+        log_error "SNAP_DIR_BTRBK is not set. Layer 2 requires SNAP_DIR_BTRBK to be configured."
         ui_msgbox "Configuration Error" "Backup mount point is not set. Please configure the backup drive first."
         return 1
     fi
@@ -62,6 +66,7 @@ Please format the backup drive as btrfs and re-run Layer 2."
         log_error "Cannot determine device ID for $backup_mount."
         return 1
     }
+    local mnt
     for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
         mnt="${mount_pair%%:*}"
         _src_dev=$(stat -c '%d' "$mnt" 2>/dev/null) || continue
@@ -171,7 +176,7 @@ EOF
 
         # Warn if this is the top-level subvolume (snapshot shares the same pool).
         local _top
-        _top=$(btrfs subvolume list -s "$mnt" 2>/dev/null | awk '$1=="ID 5" {print $NF}')
+        _top=$(btrfs subvolume list -s "$mnt" 2>/dev/null | awk '$2=="5" {print $NF}')
         if [[ -n "$_top" && "$_top" == "." ]]; then
             log_warn "Mount $mnt appears to be the top-level btrfs subvolume. Snapshots share the same allocation pool as the data."
         fi

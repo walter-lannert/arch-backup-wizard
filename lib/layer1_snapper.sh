@@ -24,11 +24,18 @@ setup_layer1() {
         log_info "Snapper root configuration already exists. Skipping subvolume creation."
     else
         # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS/EndeavourOS)
+        if [[ -z "${SNAP_DIR:-}" ]]; then
+            log_error "SNAP_DIR is not set. Layer 1 requires SNAP_DIR to be configured."
+            return 1
+        fi
         if mountpoint -q "$SNAP_DIR" 2>/dev/null || findmnt -n "$SNAP_DIR" &>/dev/null; then
             log_info "Unmounting pre-existing /.snapshots subvolume mount..."
             umount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
-                log_error "Failed to unmount $SNAP_DIR"
-                return 1
+                log_warn "Normal unmount of $SNAP_DIR failed; attempting lazy unmount..."
+                umount -l "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                    log_error "Failed to unmount $SNAP_DIR (even with lazy unmount)"
+                    return 1
+                }
             }
         fi
 
@@ -37,7 +44,7 @@ setup_layer1() {
         if [[ -e "$SNAP_DIR" ]]; then
             if btrfs subvolume show "$SNAP_DIR" &>/dev/null; then
                 log_info "Deleting existing unmounted /.snapshots subvolume on root..."
-                btrfs subvolume delete "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
+                btrfs subvolume delete -r "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to delete /.snapshots subvolume"
                     return 1
                 }
