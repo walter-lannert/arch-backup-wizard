@@ -39,7 +39,7 @@ ui_msgbox() {
     [[ "${UI_SILENT:-false}" == "true" ]] && return 0
     _ui_ensure_backend
     local title="$1" text="$2"
-    $DIALOG_CMD --title "$title" --msgbox "$text" $DLG_H $DLG_W
+    $DIALOG_CMD --title "$title" --msgbox "$text" $DLG_H $DLG_W || true
 }
 
 # Yes / No dialog.  Returns 0 = Yes, 1 = No.
@@ -92,7 +92,7 @@ ui_infobox() {
     [[ "${UI_SILENT:-false}" == "true" ]] && return 0
     _ui_ensure_backend
     local title="$1" text="$2"
-    $DIALOG_CMD --title "$title" --infobox "$text" $DLG_H $DLG_W
+    $DIALOG_CMD --title "$title" --infobox "$text" $DLG_H $DLG_W || true
 }
 
 # ── Compound helpers ──────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ ui_textbox() {
     [[ "${UI_SILENT:-false}" == "true" ]] && return 0
     _ui_ensure_backend
     local title="$1" file="$2"
-    $DIALOG_CMD --title "$title" --textbox "$file" $DLG_H $DLG_W
+    $DIALOG_CMD --title "$title" --textbox "$file" $DLG_H $DLG_W || true
 }
 
 # Confirm before a destructive action (defaults to No)

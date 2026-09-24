@@ -171,10 +171,16 @@ detect_system_devices() {
     DETECTED_SYSTEM_DEVS=()
     local critical_mounts=()
     local fstype devs dev canonical_d tree dev_node canonical_k swaps canonical_swp
-    mapfile -t critical_mounts < <(lsblk -rno MOUNTPOINT 2>/dev/null | grep -v '^$' | grep -v '\[SWAP\]' | grep -vE '^(/run/media|/mnt)' || true)
+    # Only include mountpoints belonging to root filesystem subvolumes
+    if [[ -n "${DETECTED_ROOT_UUID:-}" ]]; then
+        mapfile -t critical_mounts < <(findmnt -n -l -o TARGET -S "UUID=$DETECTED_ROOT_UUID" 2>/dev/null || true)
+    elif [[ -n "${DETECTED_ROOT_DEV:-}" ]]; then
+        mapfile -t critical_mounts < <(findmnt -n -l -o TARGET -S "$DETECTED_ROOT_DEV" 2>/dev/null || true)
+    fi
 
     # Ensure standard mounts are checked even if unmounted currently (if they somehow exist)
     critical_mounts+=(/ /boot /boot/efi /efi)
+    mapfile -t critical_mounts < <(printf "%s\n" "${critical_mounts[@]}" | sort -u)
 
     for mnt in "${critical_mounts[@]}"; do
         fstype=$(findmnt -n -o FSTYPE "$mnt" 2>/dev/null || true)

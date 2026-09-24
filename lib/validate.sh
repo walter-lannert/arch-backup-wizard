@@ -465,8 +465,8 @@ run_validation() {
         done
     fi
 
-    if [[ -t 1 ]] && command -v "${DIALOG_CMD:-dialog}" &>/dev/null; then
-        ui_msgbox "Validation Results" "$dashboard"
+    if [[ "${VALIDATE:-false}" != "true" ]] && [[ -t 1 ]] && [[ -n "${DIALOG_CMD:-}" ]] && command -v "$DIALOG_CMD" &>/dev/null; then
+        ui_msgbox "Validation Results" "$dashboard" || true
     fi
     echo "$dashboard"
 
