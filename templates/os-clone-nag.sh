@@ -49,7 +49,7 @@ LAST_RUN_FILE="{{DETECTED_HOME}}/.last_cloud_run"
 
 LAST_RUN=""
 if [ -f "$LAST_RUN_FILE" ]; then
-    LAST_RUN=$(cat "$LAST_RUN_FILE")
+    LAST_RUN=$(tr -d '[:space:]' < "$LAST_RUN_FILE" 2>/dev/null)
 fi
 
 if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
@@ -58,7 +58,13 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
         # Treat marker as stale if older than 4 hours (backup should never take that long)
         STALE_THRESHOLD=$((4 * 3600))
         NOW_EPOCH=$(date +%s)
-        FILE_EPOCH=$(stat -c %Y "$IN_PROGRESS_FILE" 2>/dev/null || echo 0)
+        FILE_EPOCH=$(stat -c %Y "$IN_PROGRESS_FILE" 2>/dev/null)
+        if [ -z "$FILE_EPOCH" ]; then
+            # Cannot determine age; treat as in-progress (fail-safe: do NOT remove)
+            flock -u 9 2>/dev/null || true
+            rm -f "$LOCK_FILE" 2>/dev/null || true
+            exit 0
+        fi
         AGE=$((NOW_EPOCH - FILE_EPOCH))
         if [ "$AGE" -gt "$STALE_THRESHOLD" ]; then
             printf 'os-clone-nag: removing stale in-progress marker (age=%ds)\n' "$AGE" \
@@ -71,7 +77,8 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
         fi
     fi
 
-    sleep 5
+    sleep 5 &
+    wait $! 2>/dev/null
 
     ZENITY_RC=0
     timeout --kill-after=10 120 zenity --question --title="OS Cloud Backup Due" \
@@ -87,7 +94,7 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
                 >> "{{DETECTED_HOME}}/.os_clone_nag.log" 2>/dev/null
         else
             OCN_HOME="{{DETECTED_HOME}}" OCN_TARGET="$CURRENT_TARGET" \
-            {{DETECTED_TERMINAL_CMD}} setsid bash -c 'IP="$OCN_HOME/.os_cloud_backup.in_progress"; rc=0; "$OCN_HOME/.os_cloud_backup.sh" || rc=$?; rm -f "$IP" 2>/dev/null || true; if [ "$rc" -eq 0 ]; then printf "%s\n" "$OCN_TARGET" > "$OCN_HOME/.last_cloud_run" || echo "os-clone-nag: WARNING: backup succeeded but could not stamp .last_cloud_run" >&2; fi; exit "$rc"' \
+            {{DETECTED_TERMINAL_CMD}} setsid bash -c 'IP="$OCN_HOME/.os_cloud_backup.in_progress"; rc=0; if [ ! -x "$OCN_HOME/.os_cloud_backup.sh" ]; then echo "os-clone-nag: ERROR: $OCN_HOME/.os_cloud_backup.sh is missing or not executable" >&2; rc=127; else "$OCN_HOME/.os_cloud_backup.sh" || rc=$?; fi; rm -f "$IP" 2>/dev/null || true; if [ "$rc" -eq 0 ]; then printf "%s\n" "$OCN_TARGET" > "$OCN_HOME/.last_cloud_run" || echo "os-clone-nag: WARNING: backup succeeded but could not stamp .last_cloud_run" >&2; fi; exit "$rc"' \
             || { rm -f "$IN_PROGRESS_FILE" 2>/dev/null || true; printf 'os-clone-nag: WARNING: failed to launch backup terminal (rc=%d)\n' "$?" >&2; printf 'os-clone-nag: WARNING: failed to launch backup terminal (rc=%d) at %s\n' "$?" "$(date -Iseconds)" >> "{{DETECTED_HOME}}/.os_clone_nag.log" 2>/dev/null; }
         fi
     elif [ "$ZENITY_RC" -ne 1 ]; then
@@ -97,6 +104,7 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
     fi
 fi
 
-# Clean up lock file (best-effort)
+# Release lock; leave file in place (flock on a persistent path is the
+# canonical pattern; removing it creates a TOCTOU window with a
+# concurrent opener).
 flock -u 9 2>/dev/null || true
-rm -f "$LOCK_FILE" 2>/dev/null || true
