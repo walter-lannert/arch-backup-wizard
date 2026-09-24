@@ -66,7 +66,7 @@ detect_root_filesystem() {
     DETECTED_ROOT_FS=$(findmnt -n -o FSTYPE / 2>/dev/null || echo "")
     DETECTED_ROOT_DEV=$(findmnt -n --nofsroot -o SOURCE / 2>/dev/null || echo "")
     DETECTED_ROOT_UUID=$(findmnt -n -o UUID / 2>/dev/null || echo "")
-    DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / 2>/dev/null | grep -oP 'subvol=\K[^,]+' || echo "")
+    DETECTED_ROOT_SUBVOL=$(findmnt -n -o OPTIONS / 2>/dev/null | sed -n 's/.*subvol=\([^,]*\).*/\1/p' || echo "")
 
     log_info "Root: $DETECTED_ROOT_FS dev=$DETECTED_ROOT_DEV UUID=$DETECTED_ROOT_UUID subvol=$DETECTED_ROOT_SUBVOL"
 }
@@ -118,7 +118,7 @@ detect_btrfs_subvolumes() {
                     subvol="${subvol#/}"
                     [[ -z "$subvol" ]] && subvol="@"
 
-                    if [[ "$subvol" != *".snapshots"* ]]; then
+                    if [[ "$subvol" != *".snapshots"* && "$subvol" != *"@snapshots"* ]]; then
                         subvol_list+=("$subvol")
                         DETECTED_SUBVOL_MOUNTS+=("$target:$subvol")
                     fi
@@ -141,7 +141,7 @@ detect_btrfs_subvolumes() {
         # Check for unmounted nested subvolumes (Audit-036)
         DETECTED_UNMOUNTED_SUBVOLS=""
         local all_subvols
-        all_subvols=$(btrfs subvolume list -o / 2>/dev/null | sed -n 's/.* path //p' | grep -v '\.snapshots' || true)
+        all_subvols=$(btrfs subvolume list -o / 2>/dev/null | sed -n 's/.* path //p' | grep -v 'snapshots' || true)
         local unmounted_subvols=()
         while IFS= read -r s; do
             [[ -z "$s" ]] && continue
@@ -194,7 +194,7 @@ detect_system_devices() {
             DETECTED_SYSTEM_DEVS+=("$d" "$canonical_d")
 
             local tree
-            tree=$(lsblk -s -nlo PATH,KNAME "$d" 2>/dev/null || true)
+            tree=$(lsblk -s -nlo PATH "$d" 2>/dev/null || true)
             for k in $tree; do
                 [[ -z "$k" ]] && continue
                 local dev_node="$k"
@@ -215,7 +215,7 @@ detect_system_devices() {
         DETECTED_SYSTEM_DEVS+=("$swp" "$canonical_swp")
 
         local tree
-        tree=$(lsblk -s -nlo PATH,KNAME "$swp" 2>/dev/null || true)
+        tree=$(lsblk -s -nlo PATH "$swp" 2>/dev/null || true)
         for k in $tree; do
             [[ -z "$k" ]] && continue
             local dev_node="$k"
@@ -267,10 +267,10 @@ detect_existing_backup_drive() {
         local fstype="${BASH_REMATCH[3]:-}"
 
         local is_managed_fstab=false
-        if awk -v t1="$target" -v t2="${target// /\\040}" '
+        if TARGET="$target" awk '
             /# BEGIN Arch Backup Wizard/{f=1; next}
             /# END Arch Backup Wizard/{f=0}
-            f && ($2 == t1 || $2 == t2) {found=1}
+            f && $2 == ENVIRON["TARGET"] {found=1}
             END{exit !found}
         ' /etc/fstab 2>/dev/null; then
             is_managed_fstab=true
