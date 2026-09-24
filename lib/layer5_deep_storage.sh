@@ -19,8 +19,11 @@ setup_layer5() {
         return 1
     fi
 
-    # Reject the filesystem root — creating /Deep Storage defeats the purpose
-    if [[ "${BACKUP_MOUNT%/}" == "" || "${BACKUP_MOUNT%/}" == "/" ]]; then
+    # Reject the filesystem root — creating /Deep Storage defeats the purpose.
+    # Normalise first so /./, /../, ///, etc. are all caught.
+    local _norm
+    _norm="$(realpath -m -- "${BACKUP_MOUNT}" 2>/dev/null)" || _norm="${BACKUP_MOUNT}"
+    if [[ "${_norm%/}" == "" || "${_norm%/}" == "/" ]]; then
         log_error "BACKUP_MOUNT must not be the filesystem root '/'. Select a specific backup partition."
         ui_msgbox "Configuration Error" "The backup mount point cannot be the root filesystem. Please select a dedicated backup partition."
         return 1
@@ -36,7 +39,7 @@ setup_layer5() {
     # Must be a real mount point (guards against unmounted-drive scenario)
     if ! command -v mountpoint &>/dev/null; then
         log_warn "mountpoint(1) not found; skipping mount-point verification."
-    elif ! mountpoint -q "${BACKUP_MOUNT}" 2>/dev/null; then
+    elif ! mountpoint -q "$(realpath -m -- "${BACKUP_MOUNT}" 2>/dev/null || echo "${BACKUP_MOUNT}")" 2>/dev/null; then
         log_error "BACKUP_MOUNT '${BACKUP_MOUNT}' is not a mount point. The backup drive may be disconnected."
         ui_msgbox "Configuration Error" "The backup drive is not mounted. Please reconnect and re-select it."
         return 1
@@ -44,6 +47,11 @@ setup_layer5() {
 
     local deep_storage_dir="${BACKUP_MOUNT%/}/Deep Storage"
     local created=0
+    if [[ -L "$deep_storage_dir" ]]; then
+        log_error "Deep Storage path '${deep_storage_dir}' is a symlink. Refusing to proceed."
+        ui_msgbox "Configuration Error" "The Deep Storage path is a symbolic link. Remove it and re-run."
+        return 1
+    fi
     if [[ ! -d "$deep_storage_dir" ]]; then
         created=1
     fi
@@ -57,6 +65,11 @@ setup_layer5() {
         fi
     fi
 
+    if [[ ! -w "${BACKUP_MOUNT}" ]]; then
+        log_error "Backup mount point '${BACKUP_MOUNT}' is not writable (read-only mount?)."
+        ui_msgbox "Configuration Error" "The backup drive is mounted read-only. Remount it read-write and re-run."
+        return 1
+    fi
     mkdir -p "$deep_storage_dir" || {
         log_error "Failed to create $deep_storage_dir"
         return 1
