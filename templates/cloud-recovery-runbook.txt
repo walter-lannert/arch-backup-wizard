@@ -124,7 +124,7 @@ STEP 2: PARTITION AND FORMAT NEW NVME / SSD
    echo "New Root UUID: $NEW_ROOT_UUID"
 
    # Persist recovery variables for cross-session safety
-   cat > /tmp/recovery_env.sh <<'ENVEOF'
+   cat > /tmp/recovery_env.sh <<ENVEOF
 NEW_EFI_UUID="${NEW_EFI_UUID}"
 NEW_ROOT_UUID="${NEW_ROOT_UUID}"
 ENVEOF
@@ -208,7 +208,7 @@ STEP 4: SET '{{DETECTED_ROOT_SUBVOL_STR}}' AS BTRFS DEFAULT SUBVOLUME
 --------------------------------------------------------------------------------
 Find the subvolume ID of '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as the default:
 
-  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep -P "\tpath \Q{{DETECTED_ROOT_SUBVOL_STR}}\E$" | awk '{print $2}')
+  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | awk -v sv="{{DETECTED_ROOT_SUBVOL_STR}}" '$NF == sv {print $2}')
   if [[ -z "$ROOT_SUBVOL_ID" ]]; then
       echo "FATAL: subvolume '{{DETECTED_ROOT_SUBVOL_STR}}' not found in /mnt/new_os." >&2
       echo "  Available subvolumes:" >&2
@@ -344,7 +344,11 @@ source /tmp/recovery_env.sh
        bootctl --path={{EFI_MOUNT_PATH}} install
        # If ESP is separate (e.g. /efi), ensure kernel & initramfs are present on the ESP:
        if [ "{{EFI_MOUNT_PATH}}" != "/boot" ]; then
-           ls /boot/vmlinuz-* &>/dev/null && cp -a /boot/vmlinuz-* /boot/initramfs-*.img /boot/*-ucode.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+           cp -a /boot/vmlinuz-* "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+           cp -a /boot/initramfs-*.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+           cp -a /boot/*-ucode.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+           ls "{{EFI_MOUNT_PATH}}"/vmlinuz-* &>/dev/null \
+               || { echo "FATAL: no kernel image on ESP after copy." >&2; exit 1; }
        fi
        # Ensure loader entries and kernel cmdline reflect the restored root UUID after pacman hook regeneration:
        CURRENT_ROOT_UUID=$(findmnt -n -o UUID /)
