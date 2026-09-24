@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Pika cloud sync staleness; alert and force sync if gap exceeds 8 days
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sh -c 'STATE="/var/lib/pika-cloud-sync/state"; if [ -f "$STATE" ]; then LAST=$(cat "$STATE" 2>/dev/null); NOW=$(date +%s); GAP=$((NOW - LAST)); if [ "$GAP" -gt 691200 ]; then echo "ALERT: Pika cloud sync is $((GAP / 86400)) days stale" >&2; systemctl start pika-cloud-sync.service; fi; fi'
+
+[Install]
+WantedBy=multi-user.target
