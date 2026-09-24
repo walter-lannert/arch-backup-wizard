@@ -18,7 +18,7 @@ IOSchedulingClass=idle
 # relies on this file existing while the service is active.
 ExecStartPre=+/usr/bin/sh -c 'mkdir -p /run/pika-cloud-sync && touch /run/pika-cloud-sync/active'
 # Ensure any stale snapshots from previous hard crashes are destroyed first
-ExecStartPre=+/usr/bin/sh -c 'if [ -e "{{BACKUP_MOUNT}}/.pika_sync_snapshot" ]; then if btrfs subvolume list "{{BACKUP_MOUNT}}" 2>/dev/null | awk "{print \$NF}" | grep -qxF ".pika_sync_snapshot"; then btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"; else echo "FATAL: .pika_sync_snapshot exists but is not a btrfs subvolume; manual intervention required" >&2; exit 1; fi; fi'
+ExecStartPre=+/usr/bin/sh -c 'if [ -e "{{BACKUP_MOUNT}}/.pika_sync_snapshot" ]; then if btrfs subvolume list "{{BACKUP_MOUNT}}" 2>/dev/null | awk "{print \\$NF}" | grep -qxF ".pika_sync_snapshot"; then btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"; else echo "FATAL: .pika_sync_snapshot exists but is not a btrfs subvolume; manual intervention required" >&2; exit 1; fi; fi'
 # Take a read-only snapshot of the backup drive to ensure Borg repo consistency
 ExecStartPre=+/usr/bin/btrfs subvolume snapshot -r "{{BACKUP_MOUNT}}" "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Guard: abort sync before invoking rclone if the Borg repository is missing or invalid
