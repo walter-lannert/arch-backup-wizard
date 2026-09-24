@@ -4,16 +4,15 @@
 # ── Query helpers ─────────────────────────────────────────────────────────────
 
 # Check if a package is installed (used by backup/restore modules)
-pkg_is_installed() {
+pkg_is_intact() {
     [[ -n "${1:-}" ]] || return 1
     pacman -Qi "$1" &>/dev/null || return 1
     # Verify file integrity; return 1 if the package is broken
     pacman -Qkk "$1" &>/dev/null
 }
 
-pkg_is_intact() {
-    pkg_is_installed "$@"
-}
+# Backward-compatible alias (remove after all call-sites are migrated)
+pkg_is_installed() { pkg_is_intact "$@"; }
 
 # ── Shared guards ─────────────────────────────────────────────────────────────
 
@@ -39,12 +38,29 @@ _validate_pkg_name() {
     return 0
 }
 
+# Shared sudo-priming: authenticate, then re-assert token.
+# Returns 0 on success, 1 on failure (caller handles UI messaging).
+_sudo_prime() {
+    if ! run_as_user sudo -v; then
+        return 1
+    fi
+    if ! run_as_user sudo -n true 2>>"${LOG_FILE:-/dev/null}"; then
+        return 1
+    fi
+    return 0
+}
+
 # ── Install from official repos ───────────────────────────────────────────────
 
 pkg_install() {
     local to_install=("$@")
 
     if [[ ${#to_install[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        log_info "[DRY-RUN] Would install via pacman: ${to_install[*]}"
         return 0
     fi
 
@@ -116,8 +132,8 @@ Please re-authenticate and re-run the wizard."
 
     local still_broken=()
     for p in "${to_install[@]}"; do
-        if run_as_user sudo pacman -Qi "$p" &>/dev/null && \
-           ! run_as_user sudo pacman -Qkk "$p" &>/dev/null; then
+        if pacman -Qi "$p" &>/dev/null && \
+           ! pacman -Qkk "$p" &>/dev/null; then
             still_broken+=("$p")
         fi
     done
@@ -160,6 +176,11 @@ Re-run detection or install the helper manually."
     fi
 
     if [[ ${#to_install[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        log_info "[DRY-RUN] Would install via $DETECTED_AUR_HELPER: ${to_install[*]}"
         return 0
     fi
 
@@ -236,8 +257,8 @@ or remove the specific build directory manually, then re-run."
 
     local still_broken=()
     for p in "${to_install[@]}"; do
-        if run_as_user sudo pacman -Qi "$p" &>/dev/null && \
-           ! run_as_user sudo pacman -Qkk "$p" &>/dev/null; then
+        if pacman -Qi "$p" &>/dev/null && \
+           ! pacman -Qkk "$p" &>/dev/null; then
             still_broken+=("$p")
         fi
     done
@@ -307,9 +328,16 @@ Expected a value between 1 and 5."
     local pacman_pkgs=()
     local aur_pkgs=()
 
-    local -a pkg_list=()
+    local -a pkg_list
     local aur_name
-    [[ -n "$all_pkgs" ]] && read -ra pkg_list <<< "$all_pkgs"
+    if [[ -n "$all_pkgs" ]]; then
+        # Use mapfile to handle multi-line output safely
+        local -a _lines=()
+        mapfile -t _lines <<< "$all_pkgs"
+        local _flat
+        _flat="$(printf '%s ' "${_lines[@]}")"
+        read -ra pkg_list <<< "$_flat"
+    fi
     local _invalid_re='[][[:space:]/@#;|&$]'
     for pkg in "${pkg_list[@]}"; do
         [[ -z "$pkg" ]] && continue
@@ -360,12 +388,8 @@ ensure_dialog() {
             echo "FATAL: LOG_FILE is unset, a directory, or not writable. Check the wizard configuration." >&2
             return 1
         fi
-        run_as_user sudo -v || {
-            echo "FATAL: sudo authentication failed. Verify sudo access." >&2
-            return 1
-        }
-        run_as_user sudo -n true 2>>"$LOG_FILE" || {
-            echo "FATAL: sudo token expired before dialog install. Re-authenticate and re-run." >&2
+        _sudo_prime || {
+            echo "FATAL: sudo authentication failed or token expired. Verify sudo access and re-run." >&2
             return 1
         }
         local _dlg="dialog"
