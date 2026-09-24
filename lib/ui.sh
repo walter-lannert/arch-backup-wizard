@@ -30,6 +30,7 @@ DLG_LIST_H=10 # inner list height for menus/checklists
 
 # Message box (OK button only)
 ui_msgbox() {
+    [[ "${UI_SILENT:-false}" == "true" ]] && return 0
     local title="$1" text="$2"
     $DIALOG_CMD --title "$title" --msgbox "$text" $DLG_H $DLG_W
 }
