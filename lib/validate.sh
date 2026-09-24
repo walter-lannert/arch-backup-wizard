@@ -268,12 +268,12 @@ run_validation() {
             else
                 # Extract the remote from the script and test it
                 local cloud_remote
-                cloud_remote=$(grep -oP 'rclone (?:copy|sync|bisync)\s+.*"\K[^"]+(?=")' "${user_home}/.os_cloud_backup.sh" 2>/dev/null | awk -F':' '{print $1":"}' | head -n 1 || true)
+                cloud_remote=$(grep -oP 'rclone (?:copy|copyto|sync|bisync)\s+.*"\K[^"]+(?=")' "${user_home}/.os_cloud_backup.sh" 2>/dev/null | awk -F':' '{print $1":"}' | head -n 1 || true)
                 if [[ -z "$cloud_remote" ]]; then
                     l4_ok=false
                     log_warn "Layer 4 check failed: could not extract rclone remote from ${user_home}/.os_cloud_backup.sh"
                     failure_issues+=("Layer 4: rclone remote not identifiable in .os_cloud_backup.sh")
-                elif ! run_as_user rclone lsd "$cloud_remote" >/dev/null 2>&1; then
+                elif ! run_as_user rclone lsd --contimeout 5s "$cloud_remote" >/dev/null 2>&1; then
                     l4_ok=false
                     log_warn "Layer 4 check failed: 'rclone lsd $cloud_remote' failed"
                     failure_issues+=("Layer 4: rclone connection test failed for $cloud_remote")
