@@ -9,7 +9,9 @@
 
 run_uninstall() {
     require_root
-    [[ -z "${DIALOG_CMD:-}" ]] && detect_dialog
+    if [[ -z "${DIALOG_CMD:-}" ]]; then
+        detect_dialog
+    fi
 
     log_info "══════ Initiating Arch Backup Wizard Uninstall ══════"
     load_settings
