@@ -21,8 +21,26 @@ if blkid /dev/vdb2 2>/dev/null | grep -q btrfs; then
         [[ -f /mnt/cidata/.shellcheckrc ]] && cp /mnt/cidata/.shellcheckrc /mnt/target-update/arch-backup-wizard/
     fi
     [[ -f /mnt/cidata/.shellcheckrc ]] && cp /mnt/cidata/.shellcheckrc /mnt/target-update/arch-backup-wizard/
-    cp /mnt/cidata/run_vm_tests.sh /mnt/target-update/arch-backup-wizard/
-    chmod +x /mnt/target-update/arch-backup-wizard/wizard.sh /mnt/target-update/arch-backup-wizard/run_vm_tests.sh
+    if [[ -f /mnt/cidata/manual_mode ]]; then
+        echo "=== Preparing disk for MANUAL INTERACTIVE WIZARD execution ==="
+        rm -f /mnt/target-update/arch-backup-wizard/run_vm_tests.sh
+        mkdir -p /mnt/target-root
+        mount -o subvol=@ /dev/vdb2 /mnt/target-root
+        rm -f /mnt/target-root/usr/local/bin/dialog
+        rm -f /mnt/target-root/etc/systemd/system/multi-user.target.wants/run-vm-tests.service
+        # Sync wizard to /home/arch as well
+        mkdir -p /mnt/target-home
+        mount -o subvol=@home /dev/vdb2 /mnt/target-home
+        rm -rf /mnt/target-home/arch/arch-backup-wizard
+        cp -a /mnt/target-update/arch-backup-wizard /mnt/target-home/arch/arch-backup-wizard
+        chown -R 1000:1000 /mnt/target-home/arch/arch-backup-wizard || true
+        umount -l /mnt/target-home || true
+        umount -l /mnt/target-root || true
+    else
+        cp /mnt/cidata/run_vm_tests.sh /mnt/target-update/arch-backup-wizard/
+        chmod +x /mnt/target-update/arch-backup-wizard/run_vm_tests.sh
+    fi
+    chmod +x /mnt/target-update/arch-backup-wizard/wizard.sh
     sync
     umount /mnt/target-update
 

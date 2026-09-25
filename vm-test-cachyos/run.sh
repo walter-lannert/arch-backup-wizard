@@ -12,11 +12,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SYNC_CODE=false
+INTERACTIVE=false
 SHOW_HELP=false
 
 for arg in "$@"; do
     case "$arg" in
         --sync)
+            SYNC_CODE=true
+            ;;
+        --interactive|-i)
+            INTERACTIVE=true
             SYNC_CODE=true
             ;;
         --help|-h)
@@ -33,8 +38,9 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "Usage: ./run.sh [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --sync    Sync current repo code into the VM before executing tests"
-    echo "  -h, --help Show this help message"
+    echo "  --sync             Sync current repo code into the VM before executing tests"
+    echo "  --interactive, -i  Sync code, prepare VM for manual interactive use, and connect terminal console"
+    echo "  -h, --help         Show this help message"
     echo ""
     echo "Default (no args): Directly boots the existing VM image and runs the test suite."
     exit 0
@@ -72,13 +78,24 @@ if [[ "$SYNC_CODE" == true ]]; then
     NEW_ID="update-$(date +%s)"
     sed -i "s/^instance-id:.*/instance-id: $NEW_ID/" "$SCRIPT_DIR/cidata/meta-data"
 
+    if [[ "$INTERACTIVE" == true ]]; then
+        touch "$SCRIPT_DIR/cidata/manual_mode"
+    fi
+
+    local_cidata_files=(
+        "$SCRIPT_DIR/cidata/meta-data"
+        "$SCRIPT_DIR/cidata/user-data"
+        "$SCRIPT_DIR/cidata/setup_btrfs.sh"
+        "$SCRIPT_DIR/cidata/run_vm_tests.sh"
+        "$SCRIPT_DIR/cidata/wizard-code"
+    )
+    if [[ -f "$SCRIPT_DIR/cidata/manual_mode" ]]; then
+        local_cidata_files+=("$SCRIPT_DIR/cidata/manual_mode")
+    fi
+
     genisoimage -output "$SCRIPT_DIR/cidata.iso" \
         -volid cidata -joliet -rock -allow-leading-dots \
-        "$SCRIPT_DIR/cidata/meta-data" \
-        "$SCRIPT_DIR/cidata/user-data" \
-        "$SCRIPT_DIR/cidata/setup_btrfs.sh" \
-        "$SCRIPT_DIR/cidata/run_vm_tests.sh" \
-        "$SCRIPT_DIR/cidata/wizard-code" >/dev/null 2>&1
+        "${local_cidata_files[@]}" >/dev/null 2>&1
 
     echo "=== Updating VM disk via cloud-init bootstrap ==="
     nice -n 19 ionice -c 3 qemu-system-x86_64 \
@@ -93,25 +110,54 @@ if [[ "$SYNC_CODE" == true ]]; then
         -net user \
         -serial file:update.log
 
-    rm -rf "$SCRIPT_DIR/cidata/wizard-code" "$SCRIPT_DIR/cidata.iso" "$SCRIPT_DIR/update.log"
+    rm -rf "$SCRIPT_DIR/cidata/wizard-code" "$SCRIPT_DIR/cidata.iso" "$SCRIPT_DIR/update.log" "$SCRIPT_DIR/cidata/manual_mode"
     echo "=== Sync completed successfully ==="
 fi
 
-echo "=== Booting Arch Linux BTRFS VM for Automated Tests ==="
-nice -n 19 ionice -c 3 qemu-system-x86_64 \
-    -enable-kvm \
-    -m 4G \
-    -smp 4 \
-    -nographic \
-    -bios "$OVMF_BIOS" \
-    -drive file=backup.qcow2,format=qcow2,if=virtio \
-    -drive file=backup-drive.qcow2,format=qcow2,if=virtio \
-    -net nic,model=virtio \
-    -net user \
-    -serial file:test_run.log
+if [[ "$INTERACTIVE" == true ]]; then
+    echo "================================================================================"
+    echo "          ARCH BACKUP WIZARD — INTERACTIVE VM SESSION"
+    echo "================================================================================"
+    echo ">>> VM serial console is attached directly to your terminal."
+    echo ">>> You are logged in automatically as 'root' on ttyS0."
+    echo ">>> To test as non-root user 'arch' with sudo:"
+    echo "      su - arch"
+    echo "      cd /home/arch/arch-backup-wizard"
+    echo "      sudo ./wizard.sh"
+    echo ">>> To test directly as root:"
+    echo "      cd /root/arch-backup-wizard"
+    echo "      ./wizard.sh"
+    echo ">>> When finished, type 'poweroff' (or press Ctrl-A then x) to exit QEMU."
+    echo "================================================================================"
+    echo ""
+    nice -n 19 ionice -c 3 qemu-system-x86_64 \
+        -enable-kvm \
+        -m 4G \
+        -smp 4 \
+        -nographic \
+        -bios "$OVMF_BIOS" \
+        -drive file=backup.qcow2,format=qcow2,if=virtio \
+        -drive file=backup-drive.qcow2,format=qcow2,if=virtio \
+        -net nic,model=virtio \
+        -net user \
+        -serial mon:stdio
+else
+    echo "=== Booting Arch Linux BTRFS VM for Automated Tests ==="
+    nice -n 19 ionice -c 3 qemu-system-x86_64 \
+        -enable-kvm \
+        -m 4G \
+        -smp 4 \
+        -nographic \
+        -bios "$OVMF_BIOS" \
+        -drive file=backup.qcow2,format=qcow2,if=virtio \
+        -drive file=backup-drive.qcow2,format=qcow2,if=virtio \
+        -net nic,model=virtio \
+        -net user \
+        -serial file:test_run.log
 
-echo ""
-echo "=== Test Results Summary ==="
-if [[ -f "test_run.log" ]]; then
-    grep -E "\[TEST|IN-VM TEST SUMMARY|SUCCESS|FAILURE" test_run.log || true
+    echo ""
+    echo "=== Test Results Summary ==="
+    if [[ -f "test_run.log" ]]; then
+        grep -E "\[TEST|IN-VM TEST SUMMARY|SUCCESS|FAILURE" test_run.log || true
+    fi
 fi
