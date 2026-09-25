@@ -19,6 +19,18 @@ Interactive TUI wizard that sets up a 5-layer backup architecture for Arch Linux
 
 ---
 
+## Motivation
+
+I started this project for a few reasons. First, I found it tedious to manually set up a robust 3-2-1 backup strategy on CachyOS, and I was frankly too lazy to keep setting it up by hand on my friends' systems. Automating it solved my problem, and if anyone else wants to use it, that's a fantastic perk! 
+
+While CachyOS comes with Snapper preconfigured, that alone felt lacking. Rather than relying on full-volume snapshots, I wanted to leverage BTRFS's unique perks alongside existing tools to achieve a proper, multi-layered backup strategy. 
+
+Second, I wanted to deepen my understanding of Linux file systems, mounts, subvolumes, and `fstab`—a goal this project has definitely helped achieve. 
+
+Finally, I had an itch to experiment with agentic AI code generation, automated code review, and testing. It has been a fascinating journey with plenty of ongoing learning!
+
+---
+
 ## Supported Systems
 
 ### Distros
@@ -254,4 +266,5 @@ The repository includes a comprehensive, hermetic automated unit test suite requ
 
 ## Credits
 
-Inspired by a battle-tested 5-layer backup architecture running on a CachyOS gaming rig.
+- Thanks to Bogdan for assisting with code reviews.
+- Inspired by a battle-tested 5-layer backup architecture running on a CachyOS gaming rig.
