@@ -72,16 +72,27 @@ while IFS= read -r sub; do
     # Clean up local copy
     sudo rm -f "$ARCHIVE_PATH"
     uploaded_count=$((uploaded_count + 1))
+done <<< "{{DETECTED_SUBVOLUMES}}"
 
-    # Remote retention policy: keep newest 4 snapshot archives for this subvolume
+echo -e "\n[Pruning old cloud archives]"
+remote_files=$(rclone lsf "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/" 2>/dev/null || true)
+while IFS= read -r sub; do
+    [[ -z "$sub" ]] && continue
+    sub_safe="${sub//\//_}"
+    sub_safe="${sub_safe//:/_}"
+    sub_hash=$(printf '%s' "$sub" | md5sum | cut -c1-8)
+    sub_prefix="${sub_safe}_${sub_hash}"
+    sub_escaped="${sub_prefix//[*?[]]/\\&}"
+
     RETENTION_COUNT=4
-    mapfile -t old_archives < <(rclone lsf "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/" 2>/dev/null | grep -E "^(${sub_escaped}|${sub_safe//[\*\?\[\]]/\\&})\\..*\\.btrfs\\.zst(\\.age)?$" | sort -r | tail -n +$((RETENTION_COUNT + 1)) || true)
+    mapfile -t old_archives < <(echo "$remote_files" | grep -E "^(${sub_escaped}|${sub_safe//[*?[]]/\\&})\..*\.btrfs\.zst(\.age)?$" | sort -r | tail -n +$((RETENTION_COUNT + 1)) || true)
     for old_arch in "${old_archives[@]}"; do
         [[ -z "$old_arch" ]] && continue
         echo "Pruning expired remote archive: $old_arch"
         rclone deletefile "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/$old_arch" --contimeout 30s --timeout 10m 2>/dev/null || true
     done
 done <<< "{{DETECTED_SUBVOLUMES}}"
+
 
 if [[ $uploaded_count -eq 0 ]]; then
     echo -e "\n\033[0;31m[ERROR] No snapshots were found in {{BACKUP_MOUNT}}/OS_Backup. Cloud backup failed.\033[0m"

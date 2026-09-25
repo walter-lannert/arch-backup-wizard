@@ -233,7 +233,7 @@ The repository includes a comprehensive, hermetic automated unit test suite requ
   ```
 - **Automated Unit Tests:**
   ```bash
-  make test    # Runs all 27 unit tests across lib/ modules
+  make test    # Runs all 43 unit tests across lib/ modules
   ```
 - **Linting & Code Quality:**
   ```bash

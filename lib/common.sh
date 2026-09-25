@@ -28,8 +28,9 @@ readonly BTRBK_TARGET_MIN="latest" # minimum target (backup drive) retention
 readonly BTRBK_TARGET="14d"        # target retention window
 
 # Snapshot directory paths
-readonly SNAP_DIR="/.snapshots"             # Snapper snapshot mount (Layer 1)
-readonly SNAP_DIR_BTRBK="/.snapshots_btrbk" # btrbk snapshot dir (Layer 2)
+readonly SNAPPER_ROOT_CONF="${ABW_TEST_SNAPPER_ROOT_CONF:-/etc/snapper/configs/root}"
+readonly SNAP_DIR="${ABW_TEST_SNAP_DIR:-/.snapshots}"             # Snapper snapshot mount (Layer 1)
+readonly SNAP_DIR_BTRBK="${ABW_TEST_SNAP_DIR_BTRBK:-/.snapshots_btrbk}" # btrbk snapshot dir (Layer 2)
 
 # btrbk configuration paths
 readonly BTRBK_CONF="/etc/btrbk/btrbk.conf"
@@ -153,8 +154,17 @@ save_settings() {
 
 load_settings() {
     if [[ -f "$SETTINGS_FILE" ]]; then
-        # shellcheck disable=SC1090
-        source "$SETTINGS_FILE"
+        local var
+        for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY; do
+            if [[ -v "$var" ]]; then
+                continue
+            fi
+            local line
+            line=$(grep -E "^declare -g (-\S+ )?$var=" "$SETTINGS_FILE" 2>/dev/null || true)
+            if [[ -n "$line" ]]; then
+                eval "$line"
+            fi
+        done
     fi
 }
 
@@ -190,9 +200,13 @@ Do you want to proceed and overwrite it?"; then
 
         local backup
         backup="${file}.bak.$(date +%s).$$"
-        cp -p "$file" "$backup"
+        cp -p "$file" "$backup" || {
+            log_error "Failed to create backup of $file"
+            return 1
+        }
         log_info "Backed up $file → $backup"
     fi
+    return 0
 }
 
 # Render a template file: replaces every {{KEY}} with the value of $KEY

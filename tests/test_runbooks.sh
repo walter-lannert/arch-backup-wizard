@@ -257,7 +257,7 @@ TMPL
     local out="$BACKUP_MOUNT/Cloud_Recovery_Runbook.txt"
     assert_file_exists "$out" "Cloud runbook should be generated"
 
-    assert_no_match "age -d -i" "$CLOUD_RECOVERY_SCRIPT" "Recovery script does NOT use age when unencrypted"
+    assert_match "\*\\\\.age" "$CLOUD_RECOVERY_SCRIPT" "Recovery script dynamically checks for .age extension"
     assert_match "zstdcat | btrfs receive" "$CLOUD_RECOVERY_SCRIPT" "Recovery script streams raw zstdcat to btrfs receive"
 }
 

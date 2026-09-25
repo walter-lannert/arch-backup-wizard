@@ -1,0 +1,19 @@
+#cloud-config
+ssh_pwauth: True
+
+users:
+  - name: root
+    plain_text_passwd: arch
+    lock_passwd: False
+  - name: arch
+    gecos: Arch User
+    groups: [wheel, users]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    plain_text_passwd: arch
+    lock_passwd: False
+
+runcmd:
+  - mkdir -p /mnt/cidata
+  - mount /dev/disk/by-label/cidata /mnt/cidata || mount /dev/vdc /mnt/cidata || true
+  - bash /mnt/cidata/setup_btrfs.sh

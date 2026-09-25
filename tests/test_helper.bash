@@ -30,6 +30,7 @@ setup_test_env() {
     mkdir -p "$MOCK_DIR"
     export PATH="$MOCK_DIR:$ORIG_PATH"
     export HOME="$TEST_TEMP_DIR/home"
+    export ORIG_MANIFEST="$TEST_TEMP_DIR/unmanaged_orig.txt"
     export UI_SILENT="true"
     mkdir -p "$HOME"
 }
