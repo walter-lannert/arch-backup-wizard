@@ -4,7 +4,7 @@ all: check test
 
 check:
 	shellcheck -x wizard.sh lib/*.sh templates/*.sh tests/*.sh tests/*.bash
-	git diff --check
+	@if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git diff --check; fi
 
 test:
 	@for t in tests/test_*.sh; do \

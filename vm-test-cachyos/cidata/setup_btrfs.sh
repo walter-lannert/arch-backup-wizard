@@ -26,31 +26,32 @@ if blkid /dev/vdb2 2>/dev/null | grep -q btrfs; then
     sync
     umount /mnt/target-update
 
-    echo "=== Updating OS configuration on subvol=@ (Limine + paru) ==="
+    echo "=== Updating OS configuration on subvol=@ (CachyOS identity + paru) ==="
     mkdir -p /mnt/target-root
     mount -o subvol=@ /dev/vdb2 /mnt/target-root
-    mkdir -p /mnt/target-boot
-    mount /dev/vdb1 /mnt/target-boot
-    
-    # Let's fix the bootloader by installing Limine as the fallback UEFI loader
-    mkdir -p /mnt/target-boot/EFI/BOOT
-    cp /mnt/target-root/usr/share/limine/BOOTX64.EFI /mnt/target-boot/EFI/BOOT/BOOTX64.EFI || true
-    
-    # We want detect.sh to see Limine, so we make sure the directory exists
-    mkdir -p /mnt/target-boot/limine
-    touch /mnt/target-boot/limine/limine.conf /mnt/target-root/etc/default/limine
-    
+
+    # Configure CachyOS in /etc/os-release
+    cat <<'EOF' > /mnt/target-root/etc/os-release
+NAME="CachyOS Linux"
+PRETTY_NAME="CachyOS Linux"
+ID=cachyos
+BUILD_ID=rolling
+ANSI_COLOR="38;2;23;147;209"
+HOME_URL="https://cachyos.org/"
+SUPPORT_URL="https://discuss.cachyos.org/"
+BUG_REPORT_URL="https://github.com/cachyos"
+PRIVACY_POLICY_URL="https://terms.archlinux.org/docs/privacy-policy/"
+LOGO=cachyos
+EOF
+
+    # Mock paru for AUR detection
     mkdir -p /mnt/target-root/usr/local/bin
     cat <<'EOF' > /mnt/target-root/usr/local/bin/paru
 #!/bin/bash
 exit 0
 EOF
     chmod +x /mnt/target-root/usr/local/bin/paru
-    
-    # Remove grub config since we're using Limine now
-    rm -rf /mnt/target-root/etc/default/grub /mnt/target-root/boot/grub
-    
-    umount -l /mnt/target-boot || true
+
     umount -l /mnt/target-root || true
     echo "=== WIZARD CODE AND OS UPDATED! POWERING OFF ==="
     poweroff
