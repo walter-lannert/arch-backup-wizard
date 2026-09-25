@@ -116,8 +116,6 @@ generate_runbooks() {
     restore_script+="/tmp/restore_subvols.sh"$'\n'
 
     # Generate dynamic cloud recovery script block for runbooks
-    local layer4_encrypt="${LAYER4_ENCRYPT:-true}"
-
     local cloud_restore_script=""
     cloud_restore_script+="cat << 'EOF' > /tmp/cloud_restore_subvols.sh"$'\n'
     cloud_restore_script+="#!/bin/bash"$'\n'

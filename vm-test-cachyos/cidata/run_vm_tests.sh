@@ -124,11 +124,14 @@ export WIZARD_DIR="/home/arch/arch-backup-wizard"
 export LOG_FILE="/var/log/wizard_test.log"
 run_detection >/tmp/detection.log 2>&1
 
-[[ "$DETECTED_DISTRO" =~ ^(Arch|CachyOS) ]]
-report_test "Detected Arch Linux distro" $? "DETECTED_DISTRO=${DETECTED_DISTRO:-unknown}"
+[[ "$DETECTED_DISTRO" == "CachyOS" ]]
+report_test "Detected CachyOS distro" $? "DETECTED_DISTRO=${DETECTED_DISTRO:-unknown}"
 
 [[ "${DETECTED_ROOT_FS:-}" == "btrfs" ]]
 report_test "Detected BTRFS root filesystem" $? "DETECTED_ROOT_FS=${DETECTED_ROOT_FS:-unknown}"
+
+[[ "${DETECTED_AUR_HELPER:-}" == "paru" ]]
+report_test "Detected paru AUR helper" $? "DETECTED_AUR_HELPER=${DETECTED_AUR_HELPER:-unknown}"
 
 [[ "${DETECTED_BOOTLOADER:-}" == "grub" ]]
 report_test "Detected GRUB bootloader" $? "DETECTED_BOOTLOADER=${DETECTED_BOOTLOADER:-unknown}"
