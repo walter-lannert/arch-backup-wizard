@@ -129,7 +129,7 @@ die() {
 
 # ── File helpers ──────────────────────────────────────────────────────────────
 MANIFEST_FILE="${MANIFEST_FILE:-/var/lib/arch-backup-wizard/manifest.txt}"
-CONTRACT_FILE="${CONTRACT_FILE:-$(dirname "$MANIFEST_FILE")/contract.env}"
+SETTINGS_FILE="${SETTINGS_FILE:-$(dirname "$MANIFEST_FILE")/settings.env}"
 
 # Record a file created by the wizard for uninstallation
 record_manifest() {
@@ -137,6 +137,24 @@ record_manifest() {
     mkdir -p "$(dirname "$MANIFEST_FILE")"
     if ! grep -Fxq "$file" "$MANIFEST_FILE" 2>/dev/null; then
         echo "$file" >> "$MANIFEST_FILE"
+    fi
+}
+
+save_settings() {
+    mkdir -p "$(dirname "$SETTINGS_FILE")"
+    printf "# Arch Backup Wizard Global Settings\n# Automatically generated. Do not edit manually unless you know what you're doing.\n" > "$SETTINGS_FILE"
+    for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY; do
+        if [[ -v "$var" ]]; then
+            declare -p "$var" | sed 's/^declare /declare -g /' >> "$SETTINGS_FILE"
+        fi
+    done
+    record_manifest "$SETTINGS_FILE"
+}
+
+load_settings() {
+    if [[ -f "$SETTINGS_FILE" ]]; then
+        # shellcheck disable=SC1090
+        source "$SETTINGS_FILE"
     fi
 }
 

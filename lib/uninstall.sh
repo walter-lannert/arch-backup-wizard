@@ -12,6 +12,7 @@ run_uninstall() {
     [[ -z "${DIALOG_CMD:-}" ]] && detect_dialog
 
     log_info "══════ Initiating Arch Backup Wizard Uninstall ══════"
+    load_settings
 
     # ── 1. Warning & confirmation dialog ──────────────────────────────────────
     local warning_msg="This will remove all backup configurations created by the Arch Backup Wizard:
@@ -129,7 +130,7 @@ This will NOT remove:
         done < "$manifest_file"
         rm -f "$manifest_file"
         rm -f "$ORIG_MANIFEST" 2>/dev/null || true
-        rm -f "${CONTRACT_FILE:-/var/lib/arch-backup-wizard/contract.env}" 2>/dev/null || true
+        rm -f "${SETTINGS_FILE}" 2>/dev/null || true
         rmdir "/var/lib/arch-backup-wizard" 2>/dev/null || true
     fi
 

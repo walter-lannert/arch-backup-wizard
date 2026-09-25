@@ -201,10 +201,10 @@ test_layer4_unencrypted_passes_without_age() {
     source "$REPO_DIR/lib/validate.sh"
 
     SELECTED_LAYERS=(4)
-    # Write contract.env with LAYER4_ENCRYPT="false"
-    mkdir -p "$(dirname "$CONTRACT_FILE")"
-    cat > "$CONTRACT_FILE" <<EOF
-LAYER4_ENCRYPT="false"
+    # Write settings.env with LAYER4_ENCRYPT="false"
+    mkdir -p "$(dirname "$SETTINGS_FILE")"
+    cat > "$SETTINGS_FILE" <<EOF
+declare -g -- LAYER4_ENCRYPT="false"
 EOF
 
     # Mock pkg_is_installed to succeed for rclone, NOT age

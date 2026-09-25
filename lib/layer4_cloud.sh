@@ -279,14 +279,6 @@ Would you like to re-run 'rclone config' to retry?
         export CLOUD_ARCHIVE_EXT="${CLOUD_ARCHIVE_EXT:-.btrfs.zst.age}"
         export AGE_PUBKEY="${AGE_PUBKEY:-}"
 
-        mkdir -p "$(dirname "$CONTRACT_FILE")"
-        cat > "$CONTRACT_FILE" <<EOF
-# Arch Backup Wizard Architecture Contract
-LAYER4_ENCRYPT="${LAYER4_ENCRYPT}"
-EOF
-        chmod 644 "$CONTRACT_FILE"
-        record_manifest "$CONTRACT_FILE"
-
         backup_file "$os_backup_script" >/dev/null || return 1
 
         if ! template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"; then

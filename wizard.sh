@@ -24,6 +24,8 @@ source "$WIZARD_DIR/lib/runbooks.sh"
 source "$WIZARD_DIR/lib/validate.sh"
 source "$WIZARD_DIR/lib/uninstall.sh"
 
+load_settings
+
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
 UNINSTALL=false
@@ -836,6 +838,8 @@ Please check the log for details:
     run_layer "$LAYER_PIKA" setup_layer3
     run_layer "$LAYER_CLOUD" setup_layer4
     run_layer "$LAYER_DEEP" setup_layer5
+
+    save_settings
 
     # ── Runbook generation ────────────────────────────────────────────────
     generate_runbooks

@@ -8,6 +8,7 @@
 
 generate_runbooks() {
     log_info "── Generating Personalized Recovery Runbooks ──"
+    load_settings
 
     local target_user
     target_user="$(effective_user)"
@@ -115,23 +116,7 @@ generate_runbooks() {
     restore_script+="/tmp/restore_subvols.sh"$'\n'
 
     # Generate dynamic cloud recovery script block for runbooks
-    local layer4_encrypt="${LAYER4_ENCRYPT:-}"
-    if [[ -z "$layer4_encrypt" ]]; then
-        local contract_file="${CONTRACT_FILE:-/var/lib/arch-backup-wizard/contract.env}"
-        if [[ -f "$contract_file" ]]; then
-            # shellcheck source=/dev/null
-            source "$contract_file"
-            layer4_encrypt="${LAYER4_ENCRYPT:-true}"
-        elif [[ -f "${HOME_DIR}/.os_cloud_backup.sh" ]]; then
-            if grep -q "^# ARCH_BACKUP_WIZARD_LAYER4_ENCRYPT=false" "${HOME_DIR}/.os_cloud_backup.sh" 2>/dev/null; then
-                layer4_encrypt="false"
-            else
-                layer4_encrypt="true"
-            fi
-        else
-            layer4_encrypt="true"
-        fi
-    fi
+    local layer4_encrypt="${LAYER4_ENCRYPT:-true}"
 
     local cloud_restore_script=""
     cloud_restore_script+="cat << 'EOF' > /tmp/cloud_restore_subvols.sh"$'\n'
