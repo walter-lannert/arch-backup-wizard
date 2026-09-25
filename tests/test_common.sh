@@ -109,10 +109,55 @@ EOF
     assert_success "bash -n '$out'" "Rendered shell script should pass bash -n syntax check"
 }
 
+# Test 6: Snapshot naming contract
+test_subvolume_to_snapshot_name() {
+    source "$REPO_DIR/lib/common.sh"
+
+    local snap1 snap2 snap3
+    snap1=$(subvolume_to_snapshot_name "@")
+    snap2=$(subvolume_to_snapshot_name "@home")
+    snap3=$(subvolume_to_snapshot_name "var/log")
+
+    # Assert deterministic prefix and hash length
+    assert_match "^@_[0-9a-f]{8}$" "$snap1" "Root snapshot name format"
+    assert_match "^@home_[0-9a-f]{8}$" "$snap2" "Home snapshot name format"
+    assert_match "^var_log_[0-9a-f]{8}$" "$snap3" "Nested path sanitization"
+
+    # Assert collision resistance between distinct subvolumes
+    local snap_a_b snap_ab
+    snap_a_b=$(subvolume_to_snapshot_name "a/b")
+    snap_ab=$(subvolume_to_snapshot_name "a_b")
+    if [[ "$snap_a_b" == "$snap_ab" ]]; then
+        test_failed "Collision detected: a/b and a_b mapped to same snapshot name $snap_a_b"
+    fi
+}
+
+# Test 7: Template rendering rejects unset variables
+test_template_render_rejects_unset() {
+    source "$REPO_DIR/lib/common.sh"
+
+    local tpl="$TEST_TEMP_DIR/strict.conf.in"
+    local out="$TEST_TEMP_DIR/strict.conf"
+
+    cat <<'EOF' > "$tpl"
+DEFINED="{{MY_DEFINED_VAR}}"
+UNDEFINED="{{MY_NONEXISTENT_VAR}}"
+EOF
+
+    export MY_DEFINED_VAR="exists"
+    unset MY_NONEXISTENT_VAR || true
+
+    local rc=0
+    template_render "$tpl" "$out" 2>/dev/null || rc=$?
+    assert_eq "1" "$rc" "template_render should fail when a placeholder variable is unset"
+}
+
 echo "=== Running tests for lib/common.sh ==="
 run_test test_layer_selected "Layer selection checks"
 run_test test_logging "Logging to file"
 run_test test_manifest_recording "Manifest recording and deduplication"
 run_test test_template_render "Template rendering with variable substitution"
 run_test test_template_render_shell_escaping "Template rendering shell escaping safety"
+run_test test_subvolume_to_snapshot_name "Snapshot naming contract and collision avoidance"
+run_test test_template_render_rejects_unset "Template rendering rejects unset variables"
 test_summary

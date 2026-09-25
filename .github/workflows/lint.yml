@@ -1,11 +1,11 @@
-name: Lint
+name: CI
 on: [push, pull_request]
 jobs:
-  shellcheck:
+  test:
     runs-on: ubuntu-latest
     steps:
-       - uses: actions/checkout@v4
-       - name: Run ShellCheck
-         uses: ludeeus/action-shellcheck@master
-         with:
-           ignore_paths: 'templates'
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Run lint and tests
+        run: make all

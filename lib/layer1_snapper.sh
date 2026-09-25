@@ -150,7 +150,7 @@ setup_layer1() {
     backup_file /etc/snapper/configs/root || return 1
 
     record_manifest /etc/snapper/configs/root
-    cat >/etc/snapper/configs/root <<'EOF'
+    if ! cat >/etc/snapper/configs/root <<'EOF'; then
 # subvolume to snapshot
 SUBVOLUME="/"
 
@@ -204,6 +204,9 @@ EMPTY_PRE_POST_CLEANUP="yes"
 # limits for empty pre-post-pair cleanup
 EMPTY_PRE_POST_MIN_AGE="1800"
 EOF
+        log_error "Failed to write Snapper configuration to /etc/snapper/configs/root"
+        return 1
+    fi
     log_success "Wrote Snapper configuration to /etc/snapper/configs/root"
 
     # Ensure /etc/conf.d/snapper includes root config if the file exists
@@ -212,12 +215,12 @@ EOF
             backup_file /etc/conf.d/snapper || return 1
             if grep -q '^SNAPPER_CONFIGS=' /etc/conf.d/snapper; then
                 if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper; then
-                    sed -i 's/^SNAPPER_CONFIGS=""/SNAPPER_CONFIGS="root"/' /etc/conf.d/snapper
+                    sed -i 's/^SNAPPER_CONFIGS=""/SNAPPER_CONFIGS="root"/' /etc/conf.d/snapper || return 1
                 else
-                    sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper
+                    sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper || return 1
                 fi
             else
-                echo 'SNAPPER_CONFIGS="root"' >>/etc/conf.d/snapper
+                echo 'SNAPPER_CONFIGS="root"' >>/etc/conf.d/snapper || return 1
             fi
             log_info "Updated /etc/conf.d/snapper with root config."
         fi

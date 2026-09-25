@@ -45,9 +45,9 @@ if [ -f "$_LOG_FILE" ] && [ "$(stat -c %s "$_LOG_FILE" 2>/dev/null || echo 0)" -
     : > "$_LOG_FILE" 2>/dev/null || true
 fi
 
-YEAR=$(date +%Y) || { printf 'os-clone-nag: FATAL: date +%Y failed\n' >&2; exit 1; }
-MONTH=$(date +%m) || { printf 'os-clone-nag: FATAL: date +%m failed\n' >&2; exit 1; }
-DAY=$(date +%d) || { printf 'os-clone-nag: FATAL: date +%d failed\n' >&2; exit 1; }
+YEAR=$(date +%Y) || { printf '%s\n' 'os-clone-nag: FATAL: date +%Y failed' >&2; exit 1; }
+MONTH=$(date +%m) || { printf '%s\n' 'os-clone-nag: FATAL: date +%m failed' >&2; exit 1; }
+DAY=$(date +%d) || { printf '%s\n' 'os-clone-nag: FATAL: date +%d failed' >&2; exit 1; }
 case "$DAY" in
     ''|*[!0-9]*) printf 'os-clone-nag: FATAL: invalid day value: %q\n' "$DAY" >&2; exit 1 ;;
 esac
@@ -121,8 +121,11 @@ if [ "$CURRENT_TARGET" != "$LAST_RUN" ]; then
             flock -u 9 2>/dev/null || true
             exit 1
         else
+            # shellcheck disable=SC2016
+            cmd_runner='{{DETECTED_TERMINAL_CMD}}'
+            # shellcheck disable=SC2016,SC2086
             OCN_HOME="{{DETECTED_HOME}}" OCN_TARGET="$CURRENT_TARGET" \
-            {{DETECTED_TERMINAL_CMD}} setsid bash -c 'IP="$OCN_HOME/.os_cloud_backup.in_progress"; rc=0; if [ ! -x "$OCN_HOME/.os_cloud_backup.sh" ]; then printf "os-clone-nag: ERROR: %s/.os_cloud_backup.sh is missing or not executable\n" "$OCN_HOME" >&2; rc=127; else "$OCN_HOME/.os_cloud_backup.sh" || rc=$?; fi; rm -f "$IP" 2>/dev/null; if [ "$rc" -eq 0 ]; then _ts="$OCN_HOME/.last_cloud_run.tmp.$$"; printf "%s\n" "$OCN_TARGET" > "$_ts" && mv -f "$_ts" "$OCN_HOME/.last_cloud_run" || { rm -f "$_ts" 2>/dev/null; printf "os-clone-nag: WARNING: backup succeeded but could not stamp .last_cloud_run\n" >&2; }; fi; exit "$rc"' \
+            $cmd_runner setsid bash -c 'IP="$OCN_HOME/.os_cloud_backup.in_progress"; rc=0; if [ ! -x "$OCN_HOME/.os_cloud_backup.sh" ]; then printf "os-clone-nag: ERROR: %s/.os_cloud_backup.sh is missing or not executable\n" "$OCN_HOME" >&2; rc=127; else "$OCN_HOME/.os_cloud_backup.sh" || rc=$?; fi; rm -f "$IP" 2>/dev/null; if [ "$rc" -eq 0 ]; then _ts="$OCN_HOME/.last_cloud_run.tmp.$$"; printf "%s\n" "$OCN_TARGET" > "$_ts" && mv -f "$_ts" "$OCN_HOME/.last_cloud_run" || { rm -f "$_ts" 2>/dev/null; printf "os-clone-nag: WARNING: backup succeeded but could not stamp .last_cloud_run\n" >&2; }; fi; exit "$rc"' \
             || { _rc=$?; rm -f "$IN_PROGRESS_FILE" 2>/dev/null; printf 'os-clone-nag: WARNING: failed to launch backup terminal (rc=%d)\n' "$_rc" >&2; printf 'os-clone-nag: WARNING: failed to launch backup terminal (rc=%d) at %s\n' "$_rc" "$(date -Iseconds)" >> "$_LOG_FILE" 2>/dev/null; }
         fi
     elif [ "$ZENITY_RC" -ne 1 ]; then

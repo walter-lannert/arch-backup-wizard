@@ -138,26 +138,22 @@ The initial OS clone may fail. Continue anyway?"
         log_warn "Cannot write to $_btrbk_log; btrbk will log to stderr only."
         _btrbk_log=""
     fi
-    cat <<EOF >"$BTRBK_CONF"
+    if ! cat <<EOF >"$BTRBK_CONF"; then
 transaction_log            ${_btrbk_log:-/dev/null}
 snapshot_preserve_min      ${BTRBK_SNAP_MIN}
 snapshot_preserve          ${BTRBK_SNAP}
 target_preserve_min        ${BTRBK_TARGET_MIN}
 target_preserve            ${BTRBK_TARGET}
 EOF
+        log_error "Failed to write $BTRBK_CONF"
+        return 1
+    fi
 
     local mnt subvol subvol_safe snap_dir
     for mount_pair in "${DETECTED_SUBVOL_MOUNTS[@]}"; do
         mnt="${mount_pair%%:*}"
         subvol="${mount_pair#*:}"
-        # Sanitise: replace / and : with underscore to avoid unsafe characters.
-        subvol_safe="${subvol//\//_}"
-        subvol_safe="${subvol_safe//:/_}"
-        # Guard against collision: append a short hash of the original name
-        # so that a/b and a_b cannot map to the same identifier.
-        local _hash
-        _hash=$(printf '%s' "$subvol" | md5sum | cut -c1-8)
-        subvol_safe="${subvol_safe}_${_hash}"
+        subvol_safe=$(subvolume_to_snapshot_name "$subvol")
         snap_dir="${mnt%/}/${SNAP_DIR_BTRBK#/}"
 
         # Make sure the mount point is actually mounted
@@ -188,7 +184,7 @@ EOF
             }
         fi
 
-        cat <<EOF >>"$BTRBK_CONF"
+        if ! cat <<EOF >>"$BTRBK_CONF"; then
 
 volume "${mnt}"
   snapshot_dir               "${SNAP_DIR_BTRBK#/}"
@@ -196,6 +192,9 @@ volume "${mnt}"
     snapshot_name              "${subvol_safe}"
     target send-receive "${backup_mount}/OS_Backup"
 EOF
+            log_error "Failed to write volume entry to $BTRBK_CONF"
+            return 1
+        fi
     done
 
     local vol_count
@@ -240,7 +239,7 @@ Please verify your btrfs layout and re-run Layer 2."
     }
 
     record_manifest "$override_conf"
-    cat <<EOF >"$override_conf"
+    if ! cat <<EOF >"$override_conf"; then
 [Unit]
 RequiresMountsFor=$backup_mount
 
@@ -250,6 +249,9 @@ ExecStart=/usr/bin/btrbk run --config $BTRBK_CONF
 Nice=19
 IOSchedulingClass=idle
 EOF
+        log_error "Failed to write $override_conf"
+        return 1
+    fi
     log_success "Created $override_conf"
 
     # 5. Run systemctl daemon-reload

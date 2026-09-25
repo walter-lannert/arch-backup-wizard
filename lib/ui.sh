@@ -44,6 +44,7 @@ ui_msgbox() {
 
 # Yes / No dialog.  Returns 0 = Yes, 1 = No.
 ui_yesno() {
+    [[ "${UI_SILENT:-false}" == "true" ]] && return 0
     _ui_ensure_backend
     local title="$1" text="$2"
     $DIALOG_CMD --title "$title" --yesno "$text" $DLG_H $DLG_W
@@ -52,6 +53,10 @@ ui_yesno() {
 # Single-selection menu.  Returns selected tag on stdout.
 # Extra args: tag1 label1 tag2 label2 …
 ui_menu() {
+    if [[ "${UI_SILENT:-false}" == "true" ]]; then
+        echo "${3:-}"
+        return 0
+    fi
     _ui_ensure_backend
     local title="$1" text="$2"
     shift 2
@@ -62,6 +67,19 @@ ui_menu() {
 # Multi-selection checklist.  Returns space-separated tags on stdout.
 # Extra args: tag1 label1 on/off  tag2 label2 on/off …
 ui_checklist() {
+    if [[ "${UI_SILENT:-false}" == "true" ]]; then
+        shift 2
+        local result=()
+        while (( $# >= 3 )); do
+            local tag="$1" state="$3"
+            shift 3
+            if [[ "$state" == "on" ]]; then
+                result+=("\"$tag\"")
+            fi
+        done
+        echo "${result[*]:-}"
+        return 0
+    fi
     _ui_ensure_backend
     local title="$1" text="$2"
     shift 2
@@ -72,6 +90,20 @@ ui_checklist() {
 # Single-selection radio list.  Returns selected tag on stdout.
 # Extra args: tag1 label1 on/off  tag2 label2 on/off …
 ui_radiolist() {
+    if [[ "${UI_SILENT:-false}" == "true" ]]; then
+        local first_tag="${3:-}"
+        shift 2
+        while (( $# >= 3 )); do
+            local tag="$1" state="$3"
+            shift 3
+            if [[ "$state" == "on" ]]; then
+                echo "$tag"
+                return 0
+            fi
+        done
+        echo "$first_tag"
+        return 0
+    fi
     _ui_ensure_backend
     local title="$1" text="$2"
     shift 2
@@ -81,6 +113,10 @@ ui_radiolist() {
 
 # Text input box.  Returns entered text on stdout.
 ui_inputbox() {
+    if [[ "${UI_SILENT:-false}" == "true" ]]; then
+        echo "${3:-}"
+        return 0
+    fi
     _ui_ensure_backend
     local title="$1" text="$2" default="${3:-}"
     $DIALOG_CMD --title "$title" --inputbox "$text" \
@@ -107,6 +143,7 @@ ui_textbox() {
 
 # Confirm before a destructive action (defaults to No)
 ui_confirm_destructive() {
+    [[ "${UI_SILENT:-false}" == "true" ]] && return 0
     _ui_ensure_backend
     local title="$1" text="$2"
     $DIALOG_CMD --title "$title" --defaultno --yesno "$text" $DLG_H $DLG_W

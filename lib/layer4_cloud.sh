@@ -164,6 +164,7 @@ Please re-enter a valid name."
 
         if run_as_user rclone lsd "$rclone_remote" >>"$LOG_FILE" 2>&1; then
             log_success "Connectivity to remote '$rclone_remote' verified successfully."
+            export CLOUD_REMOTE="$rclone_remote"
             break
         else
             log_warn "Failed to connect to rclone remote '$rclone_remote'."
@@ -244,6 +245,7 @@ Would you like to re-run 'rclone config' to retry?
     if layer_selected "$LAYER_BTRBK"; then
         # ── 5. Generate OS cloud backup script ─────────────────────────────────────
         log_info "Step 5: Generating OS cloud backup script..."
+        export CLOUD_REMOTE="$rclone_remote"
         export BACKUP_MOUNT="$backup_mount"
         export CLOUD_OS_DIR="$cloud_os_dir"
 
@@ -310,12 +312,15 @@ Would you like to re-run 'rclone config' to retry?
         else
             backup_file "$rc_file" >/dev/null || return 1
             # shellcheck disable=SC2016
-            run_as_user bash -c 'cat >> "$1"' -- "$rc_file" <<EOF
+            if ! run_as_user bash -c 'cat >> "$1"' -- "$rc_file" <<EOF; then
 
 # Arch Backup Wizard OS Clone Nag BEGIN
 $nag_line
 # Arch Backup Wizard OS Clone Nag END
 EOF
+                log_error "Failed to append nag script invocation to $rc_file"
+                return 1
+            fi
             log_success "Added nag script invocation to $rc_file"
         fi
     fi
@@ -327,9 +332,12 @@ EOF
     if layer_selected "$LAYER_PIKA"; then
         # ── 7. Generate and install Pika cloud sync service and timer ─────────────
         log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
+        export CLOUD_REMOTE="$rclone_remote"
         export BACKUP_MOUNT="$backup_mount"
         export SYSTEMD_BACKUP_MOUNT="${backup_mount// /\\x20}"
         export CLOUD_PIKA_DIR="$cloud_pika_dir"
+        local host_name="${DETECTED_HOSTNAME:-$(cat /etc/hostname 2>/dev/null || uname -n)}"
+        export PIKA_BORG_REPO_REL="Personal/backup-${host_name}-${target_user}"
 
         # Ensure the runtime state directory and enabled sentinel exist so that
         # pika-cloud-sync.timer's ConditionPathExists guards are satisfied.

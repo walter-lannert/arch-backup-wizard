@@ -416,7 +416,15 @@ Continue?"; then
     fi
 
     # Set up the mount point
-    BACKUP_UUID=$(blkid -s UUID -o value "$BACKUP_DEV")
+    if $DRY_RUN; then
+        BACKUP_UUID=$(blkid -s UUID -o value "$BACKUP_DEV" 2>/dev/null || echo "11111111-2222-3333-4444-555555555555")
+        [[ -z "$BACKUP_UUID" ]] && BACKUP_UUID="11111111-2222-3333-4444-555555555555"
+    else
+        BACKUP_UUID=$(blkid -s UUID -o value "$BACKUP_DEV" 2>/dev/null || echo "")
+        if [[ -z "$BACKUP_UUID" ]]; then
+            die "Failed to determine UUID for $BACKUP_DEV"
+        fi
+    fi
 
     if [[ -z "$BACKUP_MOUNT" ]]; then
         while true; do
@@ -791,6 +799,7 @@ main() {
     #   - Use  log_error "..."; return 1  for any step that fails.
     #   - Never call die() — that is reserved for precondition failures in
     #     wizard.sh only (see die() in lib/common.sh for the full contract).
+    local -a CONFIGURED_LAYERS=()
     run_layer() {
         local layer_id="$1"
         local fn="$2"
@@ -807,6 +816,8 @@ main() {
 The wizard will continue setting up remaining layers.
 Please check the log for details:
   $LOG_FILE"
+            else
+                CONFIGURED_LAYERS+=("$layer_id")
             fi
         fi
     }

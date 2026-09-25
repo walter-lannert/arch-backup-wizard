@@ -28,11 +28,15 @@ uploaded_count=0
 while IFS= read -r sub; do
     [[ -z "$sub" ]] && continue
     sub_safe="${sub//\//_}"
-    sub_escaped="${sub_safe//[\*\?\[\]]/\\&}"
+    sub_safe="${sub_safe//:/_}"
+    sub_hash=$(printf '%s' "$sub" | md5sum | cut -c1-8)
+    sub_prefix="${sub_safe}_${sub_hash}"
+    sub_escaped="${sub_prefix//[\*\?\[\]]/\\&}"
     # Automatically find the name of the newest snapshot for this subvolume (relying on btrbk's deterministic timestamp naming)
-    LATEST_SNAP_PATH=$(sudo find "{{BACKUP_MOUNT}}/OS_Backup" -maxdepth 1 -mindepth 1 -type d -name "${sub_escaped}.20*" 2>/dev/null | sort -r | head -n 1 || true)
+    # Checks both hashed btrbk prefix and fallback unhashed prefix for backwards compatibility
+    LATEST_SNAP_PATH=$(sudo find "{{BACKUP_MOUNT}}/OS_Backup" -maxdepth 1 -mindepth 1 -type d \( -name "${sub_escaped}.20*" -o -name "${sub_safe//[\*\?\[\]]/\\&}.20*" \) 2>/dev/null | sort -r | head -n 1 || true)
     if [[ -z "$LATEST_SNAP_PATH" ]]; then
-        echo "Warning: No snapshots found for $sub_safe in {{BACKUP_MOUNT}}/OS_Backup"
+        echo "Warning: No snapshots found for $sub (tried $sub_prefix and $sub_safe) in {{BACKUP_MOUNT}}/OS_Backup"
         continue
     fi
     LATEST_SNAP=$(basename "$LATEST_SNAP_PATH")
@@ -43,7 +47,7 @@ while IFS= read -r sub; do
 
     # Package, compress, and encrypt the snapshot
     echo "Compressing and encrypting $LATEST_SNAP (showing raw data processed)..."
-    sudo btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | zstd -T0 | age -r "{{AGE_PUBKEY}}" | sudo tee "$ARCHIVE_PATH" > /dev/null
+    sudo ionice -c 3 nice -n 19 btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | nice -n 19 zstd -T0 | nice -n 19 age -r "{{AGE_PUBKEY}}" | sudo tee "$ARCHIVE_PATH" > /dev/null
     sudo chmod 644 "$ARCHIVE_PATH"
 
     # Sync to cloud storage
@@ -61,6 +65,15 @@ while IFS= read -r sub; do
     # Clean up local encrypted copy
     sudo rm -f "$ARCHIVE_PATH"
     uploaded_count=$((uploaded_count + 1))
+
+    # Remote retention policy: keep newest 4 snapshot archives for this subvolume
+    RETENTION_COUNT=4
+    mapfile -t old_archives < <(rclone lsf "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/" 2>/dev/null | grep -E "^(${sub_escaped}|${sub_safe//[\*\?\[\]]/\\&})\\..*\\.btrfs\\.zst\\.age$" | sort -r | tail -n +$((RETENTION_COUNT + 1)) || true)
+    for old_arch in "${old_archives[@]}"; do
+        [[ -z "$old_arch" ]] && continue
+        echo "Pruning expired remote archive: $old_arch"
+        rclone deletefile "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/$old_arch" --contimeout 30s --timeout 10m 2>/dev/null || true
+    done
 done <<< "{{DETECTED_SUBVOLUMES}}"
 
 if [[ $uploaded_count -eq 0 ]]; then
