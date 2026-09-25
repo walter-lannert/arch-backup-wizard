@@ -1,5 +1,5 @@
 # Local test environments & VMs
-vm-test/
+vm-test*/
 arch-backup-wizard-preview/
 
 # Logs & backups
