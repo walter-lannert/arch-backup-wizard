@@ -51,7 +51,7 @@ detect_bootloader() {
 
     if [[ -f /etc/default/limine || -f /boot/limine.conf || -f /boot/limine/limine.conf || -f /efi/limine.conf || -f /efi/limine/limine.conf ]]; then
         DETECTED_BOOTLOADER="limine"
-    elif bootctl is-installed &>/dev/null 2>&1 || [[ -d /boot/loader/entries ]]; then
+    elif bootctl is-installed &>/dev/null 2>&1 || [[ -d /boot/loader/entries || -d /efi/loader/entries || -d /boot/efi/loader/entries ]]; then
         DETECTED_BOOTLOADER="systemd-boot"
     elif [[ -f /etc/default/grub ]] || [[ -d /boot/grub ]]; then
         DETECTED_BOOTLOADER="grub"
@@ -367,7 +367,7 @@ detect_existing_setup() {
 
     # Config file existence
     DETECTED_SNAPPER_CONFIG_EXISTS=false
-    [[ -f /etc/snapper/configs/root ]] && DETECTED_SNAPPER_CONFIG_EXISTS=true
+    [[ -f "$SNAPPER_ROOT_CONF" ]] && DETECTED_SNAPPER_CONFIG_EXISTS=true
 
     log_info "Existing tools: snapper-config=$DETECTED_SNAPPER_CONFIG_EXISTS"
 }

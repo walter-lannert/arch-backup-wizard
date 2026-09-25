@@ -20,7 +20,7 @@ setup_layer1() {
 
     # ── 2. Handle .snapshots subvolume ────────────────────────────────────────
     log_info "Step 2: Handling .snapshots subvolume..."
-    if [[ "${DETECTED_SNAPPER_CONFIG_EXISTS:-false}" == "true" ]] || [[ -f /etc/snapper/configs/root ]]; then
+    if [[ "${DETECTED_SNAPPER_CONFIG_EXISTS:-false}" == "true" ]] || [[ -f "$SNAPPER_ROOT_CONF" ]]; then
         log_info "Snapper root configuration already exists. Skipping subvolume creation."
     else
         # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS/EndeavourOS)
@@ -43,6 +43,13 @@ setup_layer1() {
         # If /.snapshots exists (as directory mountpoint or pre-created subvolume), remove it first.
         if [[ -e "$SNAP_DIR" ]]; then
             if btrfs subvolume show "$SNAP_DIR" &>/dev/null; then
+                if btrfs subvolume list -o "$SNAP_DIR" 2>/dev/null | grep -q "$SNAP_DIR/"; then
+                    log_warn "Nested snapshots detected inside $SNAP_DIR!"
+                    if ! ui_confirm_destructive "Nested snapshots detected"; then
+                        log_error "User aborted. Cannot proceed with Snapper setup."
+                        return 1
+                    fi
+                fi
                 log_info "Deleting existing unmounted /.snapshots subvolume on root..."
                 btrfs subvolume delete -R "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to delete /.snapshots subvolume"

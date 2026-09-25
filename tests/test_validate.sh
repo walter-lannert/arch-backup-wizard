@@ -222,6 +222,52 @@ EOF
 }
 
 echo "=== Running tests for lib/validate.sh ==="
+test_validate_settings_precedence() {
+    _setup_validate_env
+    source "$REPO_DIR/lib/common.sh"
+
+    # Save a setting file simulating a previous run that selected 1, 2, 3
+    cat <<EOF > "$SETTINGS_FILE"
+declare -g -a SELECTED_LAYERS=([0]="1" [1]="2" [2]="3")
+declare -g -- BACKUP_MOUNT="/mnt/stale-backup"
+EOF
+
+    # Caller requests only Layer 5 and provides a different BACKUP_MOUNT
+    export SELECTED_LAYERS=("5")
+    export BACKUP_MOUNT="$TEST_TEMP_DIR/home/Backup"
+
+    # Ensure the directory exists so layer 5 passes
+    mkdir -p "$BACKUP_MOUNT/Deep Storage"
+
+    source "$REPO_DIR/lib/validate.sh"
+
+    if ! run_validation; then
+        echo "Error: run_validation failed unexpectedly" >&2
+        cat "$LOG_FILE" >&2
+        return 1
+    fi
+
+    if ! grep -q "Validating Layer 5" "$LOG_FILE"; then
+        echo "Error: Should have validated Layer 5" >&2
+        cat "$LOG_FILE" >&2
+        return 1
+    fi
+    if grep -q "Validating Layer 1" "$LOG_FILE"; then
+        echo "Error: Should not have validated Layer 1" >&2
+        cat "$LOG_FILE" >&2
+        return 1
+    fi
+
+    if [[ "${SELECTED_LAYERS[0]}" != "5" ]]; then
+        echo "Error: SELECTED_LAYERS should remain 5" >&2
+        return 1
+    fi
+    if [[ "$BACKUP_MOUNT" != "$TEST_TEMP_DIR/home/Backup" ]]; then
+        echo "Error: BACKUP_MOUNT should remain the explicitly set one" >&2
+        return 1
+    fi
+}
+
 run_test test_all_layers_skipped "All layers skipped (no selection)"
 run_test test_layer5_happy_path "Layer 5 happy path (directory exists)"
 run_test test_layer5_missing_directory "Layer 5 degraded (directory missing)"
@@ -231,4 +277,5 @@ run_test test_mixed_layers_partial_failure "Mixed layers (partial failure)"
 run_test test_validate_cli_mode_skips_dialog "CLI mode bypasses dialog UI"
 run_test test_layer4_encrypted_requires_age "Layer 4 encrypted requires age package"
 run_test test_layer4_unencrypted_passes_without_age "Layer 4 unencrypted passes without age"
+run_test test_validate_settings_precedence "Settings file should not override explicit variables"
 test_summary

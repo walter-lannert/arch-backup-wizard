@@ -2,10 +2,12 @@
 Description=Weekly Pika Backup Sync to Cloud Storage
 Requires=network-online.target
 After=network-online.target
-RequiresMountsFor={{BACKUP_MOUNT}}
+RequiresMountsFor={{SYSTEMD_BACKUP_MOUNT}}
 
 [Service]
 Type=oneshot
+Restart=on-failure
+RestartSec=4h
 TimeoutStartSec=12h
 User={{DETECTED_USER}}
 Nice=19
@@ -14,21 +16,21 @@ IOSchedulingClass=idle
 # relies on this file existing while the service is active.
 ExecStartPre=+/usr/bin/sh -c 'mkdir -p /run/pika-cloud-sync && touch /run/pika-cloud-sync/active'
 # Ensure any stale snapshots from previous hard crashes are destroyed first
-ExecStartPre=+/usr/bin/sh -c 'if [ -e "{{BACKUP_MOUNT}}/.pika_sync_snapshot" ]; then if btrfs subvolume list "{{BACKUP_MOUNT}}" 2>/dev/null | awk "{print \\$NF}" | grep -qxF ".pika_sync_snapshot"; then btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"; else echo "FATAL: .pika_sync_snapshot exists but is not a btrfs subvolume; manual intervention required" >&2; exit 1; fi; fi'
+ExecStartPre=+/usr/bin/sh -c 'if [ -e "{{SYSTEMD_BACKUP_MOUNT}}/.pika_sync_snapshot" ]; then if btrfs subvolume list "{{SYSTEMD_BACKUP_MOUNT}}" 2>/dev/null | awk "{print \\$NF}" | grep -qxF ".pika_sync_snapshot"; then btrfs subvolume delete "{{SYSTEMD_BACKUP_MOUNT}}/.pika_sync_snapshot"; else echo "FATAL: .pika_sync_snapshot exists but is not a btrfs subvolume; manual intervention required" >&2; exit 1; fi; fi'
 # Take a read-only snapshot of the backup drive to ensure Borg repo consistency
-ExecStartPre=+/usr/bin/btrfs subvolume snapshot -r "{{BACKUP_MOUNT}}" "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
+ExecStartPre=+/usr/bin/btrfs subvolume snapshot -r "{{SYSTEMD_BACKUP_MOUNT}}" "{{SYSTEMD_BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Guard: abort sync before invoking rclone if the Borg repository is missing or invalid
-ExecStartPre=/usr/bin/sh -c 'REPO="{{BACKUP_MOUNT}}/.pika_sync_snapshot/{{PIKA_BORG_REPO_REL}}"; test -d "$REPO" || { echo "FATAL: Borg repo directory $REPO not found in snapshot" >&2; exit 1; }; test -f "$REPO/config" && test -d "$REPO/data" || { echo "FATAL: $REPO does not look like a valid Borg repository (missing config/data)" >&2; exit 1; }; test -n "$(/usr/bin/ls -A "$REPO" 2>/dev/null)" || { echo "FATAL: Borg repo $REPO is empty" >&2; exit 1; }'
+ExecStartPre=/usr/bin/sh -c 'REPO="{{SYSTEMD_BACKUP_MOUNT}}/.pika_sync_snapshot/{{PIKA_BORG_REPO_REL}}"; test -d "$REPO" || { echo "FATAL: Borg repo directory $REPO not found in snapshot" >&2; exit 1; }; test -f "$REPO/config" && test -d "$REPO/data" || { echo "FATAL: $REPO does not look like a valid Borg repository (missing config/data)" >&2; exit 1; }; test -n "$(/usr/bin/ls -A "$REPO" 2>/dev/null)" || { echo "FATAL: Borg repo $REPO is empty" >&2; exit 1; }'
 # Note: 'rclone sync' is used so the destination mirrors the source exactly,
 # keeping orphaned chunks bounded. 'rclone copy' would also work but leaves
 # unreferenced chunks on the destination until a manual 'borg compact' runs.
-ExecStart=/usr/bin/rclone sync "{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v --max-delete 100000 --checksum --bwlimit 50M --contimeout 30s --timeout 10m
+ExecStart=/usr/bin/rclone sync "{{SYSTEMD_BACKUP_MOUNT}}/.pika_sync_snapshot/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v --max-delete 100000 --checksum --bwlimit 50M --contimeout 30s --timeout 10m
 # Clean up the snapshot (success path)
 ExecStartPost=+/usr/bin/sh -c 'date +%s > /var/lib/pika-cloud-sync/state'
-ExecStartPost=-+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
+ExecStartPost=-+/usr/bin/btrfs subvolume delete "{{SYSTEMD_BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Release concurrency lock (success path)
 ExecStartPost=-+/usr/bin/sh -c 'rm -f /run/pika-cloud-sync/active'
 # Clean up the snapshot (failure path)
-ExecStopPost=-+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
+ExecStopPost=-+/usr/bin/btrfs subvolume delete "{{SYSTEMD_BACKUP_MOUNT}}/.pika_sync_snapshot"
 # Release concurrency lock (failure path)
 ExecStopPost=-+/usr/bin/sh -c 'rm -f /run/pika-cloud-sync/active'

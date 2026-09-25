@@ -239,9 +239,10 @@ Please verify your btrfs layout and re-run Layer 2."
     }
 
     record_manifest "$override_conf"
+    local systemd_mount="${backup_mount// /\\x20}"
     if ! cat <<EOF >"$override_conf"; then
 [Unit]
-RequiresMountsFor=$backup_mount
+RequiresMountsFor=$systemd_mount
 
 [Service]
 ExecStart=

@@ -542,7 +542,7 @@ _ensure_backup_mounted() {
         return 0
     fi
 
-    mkdir -p "$BACKUP_MOUNT"
+    mkdir -p "$BACKUP_MOUNT" || { log_error "Failed to create $BACKUP_MOUNT"; return 1; }
 
     # Add to fstab if not already present
     local existing_mount
@@ -552,43 +552,44 @@ _ensure_backup_mounted() {
         # Remove stale fstab entry for BACKUP_MOUNT if one exists
         if findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1; then
             local tmp_clean
-            tmp_clean=$(mktemp /etc/fstab.tmp.XXXXXX)
-            awk -v mp="$BACKUP_MOUNT" -v mp_esc="${BACKUP_MOUNT// /\\040}" '$2 != mp && $2 != mp_esc' /etc/fstab > "$tmp_clean"
-            backup_file /etc/fstab || { rm -f "$tmp_clean"; die "Aborted by user: declined /etc/fstab modification."; }
-            mv -T "$tmp_clean" /etc/fstab
-            chmod 644 /etc/fstab
+            tmp_clean=$(mktemp /etc/fstab.tmp.XXXXXX) || return 1
+            awk -v mp="$BACKUP_MOUNT" -v mp_esc="${BACKUP_MOUNT// /\\040}" '$2 != mp && $2 != mp_esc' /etc/fstab > "$tmp_clean" || { rm -f "$tmp_clean"; log_error "Failed to remove stale fstab entry"; return 1; }
+            backup_file /etc/fstab || { rm -f "$tmp_clean"; log_error "Aborted by user: declined /etc/fstab modification."; return 1; }
+            mv -T "$tmp_clean" /etc/fstab || { rm -f "$tmp_clean"; log_error "Failed to replace /etc/fstab"; return 1; }
+            chmod 644 /etc/fstab || return 1
             log_info "Cleaned stale fstab entry for $BACKUP_MOUNT"
         fi
 
         # Add the new fstab entry
         local tmp_fstab
-        tmp_fstab=$(mktemp /etc/fstab.tmp.XXXXXX)
-        cp /etc/fstab "$tmp_fstab"
+        tmp_fstab=$(mktemp /etc/fstab.tmp.XXXXXX) || return 1
+        cp -p /etc/fstab "$tmp_fstab" || { rm -f "$tmp_fstab"; log_error "Failed to copy /etc/fstab"; return 1; }
 
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
         printf '\n# BEGIN Arch Backup Wizard Mount\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n# END Arch Backup Wizard Mount\n' \
-            "$BACKUP_UUID" "$fstab_mount" >>"$tmp_fstab"
+            "$BACKUP_UUID" "$fstab_mount" >>"$tmp_fstab" || { rm -f "$tmp_fstab"; return 1; }
 
         if ! findmnt --verify --tab-file "$tmp_fstab" &>/dev/null; then
             rm -f "$tmp_fstab"
-            die "Generated fstab entry failed verification. Aborting."
+            log_error "Generated fstab entry failed verification. Aborting."
+            return 1
         fi
 
-        backup_file /etc/fstab || { rm -f "$tmp_fstab"; die "Aborted by user: declined /etc/fstab modification."; }
-        mv -T "$tmp_fstab" /etc/fstab
-        chmod 644 /etc/fstab
+        backup_file /etc/fstab || { rm -f "$tmp_fstab"; log_error "Aborted by user: declined /etc/fstab modification."; return 1; }
+        mv -T "$tmp_fstab" /etc/fstab || { rm -f "$tmp_fstab"; log_error "Failed to replace /etc/fstab"; return 1; }
+        chmod 644 /etc/fstab || return 1
         log_info "Added backup drive to /etc/fstab"
     fi
 
     # Mount if not already mounted
     if ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
-        mount "$BACKUP_DEV" "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
+        mount "$BACKUP_DEV" "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || { log_error "Failed to mount $BACKUP_MOUNT"; return 1; }
     fi
 
     # Create standard directory structure
-    mkdir -p "$BACKUP_MOUNT/OS_Backup"
-    mkdir -p "$BACKUP_MOUNT/Personal"
-    mkdir -p "$BACKUP_MOUNT/Deep Storage"
+    mkdir -p "$BACKUP_MOUNT/OS_Backup" || { log_error "Failed to create OS_Backup dir"; return 1; }
+    mkdir -p "$BACKUP_MOUNT/Personal" || { log_error "Failed to create Personal dir"; return 1; }
+    mkdir -p "$BACKUP_MOUNT/Deep Storage" || { log_error "Failed to create Deep Storage dir"; return 1; }
     if [[ ! -L "$BACKUP_MOUNT/Personal" && ! -L "$BACKUP_MOUNT/Deep Storage" ]]; then
         chown "$(effective_user):" "$BACKUP_MOUNT/Personal" "$BACKUP_MOUNT/Deep Storage" 2>/dev/null || true
     fi
@@ -749,7 +750,7 @@ main() {
         BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
         run_uninstall
         # shellcheck disable=SC2317
-        exit $?
+        exit 0
     fi
 
     # Handle --validate mode
@@ -764,7 +765,7 @@ main() {
         BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
         BACKUP_UUID="${DETECTED_BACKUP_UUID:-}"
         run_validation
-        exit $?
+        exit 0
     fi
 
     # Ensure dialog is available before launching the interactive GUI
@@ -850,4 +851,6 @@ Please check the log for details:
     log_info "══════ Wizard completed ══════"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

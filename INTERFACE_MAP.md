@@ -44,8 +44,8 @@ and system resource footprints across the `arch-backup-wizard` codebase.
 | `die` | `lib/common.sh` | `wizard.sh`, `lib/common.sh` | Logs fatal error, cleans up UI, exits non-zero. Precondition check only. |
 | `run_cmd` | `lib/common.sh` | All `lib/layer*.sh`, `lib/packages.sh`, etc. | Executes command with logging, respecting `$DRY_RUN`. |
 | `layer_selected <id>` | `lib/common.sh` | `wizard.sh`, `lib/layer4_cloud.sh`, `lib/runbooks.sh`, `lib/validate.sh` | Returns 0 if layer is in `$SELECTED_LAYERS`, 1 otherwise. |
-| `track_file <path>` | `lib/common.sh` | All layers, `wizard.sh` | Appends file to `/var/lib/arch-backup-wizard/manifest` for clean uninstall. |
-| `substitute_template <src> <dst> <key=val...>` | `lib/common.sh` | `lib/layer2_btrbk.sh`, `lib/layer4_cloud.sh`, `lib/runbooks.sh` | Safely performs placeholder substitution using awk/sed with strict escaping. |
+| `record_manifest <path>` | `lib/common.sh` | All layers, `wizard.sh` | Appends file to `/var/lib/arch-backup-wizard/manifest` for clean uninstall. |
+| `template_render <src> <dst>` | `lib/common.sh` | `lib/layer2_btrbk.sh`, `lib/layer4_cloud.sh`, `lib/runbooks.sh` | Safely performs placeholder substitution using awk/sed with strict escaping. |
 | `run_detection` | `lib/detect.sh` | `wizard.sh` | Probes system hardware, mount points, fstab, and sets all `DETECTED_*` variables. |
 | `pkg_install <pkgs...>` | `lib/packages.sh` | All `lib/layer*.sh` | Verifies package presence or installs via pacman/AUR helper. |
 | `setup_layer1` | `lib/layer1_snapper.sh` | `wizard.sh` (via `run_layer`) | Configures Snapper for root, sets cleanup limits, enables timers. |

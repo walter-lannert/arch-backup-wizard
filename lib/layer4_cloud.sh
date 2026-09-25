@@ -29,7 +29,7 @@ setup_layer4() {
     local wizard_dir="${WIZARD_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
     local encrypt_os="true"
-    if layer_selected "$LAYER_BTRBK"; then
+    if layer_configured "$LAYER_BTRBK"; then
         if ! ui_yesno "Cloud OS Backup Encryption" \
             "Do you want to encrypt your OS clones with Age before uploading to cloud storage?
 
@@ -52,7 +52,7 @@ Choose 'No' if your cloud destination is a trusted local/private server or alrea
 
     # ── 1.5 Generate Age Encryption Key ─────────────────────────────────────────
     export CLOUD_ARCHIVE_EXT=".btrfs.zst"
-    if layer_selected "$LAYER_BTRBK"; then
+    if layer_configured "$LAYER_BTRBK"; then
         if [[ "$LAYER4_ENCRYPT" == "true" ]]; then
             export CLOUD_ARCHIVE_EXT=".btrfs.zst.age"
             log_info "Step 1.5: Setting up Age encryption for OS stream..."
@@ -226,7 +226,7 @@ Would you like to re-run 'rclone config' to retry?
 
     local default_os_dir="${distro_name}-bare-metal-clones"
     local cloud_os_dir="$default_os_dir"
-    if layer_selected "$LAYER_BTRBK"; then
+    if layer_configured "$LAYER_BTRBK"; then
         while true; do
             cloud_os_dir=$(ui_inputbox "OS Clones Folder" \
                 "Enter cloud destination folder for bare-metal OS clones (a-z, 0-9, -, _, /):" \
@@ -245,7 +245,7 @@ Would you like to re-run 'rclone config' to retry?
 
     local default_pika_dir="${distro_name}-pika-backup"
     local cloud_pika_dir="$default_pika_dir"
-    if layer_selected "$LAYER_PIKA"; then
+    if layer_configured "$LAYER_PIKA"; then
         while true; do
             cloud_pika_dir=$(ui_inputbox "Pika Backup Folder" \
                 "Enter cloud destination folder for Pika backups (a-z, 0-9, -, _, /):" \
@@ -268,7 +268,7 @@ Would you like to re-run 'rclone config' to retry?
     local os_nag_script="${target_home}/.os_clone_nag.sh"
     local rc_file=""
 
-    if layer_selected "$LAYER_BTRBK"; then
+    if layer_configured "$LAYER_BTRBK"; then
         # ── 5. Generate OS cloud backup script ─────────────────────────────────────
         log_info "Step 5: Generating OS cloud backup script..."
         export CLOUD_REMOTE="$rclone_remote"
@@ -359,7 +359,7 @@ EOF
     local service_file="${systemd_dir}/pika-cloud-sync.service"
     local timer_file="${systemd_dir}/pika-cloud-sync.timer"
 
-    if layer_selected "$LAYER_PIKA"; then
+    if layer_configured "$LAYER_PIKA"; then
         # ── 7. Generate and install Pika cloud sync service and timer ─────────────
         log_info "Step 7: Generating and installing Pika cloud sync system units (running as user)..."
         export CLOUD_REMOTE="$rclone_remote"
@@ -394,16 +394,39 @@ EOF
         chmod 644 "$timer_file"
         record_manifest "$timer_file"
 
-        log_success "Installed systemd units: $service_file and $timer_file"
+        local stale_service="${systemd_dir}/pika-cloud-sync-stale-check.service"
+        local stale_timer="${systemd_dir}/pika-cloud-sync-stale-check.timer"
 
-        log_info "Reloading systemd daemon and enabling pika-cloud-sync.timer..."
+        backup_file "$stale_service" >/dev/null || return 1
+        if ! template_render "$wizard_dir/templates/pika-cloud-sync-stale-check.service" "$stale_service"; then
+            log_error "Failed to render stale-check service template."
+            return 1
+        fi
+        chmod 644 "$stale_service"
+        record_manifest "$stale_service"
+
+        backup_file "$stale_timer" >/dev/null || return 1
+        if ! template_render "$wizard_dir/templates/pika-cloud-sync-stale-check.timer" "$stale_timer"; then
+            log_error "Failed to render stale-check timer template."
+            return 1
+        fi
+        chmod 644 "$stale_timer"
+        record_manifest "$stale_timer"
+
+        log_success "Installed systemd units: $service_file, $timer_file, and stale-check units"
+
+        log_info "Reloading systemd daemon and enabling pika-cloud-sync timers..."
         systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
 
         if ! systemctl enable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1; then
             log_error "Failed to enable pika-cloud-sync.timer"
             return 1
         fi
-        log_success "Enabled and started pika-cloud-sync.timer"
+        if ! systemctl enable --now pika-cloud-sync-stale-check.timer >>"$LOG_FILE" 2>&1; then
+            log_error "Failed to enable pika-cloud-sync-stale-check.timer"
+            return 1
+        fi
+        log_success "Enabled and started pika-cloud-sync timers"
     fi
 
     # ── 9. Completion summary dialog ────────────────────────────────────────
@@ -411,7 +434,7 @@ EOF
     local summary_folders=""
     local summary_components=""
 
-    if layer_selected "$LAYER_BTRBK"; then
+    if layer_configured "$LAYER_BTRBK"; then
         summary_folders+="• OS Clones Folder:   ${rclone_remote}${cloud_os_dir}"$'\n'
         summary_components+="• OS Cloud Backup:"$'\n'
         summary_components+="  ${os_backup_script}"$'\n'
@@ -419,7 +442,7 @@ EOF
         summary_components+="  ${os_nag_script} (added to $(basename "${rc_file:-shell startup}"))"$'\n'
     fi
 
-    if layer_selected "$LAYER_PIKA"; then
+    if layer_configured "$LAYER_PIKA"; then
         summary_folders+="• Pika Backup Folder: ${rclone_remote}${cloud_pika_dir}"$'\n'
         summary_components+="• Pika Cloud Sync System Units:"$'\n'
         summary_components+="  ${timer_file} (weekly sync enabled)"$'\n'

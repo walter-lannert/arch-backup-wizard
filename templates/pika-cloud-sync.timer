@@ -15,12 +15,6 @@ Unit=pika-cloud-sync.service
 # CONTRACT: The service unit MUST log the effective UTC timestamp at start
 # so operators can detect drift. Do NOT rely on this comment alone.
 OnCalendar=Mon 00:00 UTC
-# Safety-net: same-day retry window. If the 00:00 pass fails (network,
-# credential rotation, I/O), this second trigger gives the service one more
-# chance before the next weekly cycle. The service's idempotency check
-# (last-success marker) makes this a no-op if the first pass already succeeded.
-# Effective window (UTC): 06:00 + (AccuracySec + RandomizedDelaySec).
-OnCalendar=Mon 06:00 UTC
 # pinned; do not rely on systemd's compiled-in default
 AccuracySec=60
 RandomizedDelaySec=14400

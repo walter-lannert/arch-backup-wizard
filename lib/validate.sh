@@ -120,7 +120,7 @@ run_validation() {
 
     # ── 2. Check Layer 2 (btrbk) ──────────────────────────────────────────────
     local layer2_status="— Skipped"
-    if layer_selected "$LAYER_BTRBK"; then
+    if layer_configured "$LAYER_BTRBK"; then
         log_info "Validating Layer 2 (btrbk)..."
         local l2_ok=true
 
@@ -265,7 +265,7 @@ run_validation() {
             fi
         fi
 
-        if layer_selected "$LAYER_BTRBK"; then
+        if layer_configured "$LAYER_BTRBK"; then
             if [[ "$layer4_encrypt" == "true" ]]; then
                 local age_key_file="${user_home}/.config/arch-backup-wizard/cloud_os.key"
                 if [[ ! -f "$age_key_file" ]]; then
@@ -325,8 +325,8 @@ run_validation() {
             fi
         fi
 
-        if layer_selected "$LAYER_PIKA"; then
-            if [[ ! -f "/etc/systemd/system/pika-cloud-sync.service" || ! -f "/etc/systemd/system/pika-cloud-sync.timer" ]]; then
+        if layer_configured "$LAYER_PIKA"; then
+            if [[ ! -f "/etc/systemd/system/pika-cloud-sync.service" || ! -f "/etc/systemd/system/pika-cloud-sync.timer" || ! -f "/etc/systemd/system/pika-cloud-sync-stale-check.timer" ]]; then
                 l4_ok=false
                 log_warn "Layer 4 check failed: pika-cloud-sync service or timer unit missing"
                 failure_issues+=("Layer 4: pika-cloud-sync systemd units missing")
@@ -340,6 +340,28 @@ run_validation() {
                     l4_ok=false
                     log_warn "Layer 4 check failed: pika-cloud-sync.timer is not active (running)"
                     failure_issues+=("Layer 4: pika-cloud-sync.timer not active")
+                fi
+
+                # Check for failed state
+                local active_state
+                active_state=$(systemctl show -p ActiveState --value pika-cloud-sync.service 2>/dev/null || true)
+                if [[ "$active_state" == "failed" ]]; then
+                    l4_ok=false
+                    log_warn "Layer 4 check failed: pika-cloud-sync.service is in a failed state"
+                    failure_issues+=("Layer 4: pika-cloud-sync.service last run failed")
+                fi
+
+                # Check freshness
+                local last_run now gap
+                last_run=$(cat /var/lib/pika-cloud-sync/state 2>/dev/null || true)
+                if [[ -n "$last_run" ]] && [[ "$last_run" =~ ^[0-9]+$ ]]; then
+                    now=$(date +%s)
+                    gap=$((now - last_run))
+                    if (( gap > 691200 )); then # 8 days
+                        l4_ok=false
+                        log_warn "Layer 4 check failed: pika-cloud-sync is $((gap / 86400)) days stale"
+                        failure_issues+=("Layer 4: pika-cloud-sync is $((gap / 86400)) days stale")
+                    fi
                 fi
             fi
         fi
@@ -433,10 +455,10 @@ run_validation() {
     if layer_selected "$LAYER_SNAPPER" && [[ ! -f "$runbook_dir/Layer1_Snapper_Rollback_Runbook.txt" ]]; then
         missing_runbooks+=("Layer 1 Rollback Runbook (Layer1_Snapper_Rollback_Runbook.txt)")
     fi
-    if layer_selected "$LAYER_BTRBK" && [[ ! -f "$runbook_dir/Bare_Metal_Recovery_Runbook.txt" ]]; then
+    if layer_configured "$LAYER_BTRBK" && [[ ! -f "$runbook_dir/Bare_Metal_Recovery_Runbook.txt" ]]; then
         missing_runbooks+=("Layer 2 Bare-Metal Recovery Runbook (Bare_Metal_Recovery_Runbook.txt)")
     fi
-    if layer_selected "$LAYER_CLOUD" && layer_selected "$LAYER_BTRBK" && [[ ! -f "$runbook_dir/Cloud_Recovery_Runbook.txt" ]]; then
+    if layer_selected "$LAYER_CLOUD" && layer_configured "$LAYER_BTRBK" && [[ ! -f "$runbook_dir/Cloud_Recovery_Runbook.txt" ]]; then
         missing_runbooks+=("Layer 4 Cloud Recovery Runbook (Cloud_Recovery_Runbook.txt)")
     fi
 

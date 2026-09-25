@@ -100,13 +100,13 @@ generate_runbooks() {
         restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
         restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$(basename \"\$SNAP\")\""$'\n'
         restore_script+="else"$'\n'
-        if [[ "$sub" == "$snap_root_subvol" || "$sub" == "@" ]]; then
-            restore_script+="  echo \"FATAL: No backup snapshot found for root subvolume ($sub) in ${BACKUP_SRC_DIR}! Cannot recover system.\" >&2; exit 1"$'\n'
-        else
+        if [[ "$sub" =~ (@log|var/log|@cache|var/cache|@tmp|tmp|swap)$ ]]; then
             restore_script+="  echo \"  Warning: No clone found for optional subvolume $sub. Creating empty subvolume.\""$'\n'
             restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
             restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
             restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        else
+            restore_script+="  echo \"FATAL: No backup snapshot found for required subvolume ($sub) in ${BACKUP_SRC_DIR}! Cannot recover system.\" >&2; exit 1"$'\n'
         fi
         restore_script+="fi"$'\n'
     done <<< "${DETECTED_SUBVOLUMES:-}"
@@ -135,11 +135,11 @@ generate_runbooks() {
         cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep -E \"^(${sub_snap_name}|${sub_safe})\\.\" | sort -r | head -n 1 || true)"$'\n'
         cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
         cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
-        if [[ "$layer4_encrypt" == "true" ]]; then
-            cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
-        else
-            cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | zstdcat | btrfs receive /mnt/new_os/"$'\n'
-        fi
+        cloud_restore_script+="  if [[ \"\$ARCHIVE\" == *\\.age ]]; then"$'\n'
+        cloud_restore_script+="    rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        cloud_restore_script+="  else"$'\n'
+        cloud_restore_script+="    rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        cloud_restore_script+="  fi"$'\n'
         cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed -E 's/\\.btrfs\\.zst(\\.age)?$//')"$'\n'
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
@@ -147,13 +147,13 @@ generate_runbooks() {
         cloud_restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
         cloud_restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$RECEIVED_NAME\""$'\n'
         cloud_restore_script+="else"$'\n'
-        if [[ "$sub" == "$snap_root_subvol" || "$sub" == "@" ]]; then
-            cloud_restore_script+="  echo \"FATAL: No cloud archive found for root subvolume ($sub)! Cannot recover system.\" >&2; exit 1"$'\n'
-        else
+        if [[ "$sub" =~ (@log|var/log|@cache|var/cache|@tmp|tmp|swap)$ ]]; then
             cloud_restore_script+="  echo \"  Warning: No clone found for optional subvolume $sub. Creating empty subvolume.\""$'\n'
             cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
             cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
             cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        else
+            cloud_restore_script+="  echo \"FATAL: No cloud archive found for required subvolume ($sub)! Cannot recover system.\" >&2; exit 1"$'\n'
         fi
         cloud_restore_script+="fi"$'\n'
     done <<< "${DETECTED_SUBVOLUMES:-}"
@@ -236,6 +236,10 @@ generate_runbooks() {
                 backup_file "$out2" >/dev/null || return 1
             fi
             template_render "$tpl2" "$out2"
+            if ! layer_configured "$LAYER_PIKA"; then
+                sed -i '/STEP 8: RESTORE HOME DATA/,/STEP 9: CLEANUP/ { /STEP 9: CLEANUP/!d; /STEP 9: CLEANUP/i\--------------------------------------------------------------------------------
+}' "$out2" 2>/dev/null || true
+            fi
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
                 chown "$target_user:" "$out2" 2>/dev/null || true
             fi
@@ -258,6 +262,10 @@ generate_runbooks() {
                 backup_file "$out4" >/dev/null || return 1
             fi
             template_render "$tpl4" "$out4"
+            if ! layer_configured "$LAYER_PIKA" || [[ -z "${CLOUD_PIKA_DIR:-}" ]]; then
+                sed -i '/STEP 8: RESTORE HOME DATA/,/STEP 9: CLEANUP/ { /STEP 9: CLEANUP/!d; /STEP 9: CLEANUP/i\--------------------------------------------------------------------------------
+}' "$out4" 2>/dev/null || true
+            fi
             if [[ -n "$target_user" && "$target_user" != "root" ]]; then
                 chown "$target_user:" "$out4" 2>/dev/null || true
             fi

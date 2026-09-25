@@ -235,6 +235,7 @@ and pruning is enabled inside Pika Backup."
 
 You can complete the setup at any time by launching
 Pika Backup from your desktop application menu."
+        return 1
     fi
 
     log_success "── Layer 3 setup completed ──"

@@ -1,6 +1,12 @@
 # Local test environments & VMs
-vm-test*/
 arch-backup-wizard-preview/
+
+# VM test artifacts
+*.qcow2
+*.iso
+**/cidata/wizard-code/
+**/test_run.log
+**/update.log
 
 # Logs & backups
 *.log
