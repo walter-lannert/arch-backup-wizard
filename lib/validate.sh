@@ -220,7 +220,8 @@ run_validation() {
                 log_warn "Layer 3 check failed: Borg repository at $repo_path is missing config or data directory"
                 failure_issues+=("Layer 3: Borg repository structure incomplete at $repo_path")
             elif [[ $borg_ec -eq 124 ]]; then
-                log_warn "Layer 3 note: 'borg info' timed out after ${borg_timeout}s (exit 124); repository may be on slow storage"
+                l3_ok=false
+                log_warn "Layer 3 check failed: 'borg info' timed out after ${borg_timeout}s (exit 124); repository may be on slow storage"
                 failure_issues+=("Layer 3: Borg repository response timed out (${borg_timeout}s)")
             elif [[ $borg_ec -ne 0 && $borg_ec -ne 2 ]]; then
                 l3_ok=false
@@ -447,6 +448,7 @@ run_validation() {
     dashboard+="Layer 5: Deep Storage ......... ${layer5_status}"$'\n\n'
     dashboard+="Backup drive in fstab: ${fstab_status}"$'\n'
     dashboard+="Recovery runbooks: ${runbook_count} found"$'\n\n'
+    [[ ${#failure_issues[@]} -gt 0 ]] && all_passed=false
 
     if $all_passed; then
         dashboard+="All checks passed!"

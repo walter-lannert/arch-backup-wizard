@@ -50,6 +50,7 @@ readonly BTRBK_OVERRIDE_DIR="/etc/systemd/system/btrbk.service.d"
 # Declared here so that set -u never trips when layer_selected is called
 # before wizard.sh has had a chance to populate it.
 SELECTED_LAYERS=("${SELECTED_LAYERS[@]+"${SELECTED_LAYERS[@]}"}")
+CONFIGURED_LAYERS=("${CONFIGURED_LAYERS[@]+"${CONFIGURED_LAYERS[@]}"}")
 
 # Returns 0 if the given layer ID was selected, 1 otherwise.
 # This is the single authoritative definition — do NOT redefine it in
@@ -61,6 +62,34 @@ layer_selected() {
         [[ "$l" == "$target" ]] && return 0
     done
     return 1
+}
+
+# Returns 0 if the given layer ID was successfully configured, 1 otherwise.
+# Falls back to layer_selected if CONFIGURED_LAYERS is unpopulated (e.g. in standalone tests).
+layer_configured() {
+    local target="$1"
+    if [[ ${#CONFIGURED_LAYERS[@]} -eq 0 ]]; then
+        layer_selected "$target"
+        return $?
+    fi
+    local l
+    for l in "${CONFIGURED_LAYERS[@]}"; do
+        [[ "$l" == "$target" ]] && return 0
+    done
+    return 1
+}
+
+# ── Snapshot naming contract ──────────────────────────────────────────────────
+# Returns the canonical btrbk snapshot name prefix for a given subvolume.
+# Both btrbk configuration, cloud uploaders, and recovery runbooks MUST use
+# this function to guarantee matching lookup patterns across producers and consumers.
+subvolume_to_snapshot_name() {
+    local sub="$1"
+    local safe="${sub//\//_}"
+    safe="${safe//:/_}"
+    local _hash
+    _hash=$(printf '%s' "$sub" | md5sum | cut -c1-8)
+    printf '%s_%s\n' "$safe" "$_hash"
 }
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -171,7 +200,11 @@ template_render() {
 
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
-        local value="${!var:-}"
+        if ! [[ -v "$var" ]]; then
+            log_error "Missing required template variable: $var for $(basename "$template")"
+            return 1
+        fi
+        local value="${!var}"
 
         if [[ "$output" == *.sh ]]; then
             # For shell scripts, escape the value to be safely injected inside double quotes

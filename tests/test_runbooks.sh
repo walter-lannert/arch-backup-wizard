@@ -209,6 +209,7 @@ TMPL
     assert_match "Remote: myremote:" "$content" "Cloud remote substituted"
     assert_match "OS Dir: /backups/os" "$content" "Cloud OS dir substituted"
     assert_match "Age Key: /root/cloud_os.key" "$content" "Age key substituted"
+    assert_match "age -d -i /root/cloud_os.key" "$CLOUD_RECOVERY_SCRIPT" "Recovery script uses live environment key path"
 
     # Verify rclone was invoked for upload (bounded polling for resilience)
     local rclone_log=""

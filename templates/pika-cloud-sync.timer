@@ -1,9 +1,8 @@
 [Unit]
 Description=Pika backup sync to cloud storage (weekly; see pika-cloud-sync.service)
 After=systemd-tmpfiles-setup.service
-ConditionPathExists=/var/lib/pika-cloud-sync/state
-ConditionPathExists=!/run/pika-cloud-sync/active
 ConditionPathExists=/var/lib/pika-cloud-sync/enabled
+ConditionPathExists=!/run/pika-cloud-sync/active
 ConditionPathIsReadWrite=/var/lib/pika-cloud-sync
 ConditionPathExists=!/var/lib/pika-cloud-sync/suspended
 

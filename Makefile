@@ -3,7 +3,7 @@
 all: check test
 
 check:
-	shellcheck -x wizard.sh lib/*.sh tests/*.sh tests/*.bash
+	shellcheck -x wizard.sh lib/*.sh templates/*.sh tests/*.sh tests/*.bash
 
 test:
 	@for t in tests/test_*.sh; do \

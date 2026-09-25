@@ -58,6 +58,13 @@ generate_runbooks() {
     export CLOUD_AGE_KEY="${CLOUD_AGE_KEY:-/root/cloud_os.key}"
     export BACKUP_SRC_DIR="${BACKUP_SRC_DIR:-/mnt/backup/OS_Backup}"
 
+    local root_opts
+    root_opts=$(findmnt -n -o OPTIONS / 2>/dev/null | sed -E 's/(^|,)subvol=[^,]+//g; s/^,+//; s/,+$//; s/,,+/,/g' || true)
+    export ROOT_MOUNT_OPTIONS="${root_opts:-defaults,noatime,compress=zstd:1}"
+    local root_label
+    root_label=$(lsblk -no LABEL "$(findmnt -n -o SOURCE / 2>/dev/null)" 2>/dev/null || true)
+    export ROOT_LABEL="${root_label:-ARCH_ROOT}"
+
     # Dynamically detect kernel and microcode for bare-metal EFI restoration
     local kernel_pkgs
     kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | grep -E '^linux(-cachyos(-[a-z0-9]+)?|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || true)
@@ -75,12 +82,14 @@ generate_runbooks() {
     restore_script+="cat << 'EOF' > /tmp/restore_subvols.sh"$'\n'
     restore_script+="#!/bin/bash"$'\n'
     restore_script+="set -euo pipefail"$'\n'
-    local sub_safe
+    local sub_safe sub_snap_name
     while IFS= read -r sub; do
         [[ -z "$sub" ]] && continue
         sub_safe="${sub//\//_}"
+        sub_safe="${sub_safe//:/_}"
+        sub_snap_name=$(subvolume_to_snapshot_name "$sub")
         restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        restore_script+="SNAP=\$(find ${BACKUP_SRC_DIR} -maxdepth 1 -mindepth 1 -type d -name \"${sub_safe}.*\" 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
+        restore_script+="SNAP=\$(find ${BACKUP_SRC_DIR} -maxdepth 1 -mindepth 1 -type d \( -name \"${sub_snap_name}.*\" -o -name \"${sub_safe}.*\" \) 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
         restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
         restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'
@@ -90,10 +99,14 @@ generate_runbooks() {
         restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
         restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$(basename \"\$SNAP\")\""$'\n'
         restore_script+="else"$'\n'
-        restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
-        restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
-        restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
-        restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        if [[ "$sub" == "$snap_root_subvol" || "$sub" == "@" ]]; then
+            restore_script+="  echo \"FATAL: No backup snapshot found for root subvolume ($sub) in ${BACKUP_SRC_DIR}! Cannot recover system.\" >&2; exit 1"$'\n'
+        else
+            restore_script+="  echo \"  Warning: No clone found for optional subvolume $sub. Creating empty subvolume.\""$'\n'
+            restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+            restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
+            restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        fi
         restore_script+="fi"$'\n'
     done <<< "${DETECTED_SUBVOLUMES:-}"
     restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
@@ -107,29 +120,34 @@ generate_runbooks() {
     cloud_restore_script+="#!/bin/bash"$'\n'
     cloud_restore_script+="set -euo pipefail"$'\n'
     cloud_restore_script+="echo \"Fetching list of cloud archives...\""$'\n'
-    cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep '.btrfs.zst.age$' || true)"$'\n'
+    cloud_restore_script+="archives=\$(rclone lsf \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\" | grep -E '\\.btrfs\\.zst(\\.age)?$' || true)"$'\n'
     cloud_restore_script+="if [[ -z \"\$archives\" ]]; then echo \"Error: No archives found.\"; exit 1; fi"$'\n'
 
-    local sub_safe
     while IFS= read -r sub; do
         [[ -z "$sub" ]] && continue
         sub_safe="${sub//\//_}"
+        sub_safe="${sub_safe//:/_}"
+        sub_snap_name=$(subvolume_to_snapshot_name "$sub")
         cloud_restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep \"^${sub_safe}\\.\" | sort -r | head -n 1 || true)"$'\n'
+        cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep -E \"^(${sub_snap_name}|${sub_safe})\\.\" | sort -r | head -n 1 || true)"$'\n'
         cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
         cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
-        cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | age -d -i ${CLOUD_AGE_KEY} | zstdcat | btrfs receive /mnt/new_os/"$'\n'
-        cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed 's/\\.btrfs\\.zst\\.age$//')"$'\n'
+        cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed -E 's/\\.btrfs\\.zst(\\.age)?$//')"$'\n'
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
         cloud_restore_script+="  btrfs subvolume snapshot \"/mnt/new_os/\$RECEIVED_NAME\" \"/mnt/new_os/$sub\""$'\n'
         cloud_restore_script+="  btrfs property set -ts \"/mnt/new_os/$sub\" ro false"$'\n'
         cloud_restore_script+="  btrfs subvolume delete \"/mnt/new_os/\$RECEIVED_NAME\""$'\n'
         cloud_restore_script+="else"$'\n'
-        cloud_restore_script+="  echo \"  Warning: No clone found for $sub. Creating empty subvolume.\""$'\n'
-        cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
-        cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
-        cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        if [[ "$sub" == "$snap_root_subvol" || "$sub" == "@" ]]; then
+            cloud_restore_script+="  echo \"FATAL: No cloud archive found for root subvolume ($sub)! Cannot recover system.\" >&2; exit 1"$'\n'
+        else
+            cloud_restore_script+="  echo \"  Warning: No clone found for optional subvolume $sub. Creating empty subvolume.\""$'\n'
+            cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
+            cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'
+            cloud_restore_script+="  btrfs subvolume create \"/mnt/new_os/$sub\""$'\n'
+        fi
         cloud_restore_script+="fi"$'\n'
     done <<< "${DETECTED_SUBVOLUMES:-}"
     cloud_restore_script+="echo \"All subvolumes restored successfully.\""$'\n'
@@ -179,7 +197,7 @@ generate_runbooks() {
     local missing_templates=()
 
     # 2. Generate Layer 1 Rollback Runbook (only if Layer 1 was configured)
-    if layer_selected "$LAYER_SNAPPER"; then
+    if layer_configured "$LAYER_SNAPPER"; then
         local tpl1="$wizard_dir/templates/rollback-runbook.txt"
         local out1="$BACKUP_MOUNT/Layer1_Snapper_Rollback_Runbook.txt"
 
@@ -201,7 +219,7 @@ generate_runbooks() {
     fi
 
     # 3. Generate Bare-Metal Recovery Runbook (only if Layer 2 was configured)
-    if layer_selected "$LAYER_BTRBK"; then
+    if layer_configured "$LAYER_BTRBK"; then
         local tpl2="$wizard_dir/templates/bare-metal-runbook.txt"
         local out2="$BACKUP_MOUNT/Bare_Metal_Recovery_Runbook.txt"
 
@@ -223,7 +241,7 @@ generate_runbooks() {
     fi
 
     # 4. Generate Cloud Recovery Runbook (only if Layer 4 and Layer 2 were configured and active)
-    if layer_selected "$LAYER_CLOUD" && layer_selected "$LAYER_BTRBK" && [[ -n "${CLOUD_REMOTE:-}" && -n "${CLOUD_OS_DIR:-}" ]]; then
+    if layer_configured "$LAYER_CLOUD" && layer_configured "$LAYER_BTRBK" && [[ -n "${CLOUD_REMOTE:-}" && -n "${CLOUD_OS_DIR:-}" ]]; then
         local tpl4="$wizard_dir/templates/cloud-recovery-runbook.txt"
         local out4="$BACKUP_MOUNT/Cloud_Recovery_Runbook.txt"
 
