@@ -124,9 +124,20 @@ Please re-authenticate and re-run the wizard."
         return 1
     fi
     if ! pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
+        local err_detail="Check $LOG_FILE for details."
+        if [[ -f /var/lib/pacman/db.lck ]]; then
+            log_error "pacman database is locked (/var/lib/pacman/db.lck)"
+            err_detail="The pacman database is locked (/var/lib/pacman/db.lck).
+Another package manager (e.g. PackageKit, GNOME Software, or another pacman instance) may be running.
+
+Please wait for it to finish or remove the stale lock if no process is active:
+  sudo rm /var/lib/pacman/db.lck"
+        fi
         log_error "pacman install failed: ${to_install[*]}"
         ui_msgbox "Package Error" \
-            "Failed to install: ${to_install[*]}\n\nCheck $LOG_FILE for details."
+            "Failed to install: ${to_install[*]}
+
+$err_detail"
         return 1
     fi
 
@@ -403,10 +414,14 @@ ensure_dialog() {
             echo "FATAL: internal error: invalid package name '$_dlg'" >&2
             return 1
         }
-        pacman -S --noconfirm --needed "$_dlg" >>"$LOG_FILE" 2>&1 || {
-            echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
+        if ! pacman -S --noconfirm --needed "$_dlg" >>"$LOG_FILE" 2>&1; then
+            if [[ -f /var/lib/pacman/db.lck ]]; then
+                echo "FATAL: The pacman database is locked (/var/lib/pacman/db.lck). Another package manager may be running." >&2
+            else
+                echo "FATAL: Could not install 'dialog'. Install it manually: sudo pacman -S dialog" >&2
+            fi
             return 1
-        }
+        fi
         if ! cmd_exists dialog && ! cmd_exists whiptail; then
             echo "FATAL: 'dialog' was installed but is not found in PATH. Check your PATH." >&2
             return 1

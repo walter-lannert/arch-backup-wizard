@@ -26,7 +26,8 @@ This will NOT remove:
 • Installed packages (snapper, btrbk, pika-backup, rclone)
 • Your actual backup data
 • Recovery runbooks
-• Deep Storage contents"
+• Deep Storage contents
+• Age cloud encryption keys (~/.config/arch-backup-wizard/cloud_os.key)"
 
     if ! ui_confirm_destructive "Uninstall Wizard Configurations" "$warning_msg"; then
         log_info "Uninstall aborted by user."
