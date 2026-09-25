@@ -129,6 +129,7 @@ This will NOT remove:
         done < "$manifest_file"
         rm -f "$manifest_file"
         rm -f "$ORIG_MANIFEST" 2>/dev/null || true
+        rm -f "${CONTRACT_FILE:-/var/lib/arch-backup-wizard/contract.env}" 2>/dev/null || true
         rmdir "/var/lib/arch-backup-wizard" 2>/dev/null || true
     fi
 
@@ -143,7 +144,7 @@ This will NOT remove:
     # Also clean up any lingering local archives from interrupted backups
     if [[ -n "${BACKUP_MOUNT:-}" ]]; then
         btrfs subvolume delete "${BACKUP_MOUNT}/.pika_sync_snapshot" >>"$LOG_FILE" 2>&1 || true
-        rm -f "${BACKUP_MOUNT}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
+        rm -f "${BACKUP_MOUNT}/OS_Backup/"*.btrfs.zst "${BACKUP_MOUNT}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
     fi
 
     log_info "Reloading systemd daemon..."

@@ -115,6 +115,24 @@ generate_runbooks() {
     restore_script+="/tmp/restore_subvols.sh"$'\n'
 
     # Generate dynamic cloud recovery script block for runbooks
+    local layer4_encrypt="${LAYER4_ENCRYPT:-}"
+    if [[ -z "$layer4_encrypt" ]]; then
+        local contract_file="${CONTRACT_FILE:-/var/lib/arch-backup-wizard/contract.env}"
+        if [[ -f "$contract_file" ]]; then
+            # shellcheck source=/dev/null
+            source "$contract_file"
+            layer4_encrypt="${LAYER4_ENCRYPT:-true}"
+        elif [[ -f "${HOME_DIR}/.os_cloud_backup.sh" ]]; then
+            if grep -q "^# ARCH_BACKUP_WIZARD_LAYER4_ENCRYPT=false" "${HOME_DIR}/.os_cloud_backup.sh" 2>/dev/null; then
+                layer4_encrypt="false"
+            else
+                layer4_encrypt="true"
+            fi
+        else
+            layer4_encrypt="true"
+        fi
+    fi
+
     local cloud_restore_script=""
     cloud_restore_script+="cat << 'EOF' > /tmp/cloud_restore_subvols.sh"$'\n'
     cloud_restore_script+="#!/bin/bash"$'\n'
@@ -132,7 +150,11 @@ generate_runbooks() {
         cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep -E \"^(${sub_snap_name}|${sub_safe})\\.\" | sort -r | head -n 1 || true)"$'\n'
         cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
         cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
-        cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        if [[ "$layer4_encrypt" == "true" ]]; then
+            cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | age -d -i /root/cloud_os.key | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        else
+            cloud_restore_script+="  rclone cat \"${CLOUD_REMOTE:-}${CLOUD_OS_DIR:-}/\$ARCHIVE\" | zstdcat | btrfs receive /mnt/new_os/"$'\n'
+        fi
         cloud_restore_script+="  RECEIVED_NAME=\$(echo \"\$ARCHIVE\" | sed -E 's/\\.btrfs\\.zst(\\.age)?$//')"$'\n'
         cloud_restore_script+="  mkdir -p \"/mnt/new_os/\$(dirname \"$sub\")\""$'\n'
         cloud_restore_script+="  [ -e \"/mnt/new_os/$sub\" ] && ( btrfs subvolume delete \"/mnt/new_os/$sub\" 2>/dev/null || rm -rf \"/mnt/new_os/$sub\" 2>/dev/null || true )"$'\n'

@@ -173,6 +173,54 @@ test_validate_cli_mode_skips_dialog() {
     assert_eq "false" "$ui_msgbox_invoked" "ui_msgbox must NOT be called in CLI mode"
 }
 
+# ── Test 8: Layer 4 encrypted requires age package ───────────────────────────
+test_layer4_encrypted_requires_age() {
+    _setup_validate_env
+    source "$REPO_DIR/lib/common.sh"
+    source "$REPO_DIR/lib/validate.sh"
+
+    SELECTED_LAYERS=(4)
+    # Mock pkg_is_installed to succeed ONLY for rclone, NOT age
+    # shellcheck disable=SC2329
+    pkg_is_installed() {
+        [[ "$1" == "rclone" ]]
+    }
+
+    local output rc=0
+    output=$(run_validation 2>/dev/null) || rc=$?
+
+    assert_eq "1" "$rc" "run_validation should fail when age is missing for encrypted layer 4"
+    assert_match "Layer 4: Cloud Offsite.*ISSUES" "$output" "Layer 4 should show issues"
+    assert_match "age package not installed" "$output" "Should report age package not installed"
+}
+
+# ── Test 9: Layer 4 unencrypted passes without age ───────────────────────────
+test_layer4_unencrypted_passes_without_age() {
+    _setup_validate_env
+    source "$REPO_DIR/lib/common.sh"
+    source "$REPO_DIR/lib/validate.sh"
+
+    SELECTED_LAYERS=(4)
+    # Write contract.env with LAYER4_ENCRYPT="false"
+    mkdir -p "$(dirname "$CONTRACT_FILE")"
+    cat > "$CONTRACT_FILE" <<EOF
+LAYER4_ENCRYPT="false"
+EOF
+
+    # Mock pkg_is_installed to succeed for rclone, NOT age
+    # shellcheck disable=SC2329
+    pkg_is_installed() {
+        [[ "$1" == "rclone" ]]
+    }
+
+    local output rc=0
+    output=$(run_validation 2>/dev/null) || rc=$?
+
+    assert_eq "0" "$rc" "run_validation should succeed when unencrypted even without age"
+    assert_match "Layer 4: Cloud Offsite.*OK" "$output" "Layer 4 should pass"
+    assert_match "All checks passed" "$output" "Should report all checks passed"
+}
+
 echo "=== Running tests for lib/validate.sh ==="
 run_test test_all_layers_skipped "All layers skipped (no selection)"
 run_test test_layer5_happy_path "Layer 5 happy path (directory exists)"
@@ -181,4 +229,6 @@ run_test test_layer2_package_missing "Layer 2 failure (package not installed)"
 run_test test_layer1_package_missing "Layer 1 failure (package not installed)"
 run_test test_mixed_layers_partial_failure "Mixed layers (partial failure)"
 run_test test_validate_cli_mode_skips_dialog "CLI mode bypasses dialog UI"
+run_test test_layer4_encrypted_requires_age "Layer 4 encrypted requires age package"
+run_test test_layer4_unencrypted_passes_without_age "Layer 4 unencrypted passes without age"
 test_summary

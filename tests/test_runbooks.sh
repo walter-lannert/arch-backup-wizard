@@ -224,6 +224,43 @@ TMPL
     assert_match "copyto" "$rclone_log" "rclone copyto should be used for upload"
 }
 
+# ── Test 7: Happy path — Cloud runbook unencrypted ───────────────────────────
+
+test_cloud_runbook_unencrypted() {
+    _setup_runbook_env
+    export DRY_RUN=false
+    export CLOUD_REMOTE="myremote:"
+    export CLOUD_OS_DIR="/backups/os"
+    export CLOUD_PIKA_DIR="/backups/pika"
+    export LAYER4_ENCRYPT="false"
+    SELECTED_LAYERS=("2" "4")
+
+    cat <<'TMPL' > "$WIZARD_DIR/templates/cloud-recovery-runbook.txt"
+# Cloud Recovery Runbook
+Remote: {{CLOUD_REMOTE}}
+OS Dir: {{CLOUD_OS_DIR}}
+TMPL
+    cat <<'TMPL' > "$WIZARD_DIR/templates/bare-metal-runbook.txt"
+# Bare-Metal
+Root: {{ROOT_UUID}}
+TMPL
+
+    # Mock rclone to log invocation
+    # shellcheck disable=SC2016
+    mock_cmd rclone 'echo "rclone $*" >> "$HOME/rclone_calls.log"'
+    # Mock sudo (run_as_user calls sudo -u <user> <cmd>...)
+    # shellcheck disable=SC2016
+    mock_cmd sudo 'shift 2; exec "$@"'
+
+    generate_runbooks
+
+    local out="$BACKUP_MOUNT/Cloud_Recovery_Runbook.txt"
+    assert_file_exists "$out" "Cloud runbook should be generated"
+
+    assert_no_match "age -d -i" "$CLOUD_RECOVERY_SCRIPT" "Recovery script does NOT use age when unencrypted"
+    assert_match "zstdcat | btrfs receive" "$CLOUD_RECOVERY_SCRIPT" "Recovery script streams raw zstdcat to btrfs receive"
+}
+
 # ── Run tests ─────────────────────────────────────────────────────────────────
 
 echo "=== Running tests for lib/runbooks.sh ==="
@@ -233,4 +270,5 @@ run_test test_missing_template_graceful "Missing template graceful degradation"
 run_test test_no_layers_selected "No layers selected"
 run_test test_backup_mount_is_file "BACKUP_MOUNT is a file (failure path)"
 run_test test_cloud_runbook_with_upload "Cloud runbook with rclone upload"
+run_test test_cloud_runbook_unencrypted "Cloud runbook unencrypted"
 test_summary

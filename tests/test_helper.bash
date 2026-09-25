@@ -93,6 +93,19 @@ assert_match() {
     return 0
 }
 
+assert_no_match() {
+    local pattern="$1"
+    local string="$2"
+    local msg="${3:-Assertion failed}"
+    if [[ "$string" =~ $pattern ]]; then
+        echo -e "${CLR_RED}  [ASSERT FAILED] $msg${CLR_RESET}" >&2
+        echo "    Unexpected Pattern: '$pattern'" >&2
+        echo "    String:             '$string'" >&2
+        return 1
+    fi
+    return 0
+}
+
 assert_file_exists() {
     local file="$1"
     local msg="${2:-File does not exist: $file}"

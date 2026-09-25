@@ -1,4 +1,5 @@
 #!/bin/bash
+# ARCH_BACKUP_WIZARD_LAYER4_ENCRYPT={{LAYER4_ENCRYPT}}
 set -euo pipefail
 
 LOCK_FILE="/run/lock/os-cloud-backup.lock"
@@ -22,7 +23,7 @@ while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 SUDO_KEEP_PID=$!
 
 # Preemptively clean up any orphaned archives from previously killed runs
-sudo rm -f "{{BACKUP_MOUNT}}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
+sudo rm -f "{{BACKUP_MOUNT}}/OS_Backup/"*.btrfs.zst* 2>/dev/null || true
 
 uploaded_count=0
 while IFS= read -r sub; do
@@ -42,33 +43,39 @@ while IFS= read -r sub; do
     LATEST_SNAP=$(basename "$LATEST_SNAP_PATH")
     echo "Found latest snapshot for $sub: $LATEST_SNAP"
 
-    ARCHIVE_PATH="{{BACKUP_MOUNT}}/OS_Backup/${LATEST_SNAP}.btrfs.zst.age"
+    ARCHIVE_PATH="{{BACKUP_MOUNT}}/OS_Backup/${LATEST_SNAP}{{CLOUD_ARCHIVE_EXT}}"
     cleanup_files+=("$ARCHIVE_PATH")
 
-    # Package, compress, and encrypt the snapshot
-    echo "Compressing and encrypting $LATEST_SNAP (showing raw data processed)..."
-    sudo ionice -c 3 nice -n 19 btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | nice -n 19 zstd -T0 | nice -n 19 age -r "{{AGE_PUBKEY}}" | sudo tee "$ARCHIVE_PATH" > /dev/null
+    # Package, compress, and (optionally) encrypt the snapshot
+    # shellcheck disable=SC2050
+    if [[ "{{LAYER4_ENCRYPT}}" == "true" ]]; then
+        echo "Compressing and encrypting $LATEST_SNAP (showing raw data processed)..."
+        sudo ionice -c 3 nice -n 19 btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | nice -n 19 zstd -T0 | nice -n 19 age -r "{{AGE_PUBKEY}}" | sudo tee "$ARCHIVE_PATH" > /dev/null
+    else
+        echo "Compressing $LATEST_SNAP (showing raw data processed)..."
+        sudo ionice -c 3 nice -n 19 btrfs send "{{BACKUP_MOUNT}}/OS_Backup/$LATEST_SNAP" | pv -trab | nice -n 19 zstd -T0 | sudo tee "$ARCHIVE_PATH" > /dev/null
+    fi
     sudo chmod 644 "$ARCHIVE_PATH"
 
     # Sync to cloud storage
     echo "Uploading $LATEST_SNAP to cloud storage..."
-    rclone copyto "$ARCHIVE_PATH" "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/${LATEST_SNAP}.btrfs.zst.age" -P --contimeout 30s --timeout 10m
+    rclone copyto "$ARCHIVE_PATH" "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/${LATEST_SNAP}{{CLOUD_ARCHIVE_EXT}}" -P --contimeout 30s --timeout 10m
 
     # Verify upload integrity before deleting local copy
     local_size=$(sudo stat -c%s "$ARCHIVE_PATH")
-    remote_size=$(rclone lsl "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/${LATEST_SNAP}.btrfs.zst.age" 2>/dev/null | awk '{print $1}')
+    remote_size=$(rclone lsl "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/${LATEST_SNAP}{{CLOUD_ARCHIVE_EXT}}" 2>/dev/null | awk '{print $1}')
     if [[ -z "$remote_size" || "$remote_size" -ne "$local_size" ]]; then
         echo "Error: upload size mismatch for $LATEST_SNAP (local=$local_size remote=${remote_size:-unknown})."
         exit 1
     fi
 
-    # Clean up local encrypted copy
+    # Clean up local copy
     sudo rm -f "$ARCHIVE_PATH"
     uploaded_count=$((uploaded_count + 1))
 
     # Remote retention policy: keep newest 4 snapshot archives for this subvolume
     RETENTION_COUNT=4
-    mapfile -t old_archives < <(rclone lsf "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/" 2>/dev/null | grep -E "^(${sub_escaped}|${sub_safe//[\*\?\[\]]/\\&})\\..*\\.btrfs\\.zst\\.age$" | sort -r | tail -n +$((RETENTION_COUNT + 1)) || true)
+    mapfile -t old_archives < <(rclone lsf "{{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/" 2>/dev/null | grep -E "^(${sub_escaped}|${sub_safe//[\*\?\[\]]/\\&})\\..*\\.btrfs\\.zst(\\.age)?$" | sort -r | tail -n +$((RETENTION_COUNT + 1)) || true)
     for old_arch in "${old_archives[@]}"; do
         [[ -z "$old_arch" ]] && continue
         echo "Pruning expired remote archive: $old_arch"
