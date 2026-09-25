@@ -35,20 +35,22 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
         --uninstall)
+            if $DRY_RUN || $VALIDATE; then die "Error: --uninstall cannot be combined with other modes."; fi
             UNINSTALL=true
             shift
             ;;
         --validate)
+            if $UNINSTALL || $DRY_RUN; then die "Error: --validate cannot be combined with --uninstall or --dry-run."; fi
             VALIDATE=true
             shift
             if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
                 IFS=',' read -ra VALIDATE_LAYERS <<<"$1"
                 shift
-                # Validate each token — case literals are intentional here;
-                # bash case patterns don't expand variables so LAYER_* can't
-                # be used in pattern position.
-                local _l
-                for _l in "${VALIDATE_LAYERS[@]}"; do
+                # Validate each token
+                local _idx _l
+                for _idx in "${!VALIDATE_LAYERS[@]}"; do
+                    _l="${VALIDATE_LAYERS[_idx]// /}"
+                    VALIDATE_LAYERS[_idx]="$_l"
                     case "$_l" in
                     1 | 2 | 3 | 4 | 5) ;;
                     *) die "Invalid layer id: '$_l' (expected 1..5, or comma-separated subset, e.g. 1,3)" ;;
@@ -57,7 +59,12 @@ parse_args() {
             fi
             ;;
         --dry-run | -d)
+            if $UNINSTALL || $VALIDATE; then die "Error: --dry-run cannot be combined with --uninstall or --validate."; fi
             DRY_RUN=true
+            shift
+            ;;
+        -v | --verbose)
+            set -x
             shift
             ;;
         --help | -h)
@@ -86,6 +93,9 @@ EOF
             exit 0
             ;;
         *)
+            if $VALIDATE && [[ "$1" =~ ^[0-9,]+$ ]]; then
+                echo "Hint: layer IDs for --validate must be comma-separated without spaces (e.g. --validate 1,3)" >&2
+            fi
             echo "Unknown option: $1  (use --help)" >&2
             exit 1
             ;;
@@ -129,6 +139,30 @@ show_detection_results() {
     local summary
     summary=$(format_detection_summary)
 
+    if [[ -n "${DETECTED_UNMOUNTED_SUBVOLS:-}" ]]; then
+        ui_msgbox "Warning: Unmounted Nested Subvolumes" \
+            "BTRFS nested subvolumes were detected that are not explicitly mounted in your fstab.
+
+Because BTRFS snapshots do not cross subvolume boundaries, these unmounted subvolumes (e.g. docker containers, libvirt images) will be SILENTLY OMITTED from your bare-metal backups and clones.
+
+Unmounted subvolumes:
+$DETECTED_UNMOUNTED_SUBVOLS
+
+If you need these backed up, you must mount them explicitly in /etc/fstab."
+    fi
+
+    if (( ${#DETECTED_SECONDARY_MOUNTS[@]} > 0 )); then
+        local sec_list=""
+        for m in "${DETECTED_SECONDARY_MOUNTS[@]}"; do
+            sec_list+="- $m\n"
+        done
+        ui_msgbox "Warning: Secondary Filesystems Detected" \
+            "The following secondary filesystems are mounted on your system but are outside the root BTRFS partition:
+
+$sec_list
+These secondary drives or partitions will NOT be included in the bare-metal clones (Layer 2) or OS cloud backups (Layer 4). They will only be backed up if they are inside your home directory and captured by Pika Backup (Layer 3)."
+    fi
+
     ui_yesno "System Detection" \
         "Your system was scanned. Please verify:
 
@@ -136,8 +170,6 @@ $summary
 
 Is this correct?" || die "Aborted by user at detection review."
 }
-
-
 
 # ── Layer selection ───────────────────────────────────────────────────────────
 
@@ -220,15 +252,19 @@ select_backup_drive() {
 
 Use this drive?"; then
             BACKUP_MOUNT="$DETECTED_BACKUP_MOUNT"
-            BACKUP_UUID="$DETECTED_BACKUP_UUID"
             BACKUP_DEV="$DETECTED_BACKUP_DEV"
+            BACKUP_UUID="${DETECTED_BACKUP_UUID:-$(blkid -s UUID -o value "$BACKUP_DEV" 2>/dev/null || echo "")}"
             log_info "Reusing existing backup drive: $BACKUP_MOUNT"
+            _ensure_backup_mounted || return 1
+            export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
             return 0
         fi
     fi
 
     # Build a list of candidate partitions for a radiolist
     local choices=()
+    local seen_devs=()
+    local _first_choice=true
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\".*MOUNTPOINT=\"([^\"]*)\" ]] || true
@@ -236,33 +272,106 @@ Use this drive?"; then
         local size="${BASH_REMATCH[2]:-}"
         local fstype="${BASH_REMATCH[4]:-}"
         local mountpoint="${BASH_REMATCH[5]:-}"
+        [[ -z "$dev" ]] && continue
 
-        # Skip root and EFI
-        [[ "$dev" == "$DETECTED_ROOT_DEV" ]] && continue
-        [[ "$dev" == "$DETECTED_EFI_DEV" ]] && continue
-        [[ "$fstype" == "swap" ]] && continue
+        # Skip system devices (root, EFI, swap, and all their parents/children)
+        local dev_real
+        dev_real=$(realpath -q "$dev" 2>/dev/null || echo "$dev")
+        local is_system=false
+        for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+            local sys_real
+            sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+            if [[ "$dev" == "$sys_dev" || "$dev_real" == "$sys_real" || "$dev" == "$sys_real" || "$dev_real" == "$sys_dev" ]]; then
+                is_system=true
+                break
+            fi
+        done
+        if [[ "$is_system" == false ]]; then
+            local parent
+            parent=$(lsblk -no PKNAME "$dev" 2>/dev/null || echo "")
+            if [[ -n "$parent" ]]; then
+                [[ "$parent" != /* ]] && parent="/dev/$parent"
+                local parent_real
+                parent_real=$(realpath -q "$parent" 2>/dev/null || echo "$parent")
+                for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+                    local sys_real
+                    sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+                    if [[ "$parent" == "$sys_dev" || "$parent_real" == "$sys_real" || "$parent" == "$sys_real" || "$parent_real" == "$sys_dev" ]]; then
+                        is_system=true
+                        break
+                    fi
+                done
+            fi
+        fi
+        [[ "$is_system" == true ]] && continue
 
         local label="${size}"
         [[ -n "$fstype" ]] && label+="  $fstype"
         [[ -n "$mountpoint" ]] && label+="  ($mountpoint)"
 
-        choices+=("$dev" "$label" "off")
+        if [[ " ${seen_devs[*]:-} " =~ [[:space:]]${dev}[[:space:]] ]]; then
+            continue
+        fi
+        seen_devs+=("$dev")
+        local _sel="off"
+        [[ "$_first_choice" == true ]] && _sel="on" && _first_choice=false
+        choices+=("$dev" "$label" "$_sel")
     done <<<"$DETECTED_PARTITIONS"
 
     # Also offer unformatted whole disks
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        local dev size _type
-        read -r dev size _type <<<"$line"
+        [[ $line =~ NAME=\"([^\"]*)\".*SIZE=\"([^\"]*)\".*TYPE=\"([^\"]*)\".*FSTYPE=\"([^\"]*)\" ]] || true
+        local dev="${BASH_REMATCH[1]:-}"
+        local size="${BASH_REMATCH[2]:-}"
+        local fstype="${BASH_REMATCH[4]:-}"
+        [[ -z "$dev" ]] && continue
 
-        # Skip if any partition from this disk is already in the list
-        local dominated=false
-        for ((i=0; i<${#choices[@]}; i+=3)); do
-            [[ "${choices[i]}" == "${dev}"* ]] && dominated=true && break
+        # Skip system devices
+        local dev_real
+        dev_real=$(realpath -q "$dev" 2>/dev/null || echo "$dev")
+        local is_system=false
+        for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+            local sys_real
+            sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+            if [[ "$dev" == "$sys_dev" || "$dev_real" == "$sys_real" || "$dev" == "$sys_real" || "$dev_real" == "$sys_dev" ]]; then
+                is_system=true
+                break
+            fi
         done
+        if [[ "$is_system" == false ]]; then
+            local parent
+            parent=$(lsblk -no PKNAME "$dev" 2>/dev/null || echo "")
+            if [[ -n "$parent" ]]; then
+                [[ "$parent" != /* ]] && parent="/dev/$parent"
+                local parent_real
+                parent_real=$(realpath -q "$parent" 2>/dev/null || echo "$parent")
+                for sys_dev in "${DETECTED_SYSTEM_DEVS[@]}"; do
+                    local sys_real
+                    sys_real=$(realpath -q "$sys_dev" 2>/dev/null || echo "$sys_dev")
+                    if [[ "$parent" == "$sys_dev" || "$parent_real" == "$sys_real" || "$parent" == "$sys_real" || "$parent_real" == "$sys_dev" ]]; then
+                        is_system=true
+                        break
+                    fi
+                done
+            fi
+        fi
+        [[ "$is_system" == true ]] && continue
 
-        # Offer the whole disk as a "format new" option
-        choices+=("$dev" "${size}  (UNFORMATTED — will partition)" "off")
+        # Only label a disk unformatted if it has zero children and no filesystem
+        local children
+        children=$(lsblk -no NAME "$dev" 2>/dev/null | wc -l)
+        if (( children > 1 )) || [[ -n "$fstype" ]]; then
+            continue
+        fi
+
+        if [[ " ${seen_devs[*]:-} " =~ [[:space:]]${dev}[[:space:]] ]]; then
+            continue
+        fi
+        seen_devs+=("$dev")
+        local _sel="off"
+        [[ "$_first_choice" == true ]] && _sel="on" && _first_choice=false
+        choices+=("$dev" "${size}  (UNFORMATTED — will partition)" "$_sel")
     done <<<"$DETECTED_DRIVES"
 
     if [[ ${#choices[@]} -eq 0 ]]; then
@@ -274,12 +383,16 @@ Please connect a secondary drive and re-run the wizard."
     fi
 
     local selected
-    selected=$(ui_radiolist "Backup Drive" \
-        "Select the drive/partition for backups:" \
-        "${choices[@]}") || die "Aborted at drive selection."
-
-    selected="${selected//\"/}"
-    [[ -z "$selected" ]] && die "No backup drive selected."
+    while true; do
+        selected=$(ui_radiolist "Backup Drive" \
+            "Select the drive/partition for backups:" \
+            "${choices[@]}") || die "Aborted at drive selection."
+        selected="${selected//\"/}"
+        if [[ -n "$selected" ]]; then
+            break
+        fi
+        ui_msgbox "Selection Required" "Please select a backup drive/partition (use Space to toggle, Enter to confirm)."
+    done
     BACKUP_DEV="$selected"
 
     # Determine if this needs formatting
@@ -287,7 +400,9 @@ Please connect a secondary drive and re-run the wizard."
     fstype=$(lsblk -no FSTYPE "$BACKUP_DEV" 2>/dev/null || echo "")
 
     if [[ -z "$fstype" ]] || [[ "$fstype" != "btrfs" ]]; then
-        if ui_confirm_destructive "Format Drive" \
+        if $DRY_RUN; then
+            _format_backup_drive
+        elif ui_confirm_destructive "Format Drive" \
             "The selected device ($BACKUP_DEV) is not BTRFS.
 
 It needs to be formatted as BTRFS for backup storage.
@@ -304,13 +419,64 @@ Continue?"; then
     BACKUP_UUID=$(blkid -s UUID -o value "$BACKUP_DEV")
 
     if [[ -z "$BACKUP_MOUNT" ]]; then
-        BACKUP_MOUNT=$(ui_inputbox "Mount Point" \
-            "Where should the backup drive be mounted?" \
-            "${DETECTED_HOME}/Backup") || die "Aborted at mount point input."
+        while true; do
+            BACKUP_MOUNT=$(ui_inputbox "Mount Point" \
+                "Where should the backup drive be mounted?\n(Must be an absolute path outside system dirs)" \
+                "${DETECTED_HOME}/Backup") || die "Aborted at mount point input."
+
+            # Remove trailing slashes
+            BACKUP_MOUNT="${BACKUP_MOUNT%/}"
+
+            if [[ -z "$BACKUP_MOUNT" ]]; then
+                ui_msgbox "Error" "Mount point cannot be empty."
+                continue
+            fi
+
+            if [[ "$BACKUP_MOUNT" != /* ]]; then
+                ui_msgbox "Error" "Mount point must be an absolute path starting with '/'."
+                continue
+            fi
+
+            if [[ "$BACKUP_MOUNT" == *$'\n'* || "$BACKUP_MOUNT" == *$'\t'* || "$BACKUP_MOUNT" == *\\* || "$BACKUP_MOUNT" == *"="* || "$BACKUP_MOUNT" == *"#"* || "$BACKUP_MOUNT" == *"%"* ]]; then
+                ui_msgbox "Error" "Mount point cannot contain newlines, tabs, backslashes, '=', '#', or '%'."
+                continue
+            fi
+
+            if [[ "$BACKUP_MOUNT" == "/usr"* || "$BACKUP_MOUNT" == "/etc"* || "$BACKUP_MOUNT" == "/var"* || "$BACKUP_MOUNT" == "/boot"* || "$BACKUP_MOUNT" == "/" ]]; then
+                ui_msgbox "Error" "Mount point cannot be in a protected system directory."
+                continue
+            fi
+
+            if [[ -L "$BACKUP_MOUNT" ]]; then
+                ui_msgbox "Error" "Mount point cannot be a symlink."
+                continue
+            fi
+
+            if mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
+                local current_dev
+                current_dev=$(findmnt -n --nofsroot -o SOURCE "$BACKUP_MOUNT" 2>/dev/null || echo "")
+                if [[ "$current_dev" != "$BACKUP_DEV" ]]; then
+                    ui_msgbox "Error" "Path is already a mount point for a different device ($current_dev)."
+                    continue
+                fi
+            fi
+
+            if [[ -d "$BACKUP_MOUNT" ]] && ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
+                local contents
+                contents=$(ls -A "$BACKUP_MOUNT" 2>/dev/null || echo "")
+                if [[ -n "$contents" ]]; then
+                    ui_msgbox "Error" "Directory exists and is not empty. Please choose an empty or new directory."
+                    continue
+                fi
+            fi
+
+            break
+        done
     fi
 
     _ensure_backup_mounted
 
+    export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
     log_info "Backup drive configured: dev=$BACKUP_DEV mount=$BACKUP_MOUNT UUID=$BACKUP_UUID"
 }
 
@@ -344,11 +510,19 @@ No partitions or data were modified."
         fi
         partprobe "$dev" 2>/dev/null || true
         udevadm settle 2>/dev/null || true
+
+        local wait_count=0
+        while [[ ! -b "$BACKUP_DEV" ]] && (( wait_count < 5 )); do
+            sleep 1
+            ((wait_count++))
+        done
+        [[ -b "$BACKUP_DEV" ]] || die "Partition $BACKUP_DEV failed to appear after partitioning."
     fi
 
     log_info "Formatting $BACKUP_DEV as BTRFS with zstd compression"
     ui_infobox "Formatting" "Creating BTRFS filesystem on $BACKUP_DEV..."
     mkfs.btrfs -f "$BACKUP_DEV" >>"$LOG_FILE" 2>&1 || die "mkfs.btrfs failed on $BACKUP_DEV"
+    udevadm settle 2>/dev/null || sleep 1
     log_success "Formatted $BACKUP_DEV as BTRFS"
 }
 
@@ -361,17 +535,44 @@ _ensure_backup_mounted() {
     mkdir -p "$BACKUP_MOUNT"
 
     # Add to fstab if not already present
-    if ! grep -v '^[[:space:]]*#' /etc/fstab 2>/dev/null | grep -qE "(^|[[:space:]])${BACKUP_UUID}([[:space:]]|=|$)" 2>/dev/null; then
-        backup_file /etc/fstab
+    local existing_mount
+    existing_mount=$(findmnt --fstab -n -o TARGET -S "UUID=$BACKUP_UUID" 2>/dev/null || echo "")
+
+    if [[ "$existing_mount" != "$BACKUP_MOUNT" ]]; then
+        # Remove stale fstab entry for BACKUP_MOUNT if one exists
+        if findmnt --fstab "$BACKUP_MOUNT" >/dev/null 2>&1; then
+            local tmp_clean
+            tmp_clean=$(mktemp /etc/fstab.tmp.XXXXXX)
+            awk -v mp="$BACKUP_MOUNT" -v mp_esc="${BACKUP_MOUNT// /\\040}" '$2 != mp && $2 != mp_esc' /etc/fstab > "$tmp_clean"
+            backup_file /etc/fstab || { rm -f "$tmp_clean"; die "Aborted by user: declined /etc/fstab modification."; }
+            mv -T "$tmp_clean" /etc/fstab
+            chmod 644 /etc/fstab
+            log_info "Cleaned stale fstab entry for $BACKUP_MOUNT"
+        fi
+
+        # Add the new fstab entry
+        local tmp_fstab
+        tmp_fstab=$(mktemp /etc/fstab.tmp.XXXXXX)
+        cp /etc/fstab "$tmp_fstab"
+
         local fstab_mount="${BACKUP_MOUNT// /\\040}"
-        printf '\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n' \
-            "$BACKUP_UUID" "$fstab_mount" >>/etc/fstab
+        printf '\n# BEGIN Arch Backup Wizard Mount\nUUID=%s %s btrfs defaults,noatime,compress=zstd,nofail 0 0\n# END Arch Backup Wizard Mount\n' \
+            "$BACKUP_UUID" "$fstab_mount" >>"$tmp_fstab"
+
+        if ! findmnt --verify --tab-file "$tmp_fstab" &>/dev/null; then
+            rm -f "$tmp_fstab"
+            die "Generated fstab entry failed verification. Aborting."
+        fi
+
+        backup_file /etc/fstab || { rm -f "$tmp_fstab"; die "Aborted by user: declined /etc/fstab modification."; }
+        mv -T "$tmp_fstab" /etc/fstab
+        chmod 644 /etc/fstab
         log_info "Added backup drive to /etc/fstab"
     fi
 
     # Mount if not already mounted
     if ! mountpoint -q "$BACKUP_MOUNT" 2>/dev/null; then
-        mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
+        mount "$BACKUP_DEV" "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || mount "$BACKUP_MOUNT" >>"$LOG_FILE" 2>&1 || die "Failed to mount $BACKUP_MOUNT"
     fi
 
     # Create standard directory structure
@@ -391,75 +592,86 @@ run_dry_run_simulation() {
     log_info "══════ Running Wizard Simulation (Dry Run) ══════"
 
     local preview_dir
-    preview_dir="$(effective_home)/arch-backup-wizard-preview"
+    preview_dir=$(mktemp -d /tmp/arch-backup-wizard-preview.XXXXXX)
     mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
-    chown -R "$(effective_user):" "$preview_dir" 2>/dev/null || true
 
     # 1. Collect packages
     local pkg_info=""
     for l in "${SELECTED_LAYERS[@]}"; do
         local pkgs
         pkgs=$(get_layer_packages "$l")
-        [[ -n "$pkgs" ]] && pkg_info+="  Layer $l: $pkgs\n"
+        [[ -n "$pkgs" ]] && pkg_info+="  Layer $l: $pkgs"$'\n'
     done
 
     # 2. Collect actions per layer
     local actions=""
     if layer_selected "$LAYER_SNAPPER"; then
-        actions+="• Layer 1 (Snapper):\n"
-        actions+="  - Configure /etc/snapper/configs/root\n"
-        actions+="  - Enable snapper-cleanup.timer\n"
+        actions+="• Layer 1 (Snapper):"$'\n'
+        actions+="  - Configure /etc/snapper/configs/root"$'\n'
+        actions+="  - Enable snapper-cleanup.timer"$'\n'
         case "$DETECTED_BOOTLOADER" in
-        grub) actions+="  - Enable grub-btrfsd.service\n" ;;
-        limine) actions+="  - limine-snapper-sync boot integration\n" ;;
-        systemd-boot) actions+="  - Manual snapshot swap rollback\n" ;;
+        grub) actions+="  - Enable grub-btrfsd.service"$'\n' ;;
+        limine) actions+="  - limine-snapper-sync boot integration"$'\n' ;;
+        systemd-boot) actions+="  - Manual snapshot swap rollback"$'\n' ;;
         esac
     fi
 
     if layer_selected "$LAYER_BTRBK"; then
-        actions+="• Layer 2 (btrbk):\n"
-        actions+="  - Configure $BTRBK_CONF\n"
-        actions+="  - Target: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/OS_Backup\n"
-        actions+="  - Create systemd override (Nice=19, Idle I/O)\n"
-        actions+="  - Enable btrbk.timer (daily clones)\n"
+        actions+="• Layer 2 (btrbk):"$'\n'
+        actions+="  - Configure $BTRBK_CONF"$'\n'
+        actions+="  - Target: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/OS_Backup"$'\n'
+        actions+="  - Create systemd override (Nice=19, Idle I/O)"$'\n'
+        actions+="  - Enable btrbk.timer (daily clones)"$'\n'
     fi
 
     if layer_selected "$LAYER_PIKA"; then
-        actions+="• Layer 3 (Pika Backup):\n"
-        actions+="  - Borg repo: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Personal/backup-${DETECTED_HOSTNAME}-${DETECTED_USER}\n"
-        actions+="  - Guided GUI setup (hourly schedule, retention)\n"
+        actions+="• Layer 3 (Pika Backup):"$'\n'
+        actions+="  - Borg repo: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Personal/backup-${DETECTED_HOSTNAME}-${DETECTED_USER}"$'\n'
+        actions+="  - Guided GUI setup (hourly schedule, retention)"$'\n'
     fi
 
     if layer_selected "$LAYER_CLOUD"; then
-        actions+="• Layer 4 (Cloud Offsite):\n"
-        actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh\n"
-        actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh\n"
-        actions+="  - User systemd timer: pika-cloud-sync.timer\n"
-        actions+="  - Shell startup nag integration: ${DETECTED_SHELL}\n"
+        actions+="• Layer 4 (Cloud Offsite):"$'\n'
+        actions+="  - Script: ${DETECTED_HOME}/.os_cloud_backup.sh"$'\n'
+        actions+="  - Nag prompt: ${DETECTED_HOME}/.os_clone_nag.sh"$'\n'
+        actions+="  - System timer (running as user): pika-cloud-sync.timer"$'\n'
+        actions+="  - Shell startup nag integration: ${DETECTED_SHELL}"$'\n'
     fi
 
     if layer_selected "$LAYER_DEEP"; then
-        actions+="• Layer 5 (Deep Storage):\n"
-        actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage\n"
+        actions+="• Layer 5 (Deep Storage):"$'\n'
+        actions+="  - Local archive directory: ${BACKUP_MOUNT:-${DETECTED_HOME}/Backup}/Deep Storage"$'\n'
     fi
+
+    # Also render scripts and runbooks into preview dir
+    local orig_cloud_remote="${CLOUD_REMOTE:-}"
+    local orig_cloud_os_dir="${CLOUD_OS_DIR:-}"
+    local orig_cloud_pika_dir="${CLOUD_PIKA_DIR:-}"
+    local orig_age_pubkey="${AGE_PUBKEY:-}"
+
+    export CLOUD_REMOTE="${CLOUD_REMOTE:-cloud:}"
+    export CLOUD_OS_DIR="${CLOUD_OS_DIR:-arch-bare-metal-clones}"
+    export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-arch-pika-backup}"
+    export AGE_PUBKEY="${AGE_PUBKEY:-age1previewdummykey000000000000000000000000000000000000000000000}"
 
     # 3. Generate preview runbooks into preview sandbox
     local orig_mount="$BACKUP_MOUNT"
     BACKUP_MOUNT="$preview_dir/runbooks"
 
     # Temporarily silence UI dialogs during preview generation
-    local _saved_ui_msgbox
-    _saved_ui_msgbox=$(declare -f ui_msgbox)
-    ui_msgbox() { true; }
-    generate_runbooks >/dev/null 2>&1 || true
-    eval "$_saved_ui_msgbox"
+    UI_SILENT=true generate_runbooks >/dev/null 2>&1 || true
     BACKUP_MOUNT="$orig_mount"
+    export SYSTEMD_BACKUP_MOUNT="${BACKUP_MOUNT// /\\x20}"
 
-    # Also render scripts into preview dir
     template_render "$WIZARD_DIR/templates/os-cloud-backup.sh" "$preview_dir/scripts/os-cloud-backup.sh" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/os-clone-nag.sh" "$preview_dir/scripts/os-clone-nag.sh" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/pika-cloud-sync.service" "$preview_dir/systemd/pika-cloud-sync.service" 2>/dev/null || true
     template_render "$WIZARD_DIR/templates/pika-cloud-sync.timer" "$preview_dir/systemd/pika-cloud-sync.timer" 2>/dev/null || true
+
+    export CLOUD_REMOTE="$orig_cloud_remote"
+    export CLOUD_OS_DIR="$orig_cloud_os_dir"
+    export CLOUD_PIKA_DIR="$orig_cloud_pika_dir"
+    export AGE_PUBKEY="$orig_age_pubkey"
 
     local rb_count
     rb_count=$(find "$preview_dir/runbooks" -maxdepth 1 -name "*Runbook*.txt" 2>/dev/null | wc -l)
@@ -489,7 +701,6 @@ NO SYSTEM FILES, DRIVES, OR PACKAGES WERE MODIFIED."
     fi
 
     # Run validation in read-only mode to show current system status
-
     run_validation || true
 
     log_info "══════ Dry run simulation finished cleanly ══════"
@@ -502,15 +713,24 @@ main() {
     require_root
 
     # Set up global wizard log file
-    LOG_FILE="/var/log/arch-backup-wizard.log"
+    if $DRY_RUN; then
+        LOG_FILE="/tmp/arch-backup-wizard-dryrun.log"
+    elif [[ $EUID -ne 0 ]]; then
+        LOG_FILE="/tmp/arch-backup-wizard.log"
+    else
+        LOG_FILE="/var/log/arch-backup-wizard.log"
+    fi
     touch "$LOG_FILE" 2>/dev/null || true
     chown "$(effective_user):" "$LOG_FILE" 2>/dev/null || true
     log_info "══════ Arch Backup Wizard v${WIZARD_VERSION} started ══════"
 
     # Handle --uninstall mode
     if $UNINSTALL; then
-
+        run_detection
+        BACKUP_MOUNT="${DETECTED_BACKUP_MOUNT:-}"
         run_uninstall
+        # shellcheck disable=SC2317
+        exit $?
     fi
 
     # Handle --validate mode
@@ -538,7 +758,6 @@ main() {
     # Detect
     ui_infobox "Scanning" "Detecting your system configuration..."
     run_detection
-
 
     # Show results
     show_detection_results

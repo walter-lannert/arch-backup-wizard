@@ -34,88 +34,120 @@ This will NOT remove:
     fi
 
     # ── 2. Layer 1 cleanup (Snapper) ──────────────────────────────────────────
-    log_info "── Layer 1 Cleanup: Snapper ──"
+    log_info "── System Service Cleanup ──"
     log_info "Disabling snapper-cleanup.timer..."
     systemctl disable --now snapper-cleanup.timer >>"$LOG_FILE" 2>&1 || true
 
-    local snapper_cfg="/etc/snapper/configs/root"
-    if [[ -f "$snapper_cfg" ]]; then
-        log_info "Removing Snapper root configuration: $snapper_cfg"
-        rm -f "$snapper_cfg"
-        log_success "Removed $snapper_cfg"
-    else
-        log_info "Snapper root configuration not found ($snapper_cfg); skipping."
-    fi
-
-    if [[ -f /etc/conf.d/snapper ]]; then
-        sed -i 's/\broot\b//g; s/  */ /g; s/=" /="/; s/ "/"/' /etc/conf.d/snapper
-    fi
-
-    # ── 3. Layer 2 cleanup (btrbk) ────────────────────────────────────────────
-    log_info "── Layer 2 Cleanup: btrbk ──"
     log_info "Disabling btrbk.timer..."
     systemctl disable --now btrbk.timer >>"$LOG_FILE" 2>&1 || true
 
-    local btrbk_cfg="$BTRBK_CONF"
-    if [[ -f "$btrbk_cfg" ]]; then
-        log_info "Removing btrbk configuration: $btrbk_cfg"
-        rm -f "$btrbk_cfg"
-        log_success "Removed $btrbk_cfg"
-    else
-        log_info "btrbk configuration not found ($btrbk_cfg); skipping."
+    log_info "Disabling bootloader snapshot integrations if active..."
+    systemctl disable --now grub-btrfsd >>"$LOG_FILE" 2>&1 || true
+    systemctl disable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || true
+
+    log_info "Stopping and disabling pika-cloud-sync..."
+    systemctl stop pika-cloud-sync.service >>"$LOG_FILE" 2>&1 || true
+    systemctl disable --now pika-cloud-sync.timer >>"$LOG_FILE" 2>&1 || true
+
+    if [[ -f /etc/conf.d/snapper ]]; then
+        backup_file /etc/conf.d/snapper || true
+        sed -E -i '/^SNAPPER_CONFIGS=/ { s/\broot\b//g; s/[[:space:]]+/ /g; s/" /"/; s/ "/"/ }' /etc/conf.d/snapper
+        # Comment out SNAPPER_CONFIGS if it resolved to an empty list
+        if grep -q '^SNAPPER_CONFIGS=""' /etc/conf.d/snapper 2>/dev/null; then
+            sed -i 's/^SNAPPER_CONFIGS=""/# SNAPPER_CONFIGS="" (cleared by Arch Backup Wizard uninstall)/' /etc/conf.d/snapper
+        fi
     fi
 
-    local btrbk_override="$BTRBK_OVERRIDE_DIR/override.conf"
-    if [[ -e "$btrbk_override" ]]; then
-        log_info "Removing btrbk systemd override: $btrbk_override"
-        rm -f "$btrbk_override"
-        rmdir "$BTRBK_OVERRIDE_DIR" 2>/dev/null || true
-        log_success "Removed $btrbk_override"
+    if grep -q '# BEGIN Arch Backup Wizard' /etc/fstab 2>/dev/null || grep -q '# Arch Backup Wizard Mount' /etc/fstab 2>/dev/null; then
+        backup_file /etc/fstab || log_warn "Could not create backup of /etc/fstab prior to cleaning"
+        # Handle legacy uninstalls and new BEGIN/END tags
+        sed -i -z 's/\(^\|\n\)# Arch Backup Wizard Mount\n[^\n]*\n/\1/g' /etc/fstab 2>/dev/null || true
+        sed -i '/# BEGIN Arch Backup Wizard/,/# END Arch Backup Wizard/d' /etc/fstab 2>/dev/null || true
+        log_info "Removed managed entry from /etc/fstab"
+    fi
+
+    # shellcheck disable=SC2153
+    local manifest_file="$MANIFEST_FILE"
+    if [[ ! -f "$manifest_file" ]]; then
+        log_warn "Manifest file not found at $manifest_file. No generated files to remove."
     else
-        log_info "btrbk systemd override not found ($btrbk_override); skipping."
+        log_info "Reading manifest file: $manifest_file"
+        while IFS= read -r file; do
+            if [[ -e "$file" ]]; then
+                log_info "Removing $file"
+                if btrfs subvolume show "$file" &>/dev/null; then
+                    # Before deleting, check if this is the Snapper config
+                    if [[ "$file" == "/.snapshots" ]]; then
+                        # Remove snapper config first (before unmounting)
+                        if cmd_exists snapper; then
+                            snapper -c root delete-config >>"$LOG_FILE" 2>&1 || true
+                        fi
+                        if mountpoint -q "/.snapshots" 2>/dev/null || findmnt -n "/.snapshots" &>/dev/null; then
+                            log_info "Unmounting /.snapshots prior to configuration removal..."
+                            umount -q "/.snapshots" >>"$LOG_FILE" 2>&1 || log_warn "Failed to unmount /.snapshots cleanly"
+                            rmdir "/.snapshots" 2>/dev/null || true
+                        fi
+                    fi
+                    # Audit-040: Only delete subvolumes if they are empty to protect user data
+                    # Btrfs fails to delete if there are nested subvolumes, but checking explicitly is safer
+                    if ! btrfs subvolume list -o "$file" 2>/dev/null | grep -q .; then
+                        btrfs subvolume delete "$file" >>"$LOG_FILE" 2>&1 || true
+                    else
+                        log_warn "Subvolume $file contains nested subvolumes (e.g., user snapshots). Skipping deletion to prevent data loss."
+                    fi
+                elif [[ -d "$file" ]]; then
+                    rmdir "$file" 2>/dev/null || true
+                else
+                    rm -f "$file"
+                    if [[ -f "$ORIG_MANIFEST" ]] && grep -Fxq "$file" "$ORIG_MANIFEST" 2>/dev/null; then
+                        local orig_bak
+                        # shellcheck disable=SC2012
+                        orig_bak=$(ls -1d "${file}.bak."* 2>/dev/null | sort -V | head -n 1 || true)
+                        if [[ -n "$orig_bak" && -f "$orig_bak" ]]; then
+                            if mv "$orig_bak" "$file"; then
+                                rm -f "${file}.bak."* 2>/dev/null || true
+                                log_info "Restored original pre-wizard state of $file"
+                            else
+                                log_error "Failed to restore $file from $orig_bak. Backup files left in place."
+                            fi
+                        fi
+                    else
+                        rm -f "${file}.bak."* 2>/dev/null || true
+                    fi
+                fi
+
+                # Clean up empty parent directories like /etc/systemd/system/btrbk.service.d
+                local parent_dir
+                parent_dir=$(dirname "$file")
+                if [[ "$parent_dir" == *"/systemd/system/"*.service.d && -d "$parent_dir" ]]; then
+                    rmdir "$parent_dir" 2>/dev/null || true
+                fi
+            else
+                log_info "File not found: $file (skipping)"
+            fi
+        done < "$manifest_file"
+        rm -f "$manifest_file"
+        rm -f "$ORIG_MANIFEST" 2>/dev/null || true
+        rmdir "/var/lib/arch-backup-wizard" 2>/dev/null || true
+    fi
+
+    # Clean up pika-cloud-sync state directory if it is now empty
+    if [[ -d /var/lib/pika-cloud-sync ]] && [[ -z "$(ls -A /var/lib/pika-cloud-sync 2>/dev/null)" ]]; then
+        rmdir /var/lib/pika-cloud-sync 2>/dev/null || true
+    fi
+
+    local home
+    home="$(effective_home)"
+
+    # Also clean up any lingering local archives from interrupted backups
+    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
+        btrfs subvolume delete "${BACKUP_MOUNT}/.pika_sync_snapshot" >>"$LOG_FILE" 2>&1 || true
+        rm -f "${BACKUP_MOUNT}/OS_Backup/"*.btrfs.zst.age 2>/dev/null || true
     fi
 
     log_info "Reloading systemd daemon..."
     systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
 
-    # ── 4. Layer 4 cleanup (Cloud & Nag Scripts) ──────────────────────────────
-    log_info "── Layer 4 Cleanup: Cloud Offsite & Nag Scripts ──"
-    local user
-    user="$(effective_user)"
-    local home
-    home="$(effective_home)"
-
-    log_info "Target user: $user (home: $home)"
-
-    log_info "Disabling pika-cloud-sync.timer for user $user..."
-    local target_uid; target_uid=$(id -u "$user")
-    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user disable --now pika-cloud-sync.timer 2>/dev/null || true
-
-    local cloud_files=(
-        "$home/.os_cloud_backup.sh"
-        "$home/.os_clone_nag.sh"
-        "$home/.last_cloud_run"
-        "$home/.config/systemd/user/pika-cloud-sync.service"
-        "$home/.config/systemd/user/pika-cloud-sync.timer"
-    )
-
-    # Also clean up any lingering local archives from interrupted backups
-    if [[ -n "${BACKUP_MOUNT:-}" ]]; then
-        cloud_files+=("${BACKUP_MOUNT}/Personal/Cloud_Archive.btrfs.zst")
-    fi
-
-    for file in "${cloud_files[@]}"; do
-        if [[ -e "$file" ]]; then
-            log_info "Removing $file"
-            rm -f "$file"
-            log_success "Removed $file"
-        else
-            log_info "File not found: $file (skipping)"
-        fi
-    done
-
-    log_info "Reloading user systemd daemon for user $user..."
-    run_as_user env XDG_RUNTIME_DIR="/run/user/$target_uid" systemctl --user daemon-reload 2>/dev/null || true
 
     log_info "Removing nag script lines from shell startup files..."
     local shell_files=(
@@ -128,7 +160,7 @@ This will NOT remove:
         if [[ -f "$rc" ]]; then
             if grep -q "os_clone_nag" "$rc" 2>/dev/null; then
                 log_info "Removing nag script lines from $rc..."
-                backup_file "$rc" >/dev/null
+                backup_file "$rc" >/dev/null || continue
                 run_as_user sed -i \
                     -e '/# Arch Backup Wizard OS Clone Nag BEGIN/,/# Arch Backup Wizard OS Clone Nag END/d' \
                     -e '/# Arch Backup Wizard OS Clone Nag/d' \
@@ -137,10 +169,18 @@ This will NOT remove:
             else
                 log_info "Nag script line not found in $rc (skipping)"
             fi
-        else
-            log_info "Shell config not found: $rc (skipping)"
         fi
     done
+
+    local autostart_desktop="$home/.config/autostart/os-clone-nag.desktop"
+    if [[ -f "$autostart_desktop" ]]; then
+        log_info "Removing XDG autostart entry: $autostart_desktop..."
+        backup_file "$autostart_desktop" >/dev/null || true
+        rm -f "$autostart_desktop"
+        log_success "Cleaned XDG autostart entry"
+    fi
+
+    rm -f "$home/.os_clone_nag.lock" "$home/.last_cloud_run" 2>/dev/null || true
 
     # ── 5. Success message ────────────────────────────────────────────────────
     ui_msgbox "Uninstall Complete" \

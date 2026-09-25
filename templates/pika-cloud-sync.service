@@ -1,12 +1,38 @@
 [Unit]
 Description=Weekly Pika Backup Sync to Cloud Storage
-Wants=network-online.target
+Requires=network-online.target
 After=network-online.target
+RequiresMountsFor={{BACKUP_MOUNT}}
 
 [Service]
 Type=oneshot
+TimeoutStartSec=infinity
+# NOTE: A hung rclone (e.g. blackholed network) will never be killed by
+# systemd. Recovery depends on pika-cloud-sync-stale-check.timer detecting
+# the stale snapshot and alerting. Do NOT add a finite TimeoutStartSec
+# without also adding rclone --timeout / --contimeout.
+User={{DETECTED_USER}}
 Nice=19
 IOSchedulingClass=idle
-# Note: 'rclone copy' is used instead of 'sync' for offsite backups to prevent
-# accidental local deletions or repo pruning from destroying cloud data.
-ExecStart=/usr/bin/rclone copy "{{BACKUP_MOUNT}}/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v
+# Concurrency lock: timer's ConditionPathExists=!/run/pika-cloud-sync/active
+# relies on this file existing while the service is active.
+ExecStartPre=+/usr/bin/sh -c 'mkdir -p /run/pika-cloud-sync && touch /run/pika-cloud-sync/active'
+# Ensure any stale snapshots from previous hard crashes are destroyed first
+ExecStartPre=+/usr/bin/sh -c 'if [ -e "{{BACKUP_MOUNT}}/.pika_sync_snapshot" ]; then if btrfs subvolume list "{{BACKUP_MOUNT}}" 2>/dev/null | awk "{print \\$NF}" | grep -qxF ".pika_sync_snapshot"; then btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"; else echo "FATAL: .pika_sync_snapshot exists but is not a btrfs subvolume; manual intervention required" >&2; exit 1; fi; fi'
+# Take a read-only snapshot of the backup drive to ensure Borg repo consistency
+ExecStartPre=+/usr/bin/btrfs subvolume snapshot -r "{{BACKUP_MOUNT}}" "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
+# Guard: abort sync before invoking rclone if the Borg repository is missing or invalid
+ExecStartPre=/usr/bin/sh -c 'REPO="{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal"; test -d "$REPO" || { echo "FATAL: Borg repo directory $REPO not found in snapshot" >&2; exit 1; }; test -f "$REPO/config" && test -d "$REPO/data" || { echo "FATAL: $REPO does not look like a valid Borg repository (missing config/data)" >&2; exit 1; }; test -n "$(/usr/bin/ls -A "$REPO" 2>/dev/null)" || { echo "FATAL: Borg repo $REPO is empty" >&2; exit 1; }'
+# Note: 'rclone sync' is used so the destination mirrors the source exactly,
+# keeping orphaned chunks bounded. 'rclone copy' would also work but leaves
+# unreferenced chunks on the destination until a manual 'borg compact' runs.
+ExecStart=/usr/bin/rclone sync "{{BACKUP_MOUNT}}/.pika_sync_snapshot/Personal" "{{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}" -v --max-delete 100000 --checksum --bwlimit 50M
+# Clean up the snapshot (success path)
+ExecStartPost=+/usr/bin/sh -c 'date +%s > /var/lib/pika-cloud-sync/state'
+ExecStartPost=-+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
+# Release concurrency lock (success path)
+ExecStartPost=-+/usr/bin/sh -c 'rm -f /run/pika-cloud-sync/active'
+# Clean up the snapshot (failure path)
+ExecStopPost=-+/usr/bin/btrfs subvolume delete "{{BACKUP_MOUNT}}/.pika_sync_snapshot"
+# Release concurrency lock (failure path)
+ExecStopPost=-+/usr/bin/sh -c 'rm -f /run/pika-cloud-sync/active'

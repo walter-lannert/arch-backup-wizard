@@ -70,7 +70,7 @@ Options:
 | **1** | `snapper`, `snap-pac`, `grub-btrfs` OR `limine-snapper-sync` (AUR) |
 | **2** | `btrbk` |
 | **3** | `pika-backup` (includes `borg`) |
-| **4** | `rclone`, `pv`, `zstd`, `zenity` |
+| **4** | `rclone`, `pv`, `zstd`, `zenity`, `age` |
 | **5** | *(none)* |
 
 ---
@@ -84,7 +84,7 @@ The wizard creates and manages the following configuration files and systemd uni
 - `/etc/systemd/system/btrbk.service.d/override.conf` — Low-priority resource scheduling override (`Nice=19`, `IOSchedulingClass=idle`)
 - `~/.os_cloud_backup.sh` — User cloud upload script for OS snapshots
 - `~/.os_clone_nag.sh` — Backup health and staleness notifier
-- `~/.config/systemd/user/pika-cloud-sync.{service,timer}` — User systemd timer for background Borg repository cloud syncing
+- `/etc/systemd/system/pika-cloud-sync.{service,timer}` — Systemd timer (executing under user context) for background Borg repository cloud syncing
 - **Personalized recovery runbooks** on the backup drive
 
 ---
@@ -96,7 +96,7 @@ Layer 4 sets up an intelligent user-space notifier (`~/.os_clone_nag.sh`) that e
 - **Interactive Shell Trigger:** Sourced automatically upon opening an interactive terminal (`.bashrc`, `.zshrc`, or `config.fish`).
 - **Bi-Weekly Calendar Period:** Checks whether a cloud backup has been completed for the current period (`YYYY-MM-P1` for days 1–14, `P2` for days 15+).
 - **Desktop Environment Guards:** Automatically exits if running outside a graphical session (e.g. SSH logins or virtual TTYs).
-- **Concurrency Lock:** Uses process matching to ensure opening multiple terminal tabs simultaneously never spawns duplicate dialogs.
+- **Concurrency Lock:** Uses file locking (`flock`) to ensure opening multiple terminal tabs simultaneously never spawns duplicate dialogs.
 - **Visual Progress:** Prompts with a non-intrusive `zenity` dialog. If you choose **Run Now**, it launches your native terminal emulator (`ptyxis`, `gnome-terminal`, `kitty`, `alacritty`, `konsole`, etc.) showing real-time `btrfs send` throughput and `zstd` compression speeds via `pv`.
 
 ### Optional: Desktop Session Autostart (GNOME / KDE / XFCE)
@@ -149,7 +149,7 @@ All runbooks are rendered dynamically with your system's actual UUIDs, mount pat
 ## Advanced Usage
 
 ### Dry-Run Simulation (`--dry-run`)
-Run the wizard safely without making any system changes by using the `--dry-run` or `-d` flag. In this mode, the wizard simulates system detection, package planning, drive selection, and template rendering. Preview recovery runbooks and scripts are written to `~/arch-backup-wizard-preview` rather than their actual destinations.
+Run the wizard safely without making any system changes by using the `--dry-run` or `-d` flag. In this mode, the wizard simulates system detection, package planning, drive selection, and template rendering. Preview recovery runbooks and scripts are written to a temporary directory (`/tmp/arch-backup-wizard-preview.XXXXXX`) rather than their actual destinations.
 
 ### Validation Checks (`--validate`)
 Run post-setup health checks using the `--validate` flag. By default, it validates all 5 layers. You can pass a comma-separated list of valid layer IDs (1 through 5) to restrict validation to specific layers:
@@ -183,6 +183,8 @@ To override detections, you can export these variables before running the wizard
 ```
 arch-backup-wizard/
 ├── wizard.sh              # Main entry point
+├── INTERFACE_MAP.md       # Global architecture & variable contract
+├── Makefile               # Build automation (linting & tests)
 ├── lib/
 │   ├── common.sh          # Logging, helpers, template rendering
 │   ├── ui.sh              # dialog/whiptail wrappers
@@ -191,22 +193,48 @@ arch-backup-wizard/
 │   ├── layer1_snapper.sh  # Snapper setup
 │   ├── layer2_btrbk.sh    # btrbk setup
 │   ├── layer3_pika.sh     # Pika Backup setup
-│   ├── layer4_cloud.sh    # Cloud offsite setup
+│   ├── layer4_cloud.sh    # Cloud offsite setup (Age encryption)
 │   ├── layer5_deep_storage.sh # Deep Storage setup
 │   ├── runbooks.sh        # Recovery runbook generator
 │   ├── validate.sh        # Post-setup health checks
 │   └── uninstall.sh       # Clean removal
-└── templates/             # Config and runbook templates
+├── templates/             # Config and runbook templates
+└── tests/                 # Automated hermetic test suite
+    ├── test_helper.bash   # Zero-dependency test & mock framework
+    ├── test_common.sh     # Tests for lib/common.sh
+    ├── test_detect.sh     # Tests for lib/detect.sh
+    ├── test_packages.sh   # Tests for lib/packages.sh
+    ├── test_runbooks.sh   # Tests for lib/runbooks.sh
+    └── test_validate.sh   # Tests for lib/validate.sh
 ```
 
 ---
 
 ## Testing & Development
 
-You can test the wizard safely without modifying your primary system:
+The repository includes a comprehensive, hermetic automated unit test suite requiring zero external dependencies:
 
-- **Linting & Formatting:** Ensure code meets quality standards by running `make check` (runs ShellCheck) and format with `shfmt -i 4 -w .`.
-- **Dry Run Simulation:** Run `sudo ./wizard.sh --dry-run` to simulate system detection, package planning, drive selection, and template rendering without making changes.
+- **Full Verification Suite:**
+  ```bash
+  make all     # Runs ShellCheck across all scripts followed by all unit tests
+  ```
+- **Automated Unit Tests:**
+  ```bash
+  make test    # Runs all 27 unit tests across lib/ modules
+  ```
+- **Linting & Code Quality:**
+  ```bash
+  make check   # Runs ShellCheck with strict error checking
+  ```
+- **Live Health Validation:**
+  ```bash
+  sudo ./wizard.sh --validate        # Validate all 5 layers
+  sudo ./wizard.sh --validate 1,2,3  # Validate specific layer subset
+  ```
+- **Dry-Run Simulation:**
+  ```bash
+  sudo ./wizard.sh --dry-run
+  ```
 - **Headless QEMU / KVM Sandbox:** Developers can launch an isolated virtual machine running the official Arch Linux cloud image with a virtual secondary drive:
   ```bash
   qemu-system-x86_64 -enable-kvm -m 4G -smp 4 -nographic \

@@ -13,6 +13,7 @@ Original Root UUID:        {{ROOT_UUID}}
 Original EFI UUID:         {{EFI_UUID}}
 Active Bootloader:         {{BOOTLOADER}}
 Root Subvolume Name:       {{ROOT_SUBVOL}}
+Original BTRFS Label:      {{ROOT_LABEL}}
 Detected Subvolume Layout: {{SUBVOL_LAYOUT}}
 Cloud Remote Name:         {{CLOUD_REMOTE}}
 Cloud OS Image Directory:  {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}
@@ -34,10 +35,10 @@ Recovery Flow:
   1. Boot Arch Linux / {{DISTRO}} Live USB and establish internet access
   2. Partition and format replacement drive (EFI + BTRFS root)
   3. Configure rclone and stream download OS image into btrfs receive
-  4. Snapshot read-only received clone to writable '@' subvolume
+  4. Snapshot read-only received clone to writable '{{DETECTED_ROOT_SUBVOL_STR}}' subvolume
   5. Delete read-only clone subvolume
   6. Recreate subvolume layout based on: {{SUBVOL_LAYOUT}}
-  7. Set '@' as default BTRFS subvolume
+  7. Set '{{DETECTED_ROOT_SUBVOL_STR}}' as default BTRFS subvolume
   8. Mount all subvolumes for chroot
   9. Update all UUIDs in /etc/fstab and bootloader configurations
  10. Chroot and rebuild bootloader ({{BOOTLOADER}})
@@ -69,7 +70,7 @@ STEP 1: BOOT LIVE USB AND ESTABLISH INTERNET CONNECTION
 
 5. Install necessary recovery packages in the Live environment:
 
-     pacman -Sy --needed rclone zstd btrfs-progs borg
+     pacman -Sy --needed rclone zstd btrfs-progs borg age pv fuse3
 
 
 --------------------------------------------------------------------------------
@@ -81,34 +82,54 @@ STEP 2: PARTITION AND FORMAT NEW NVME / SSD
 
      lsblk -o NAME,SIZE,TYPE,FSTYPE,MODEL
 
-   (Assuming target is /dev/nvme0n1; adjust accordingly if /dev/sda or similar).
+   (Assuming target is /dev/NEW_DRIVE; adjust accordingly if /dev/sda or similar).
+
+   # --- confirmation gate: operator must type the device name to proceed ---
+   echo "================================================================"
+   echo "  THIS WILL IRREVERSIBLY ERASE ALL DATA ON: /dev/NEW_DRIVE"
+   echo "  Drive model: $(lsblk -dno MODEL /dev/NEW_DRIVE 2>/dev/null || echo 'unknown')"
+   echo "  Drive size:  $(lsblk -dno SIZE /dev/NEW_DRIVE 2>/dev/null || echo 'unknown')"
+   echo "================================================================"
+   read -rp "Type the full device name to confirm (or 'abort'): " CONFIRM_DEV
+   if [[ "$CONFIRM_DEV" != "/dev/NEW_DRIVE" ]]; then
+       echo "Aborted by operator." >&2
+       exit 1
+   fi
 
 2. Partition the new drive using cgdisk or parted:
 
    Option A — Interactive (cgdisk):
-     cgdisk /dev/nvme0n1
+     cgdisk /dev/NEW_DRIVE
      - Partition 1: Size: 4096M (4GB), Type: EF00 (EFI System Partition)
      - Partition 2: Size: Remaining space, Type: 8300 (Linux filesystem)
      - Write changes and exit.
 
    Option B — Scripted (parted):
-     parted -s /dev/nvme0n1 mklabel gpt
-     parted -s /dev/nvme0n1 mkpart "EFI" fat32 1MiB 4097MiB
-     parted -s /dev/nvme0n1 set 1 esp on
-     parted -s /dev/nvme0n1 mkpart "ROOT" btrfs 4097MiB 100%
+     parted -s /dev/NEW_DRIVE mklabel gpt
+     parted -s /dev/NEW_DRIVE mkpart "EFI" fat32 1MiB 4097MiB
+     parted -s /dev/NEW_DRIVE set 1 esp on
+     parted -s /dev/NEW_DRIVE mkpart "ROOT" btrfs 4097MiB 100%
 
 3. Format the partitions:
 
-   mkfs.fat -F 32 -n EFI /dev/nvme0n1p1
-   mkfs.btrfs -f -L ARCH_ROOT /dev/nvme0n1p2
+   mkfs.fat -F 32 -n EFI /dev/NEW_EFI_PARTITION
+   mkfs.btrfs -f -L "${ROOT_LABEL:-ARCH_ROOT}" /dev/NEW_ROOT_PARTITION
 
 4. Capture new partition UUIDs:
 
-   NEW_EFI_UUID=$(blkid -s UUID -o value /dev/nvme0n1p1)
-   NEW_ROOT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p2)
+   NEW_EFI_UUID=$(blkid -s UUID -o value /dev/NEW_EFI_PARTITION)
+   NEW_ROOT_UUID=$(blkid -s UUID -o value /dev/NEW_ROOT_PARTITION)
 
    echo "New EFI UUID:  $NEW_EFI_UUID"
    echo "New Root UUID: $NEW_ROOT_UUID"
+
+   # Persist recovery variables for cross-session safety
+   cat > /tmp/recovery_env.sh <<ENVEOF
+NEW_EFI_UUID="${NEW_EFI_UUID}"
+NEW_ROOT_UUID="${NEW_ROOT_UUID}"
+ENVEOF
+   chmod 644 /tmp/recovery_env.sh
+   echo "Variables saved to /tmp/recovery_env.sh — source this in any new shell."
 
 
 --------------------------------------------------------------------------------
@@ -117,7 +138,7 @@ STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
 1. Mount the new drive's top-level BTRFS root:
 
    mkdir -p /mnt/new_os
-   mount -o subvol=/,compress=zstd /dev/nvme0n1p2 /mnt/new_os
+   mount -o subvol=/,compress=zstd /dev/NEW_ROOT_PARTITION /mnt/new_os
 
 2. Set up rclone:
 
@@ -129,77 +150,85 @@ STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
      rclone config
      Create a new remote matching: {{CLOUD_REMOTE}} (without trailing colon)
 
-3. Verify access to the cloud OS backup directory:
+3. Restore your Age private key:
+   Retrieve your saved `cloud_os.key` from your password manager and save it:
+     nano /root/cloud_os.key
+     chmod 600 /root/cloud_os.key
+
+4. Verify access to the cloud OS backup directory:
 
    rclone lsf {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/
 
-   You should see: Cloud_Archive.btrfs.zst
+5. Restore all subvolumes from the OS cloud clone archives.
 
-4. Stream download, decompress, and receive directly to BTRFS:
-   [CRITICAL: In-flight streaming avoids requiring double disk space]
+We have generated an automated script that will find the latest cloud archives for each
+of your system subvolumes ({{SUBVOL_LAYOUT}}), securely stream them, decrypt them, and set them up as writable subvolumes.
 
-   rclone cat {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/Cloud_Archive.btrfs.zst | zstdcat | btrfs receive /mnt/new_os/
+[CRITICAL: In-flight streaming avoids requiring double disk space on the new drive]
 
-   (Optional: To view live transfer rate with 'pv' if installed:
-    rclone cat {{CLOUD_REMOTE}}{{CLOUD_OS_DIR}}/Cloud_Archive.btrfs.zst | pv | zstdcat | btrfs receive /mnt/new_os/ )
+Run the following block of code in your terminal:
 
-5. Inspect the received subvolume name:
+set -o pipefail
+{{CLOUD_RECOVERY_SCRIPT}}
+RC=$?
+set +o pipefail
+if [[ $RC -ne 0 ]]; then
+    echo "FATAL: Cloud OS restore script exited with code $RC. Aborting." >&2
+    echo "  Do NOT proceed to Step 4. Inspect the new drive with:" >&2
+    echo "    btrfs subvolume list /mnt/new_os" >&2
+    echo "    btrfs filesystem df /mnt/new_os" >&2
+    exit 1
+fi
+# Verify the received subvolume tree is structurally complete
+# (btrfs check --readonly below covers this, but fail fast on obvious gaps):
+for d in etc usr var home; do
+    if [[ ! -d "/mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/$d" ]]; then
+        echo "FATAL: expected directory '$d' missing after btrfs receive." >&2
+        exit 1
+    fi
+done
 
-   ls -ld /mnt/new_os/*
+# --- post-condition: root subvolume must exist and be non-empty ---
+if [[ ! -d "/mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/etc" ]]; then
+    echo "FATAL: {{DETECTED_ROOT_SUBVOL_STR}}/etc not found after restore. Aborting." >&2
+    exit 1
+fi
+# Verify critical files survived the stream
+for f in etc/os-release etc/passwd usr/bin/bash; do
+    if [[ ! -s "/mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/$f" ]]; then
+        echo "FATAL: critical file '$f' missing or empty after restore. Aborting." >&2
+        exit 1
+    fi
+done
+# BTRFS-level integrity check (checks tree structure, not data blocks).
+# NOTE: On large drives (>= 2 TB) this can take 10-30 minutes. Do not interrupt.
+btrfs check --readonly /dev/NEW_ROOT_PARTITION \
+    || { echo "FATAL: btrfs check reported errors. Aborting." >&2; exit 1; }
+echo "OK: root subvolume populated and BTRFS tree consistent. Proceeding to Step 4."
 
-   Identify the received subvolume name (usually Cloud_Archive or similar).
-   In the following steps, let this be <RECEIVED_NAME>.
+6. Create snapshot placeholder directories inside the new root:
 
-
---------------------------------------------------------------------------------
-STEP 4: SNAPSHOT READ-ONLY CLONE TO WRITABLE '@' SUBVOLUME
---------------------------------------------------------------------------------
-Because received BTRFS streams are read-only, create a writable root subvolume
-named '@':
-
-  # Replace Cloud_Archive with actual received subvolume name if different:
-  btrfs subvolume snapshot /mnt/new_os/Cloud_Archive /mnt/new_os/@
-
-Verify that '@' exists:
-
-  btrfs subvolume list /mnt/new_os
-
-
---------------------------------------------------------------------------------
-STEP 5: DELETE READ-ONLY RECEIVED SUBVOLUME
---------------------------------------------------------------------------------
-Delete the read-only received subvolume to reclaim storage:
-
-  btrfs subvolume delete /mnt/new_os/Cloud_Archive
-
-
---------------------------------------------------------------------------------
-STEP 6: RECREATE SUBVOLUME LAYOUT BASED ON {{SUBVOL_LAYOUT}}
---------------------------------------------------------------------------------
-Recreate the subvolumes matching your original system ({{SUBVOL_LAYOUT}}):
-
-  btrfs subvolume create /mnt/new_os/@home
-  btrfs subvolume create /mnt/new_os/@log
-  btrfs subvolume create /mnt/new_os/@cache
-  btrfs subvolume create /mnt/new_os/@tmp
-  btrfs subvolume create /mnt/new_os/@srv
-  btrfs subvolume create /mnt/new_os/@root
-
-Create snapshot placeholder directories:
-
-  mkdir -p /mnt/new_os/@/.snapshots
-  mkdir -p /mnt/new_os/@/.snapshots_btrbk
-  chmod 750 /mnt/new_os/@/.snapshots
+  mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  mkdir -p /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
+  chmod 750 /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots
+  chmod 750 /mnt/new_os/{{DETECTED_ROOT_SUBVOL_STR}}/.snapshots_btrbk
 
 
 --------------------------------------------------------------------------------
-STEP 7: SET '@' AS BTRFS DEFAULT SUBVOLUME
+STEP 4: SET '{{DETECTED_ROOT_SUBVOL_STR}}' AS BTRFS DEFAULT SUBVOLUME
 --------------------------------------------------------------------------------
-Find the subvolume ID of '@' and set it as the default:
+Find the subvolume ID of '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as the default:
 
-  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | grep ' path @$' | awk '{print $2}')
+  ROOT_SUBVOL_ID=$(btrfs subvolume list /mnt/new_os | awk -v sv="{{DETECTED_ROOT_SUBVOL_STR}}" '$NF == "/" sv || $NF == sv {print $2}')
+  if [[ -z "$ROOT_SUBVOL_ID" ]]; then
+      echo "FATAL: subvolume '{{DETECTED_ROOT_SUBVOL_STR}}' not found in /mnt/new_os." >&2
+      echo "  Available subvolumes:" >&2
+      btrfs subvolume list /mnt/new_os >&2
+      exit 1
+  fi
   echo "Setting default subvolume to ID: $ROOT_SUBVOL_ID"
-  btrfs subvolume set-default "$ROOT_SUBVOL_ID" /mnt/new_os
+  btrfs subvolume set-default "$ROOT_SUBVOL_ID" /mnt/new_os \
+      || { echo "FATAL: btrfs subvolume set-default failed." >&2; exit 1; }
 
 Unmount the top-level mount point:
 
@@ -207,39 +236,45 @@ Unmount the top-level mount point:
 
 
 --------------------------------------------------------------------------------
-STEP 8: MOUNT ALL SUBVOLUMES FOR CHROOT
+STEP 5: MOUNT ALL SUBVOLUMES FOR CHROOT
 --------------------------------------------------------------------------------
-Mount '@' as the root filesystem:
+Mount '{{DETECTED_ROOT_SUBVOL_STR}}' as the root filesystem:
 
+  source /tmp/recovery_env.sh
   mkdir -p /mnt/target
-  mount -o subvol=@,compress=zstd /dev/nvme0n1p2 /mnt/target
+  mount -o subvol={{DETECTED_ROOT_SUBVOL_STR}},compress=zstd /dev/NEW_ROOT_PARTITION /mnt/target \
+      || { echo "FATAL: root subvolume mount failed. Aborting." >&2; exit 1; }
 
-Create mount points and mount nested subvolumes:
+Create mount points for nested subvolumes:
 
-  mkdir -p /mnt/target/{home,var/log,var/cache,tmp,srv,root}
+{{SUBVOL_MKDIR_CMDS}}
+Mount the corresponding subvolumes:
 
-  mount -o subvol=@home,compress=zstd /dev/nvme0n1p2 /mnt/target/home
-  mount -o subvol=@log,compress=zstd /dev/nvme0n1p2 /mnt/target/var/log
-  mount -o subvol=@cache,compress=zstd /dev/nvme0n1p2 /mnt/target/var/cache
-  mount -o subvol=@tmp,compress=zstd /dev/nvme0n1p2 /mnt/target/tmp
-  mount -o subvol=@srv,compress=zstd /dev/nvme0n1p2 /mnt/target/srv
-  mount -o subvol=@root,compress=zstd /dev/nvme0n1p2 /mnt/target/root
+{{SUBVOL_MOUNT_CMDS}}
+Mount the new EFI partition:
 
-Mount the EFI partition:
-
-  mkdir -p /mnt/target/boot /mnt/target/efi
-  mount /dev/nvme0n1p1 /mnt/target/boot 2>/dev/null || \
-  mount /dev/nvme0n1p1 /mnt/target/efi 2>/dev/null
+  mkdir -p /mnt/target{{EFI_MOUNT_PATH}}
+  mount /dev/NEW_EFI_PARTITION /mnt/target{{EFI_MOUNT_PATH}} \
+      || { echo "FATAL: EFI partition mount failed. Aborting." >&2; exit 1; }
 
 
 --------------------------------------------------------------------------------
-STEP 9: UPDATE ALL UUIDs IN CONFIGURATION FILES [CRITICAL]
+STEP 6: UPDATE ALL UUIDs IN CONFIGURATION FILES [CRITICAL]
 --------------------------------------------------------------------------------
 [CRITICAL WARNING: DRIVE UUID MISMATCH]
+source /tmp/recovery_env.sh
 Original Root UUID: {{ROOT_UUID}}
 Original EFI UUID:  {{EFI_UUID}}
 New Root UUID:      $NEW_ROOT_UUID
 New EFI UUID:       $NEW_EFI_UUID
+
+# --- guard: abort if either UUID is empty ---
+if [[ -z "${NEW_ROOT_UUID:-}" || -z "${NEW_EFI_UUID:-}" ]]; then
+    echo "FATAL: NEW_ROOT_UUID or NEW_EFI_UUID is empty. Aborting before fstab edit." >&2
+    echo "  NEW_ROOT_UUID='${NEW_ROOT_UUID:-}'" >&2
+    echo "  NEW_EFI_UUID='${NEW_EFI_UUID:-}'" >&2
+    exit 1
+fi
 
 1. Update /mnt/target/etc/fstab:
    sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/fstab
@@ -252,97 +287,233 @@ New EFI UUID:       $NEW_EFI_UUID
 
    - If Limine:
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/limine 2>/dev/null || true
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.cfg 2>/dev/null || true
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.conf 2>/dev/null || true
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.cfg /mnt/target/boot/limine/*.cfg /mnt/target{{EFI_MOUNT_PATH}}/limine*.cfg /mnt/target{{EFI_MOUNT_PATH}}/limine/*.cfg 2>/dev/null || true
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.conf /mnt/target/boot/limine/*.conf /mnt/target{{EFI_MOUNT_PATH}}/limine*.conf /mnt/target{{EFI_MOUNT_PATH}}/limine/*.conf 2>/dev/null || true
 
    - If GRUB:
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/grub 2>/dev/null || true
 
    - If systemd-boot:
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/loader/entries/*.conf 2>/dev/null || true
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/kernel/cmdline 2>/dev/null || true
+     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/loader/entries/*.conf /mnt/target{{EFI_MOUNT_PATH}}/loader/entries/*.conf 2>/dev/null || true
+
+   # --- post-sed verification: ensure no stale UUIDs remain ---
+   if grep -q "{{ROOT_UUID}}" /mnt/target/etc/fstab 2>/dev/null; then
+       echo "WARNING: Original root UUID still present in fstab. sed may have failed." >&2
+   fi
+   for f in /mnt/target/etc/default/limine /mnt/target/etc/default/grub /mnt/target/etc/kernel/cmdline; do
+       [[ -f "$f" ]] && grep -q "{{ROOT_UUID}}" "$f" && \
+           echo "WARNING: Stale UUID found in $f" >&2
+   done
 
 
 --------------------------------------------------------------------------------
-STEP 10: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
+STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 --------------------------------------------------------------------------------
+source /tmp/recovery_env.sh
+
 1. Enter the chroot environment:
 
      arch-chroot /mnt/target
 
-2. Regenerate initramfs image:
+2. Rebuild the EFI partition by reinstalling your kernel and microcode packages:
+   [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz), microcode, and automatically recreates systemd-boot loader entries via pacman hooks]
 
-     mkinitcpio -P
+   # Determine your kernel packages. If you are unsure, inspect the restored
+   # package list (available after Step 3):
+   #   grep -E '^\(linux|ucode' /mnt/target/var/log/pacman.log | tail -20
+   # Typical values:
+   #   KERNEL_PKGS="linux linux-headers intel-ucode"
+   #   KERNEL_PKGS="linux linux-headers amd-ucode"
+   #   KERNEL_PKGS="linux-lts linux-lts-headers intel-ucode"
+   export KERNEL_PKGS="${KERNEL_PKGS:-}"
 
-3. Rebuild bootloader according to: {{BOOTLOADER}}
+     if [[ -z "${KERNEL_PKGS:-}" ]]; then
+         echo "FATAL: KERNEL_PKGS is empty. Cannot determine which kernel to reinstall." >&2
+         echo "  Expected packages, e.g.: linux linux-headers intel-ucode" >&2
+         exit 1
+     fi
+     pacman -Sy --noconfirm $KERNEL_PKGS \
+         || { echo "FATAL: kernel package install failed. Aborting." >&2; exit 1; }
+
+3. Ensure initramfs is fully generated (pacman hooks usually do this, but force it to be safe):
+
+     mkinitcpio -P \
+         || { echo "FATAL: mkinitcpio failed. Aborting." >&2; exit 1; }
+
+     # Verify kernel + initramfs actually exist
+     ls /boot/vmlinuz-* /boot/initramfs-*.img &>/dev/null \
+         || { echo "FATAL: no kernel/initramfs found in /boot after install." >&2; exit 1; }
+
+   Note for Unified Kernel Image (UKI) users:
+   If your system uses systemd-ukify or kernel-install directly instead of mkinitcpio presets:
+     kernel-install add $(uname -r) /usr/lib/modules/$(uname -r)/vmlinuz
+   Or re-run your specific ukify build command.
+
+4. If you use Secure Boot (e.g., sbctl), you MUST sign the newly generated EFI binaries now, otherwise your system will not boot:
+
+     sbctl sign-all
+
+5. Rebuild bootloader according to: {{BOOTLOADER}}
 
    - If Limine:
+       mkdir -p {{EFI_MOUNT_PATH}}/EFI/BOOT
+       cp /usr/share/limine/BOOTX64.EFI {{EFI_MOUNT_PATH}}/EFI/BOOT/BOOTX64.EFI
        limine-mkinitcpio
 
    - If GRUB:
-       grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+       grub-install --target=x86_64-efi --efi-directory={{EFI_MOUNT_PATH}} --bootloader-id=GRUB --recheck
        grub-mkconfig -o /boot/grub/grub.cfg
 
    - If systemd-boot:
-       bootctl --path=/boot install
+       bootctl --path={{EFI_MOUNT_PATH}} install
+       # If ESP is separate (e.g. /efi), ensure kernel & initramfs are present on the ESP:
+       if [ "{{EFI_MOUNT_PATH}}" != "/boot" ]; then
+           cp -a /boot/vmlinuz-* "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+           cp -a /boot/initramfs-*.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+           cp -a /boot/*-ucode.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
+           ls "{{EFI_MOUNT_PATH}}"/vmlinuz-* &>/dev/null \
+               || { echo "FATAL: no kernel image on ESP after copy." >&2; exit 1; }
+       fi
+       # Ensure loader entries and kernel cmdline reflect the restored root UUID after pacman hook regeneration:
+       CURRENT_ROOT_UUID=$(findmnt -n -o UUID /)
+       # Verify no stale original UUID remains after pacman hook regeneration:
+       if grep -rq "{{ROOT_UUID}}" /etc/kernel/cmdline /boot/loader/entries/ {{EFI_MOUNT_PATH}}/loader/entries/ 2>/dev/null; then
+           echo "WARNING: Stale original UUID found in loader entries after pacman hooks." >&2
+       fi
+       # Verify loader entries were recreated by the pacman hook above.
+       # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
+       ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (
+           mkdir -p {{EFI_MOUNT_PATH}}/loader/entries
+           K_PATH=$(ls -1 {{EFI_MOUNT_PATH}}/vmlinuz-* 2>/dev/null | head -n 1)
+           K_BIN=$(basename "${K_PATH:-vmlinuz-linux}")
+           [[ "$K_BIN" == "." || -z "$K_BIN" ]] && K_BIN="vmlinuz-linux"
+           INITRD_NAME="initramfs-${K_BIN#vmlinuz-}.img"
+           echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "linux /${K_BIN}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           [ -f "{{EFI_MOUNT_PATH}}/intel-ucode.img" ] && echo "initrd /intel-ucode.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           [ -f "{{EFI_MOUNT_PATH}}/amd-ucode.img" ] && echo "initrd /amd-ucode.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "initrd /${INITRD_NAME}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+           echo "options root=UUID=$(findmnt -n -o UUID /) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
+       )
 
 
 --------------------------------------------------------------------------------
-STEP 11: RESTORE HOME DATA FROM CLOUD PIKA / BORG REPO
+STEP 8: RESTORE HOME DATA FROM CLOUD PIKA / BORG REPO
 --------------------------------------------------------------------------------
 The OS clone restored the base system and applications. Personal data
 (/home/{{USERNAME}}) is stored in your cloud Borg repository at:
 {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}}
 
-1. Outside or inside chroot, mount the cloud repository using rclone:
+1. Exit the chroot environment (type 'exit').
+
+2. Outside the chroot, mount the cloud repository using rclone:
 
    mkdir -p /mnt/cloud_repo
-   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon
+   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --daemon --vfs-cache-mode minimal --read-only
 
-   Wait a few seconds for the mount to establish:
-   sleep 3
+   # Wait for the FUSE mount to become ready (bounded, up to 30 s):
+   for i in $(seq 1 30); do
+       if mountpoint -q /mnt/cloud_repo 2>/dev/null \
+          && timeout 5 ls /mnt/cloud_repo &>/dev/null; then
+           break
+       fi
+       sleep 1
+   done
+   if ! mountpoint -q /mnt/cloud_repo 2>/dev/null; then
+       echo "FATAL: rclone mount did not become ready within 30 s." >&2
+       echo "  Check: rclone mount --daemon ... (see rclone logs)" >&2
+       exit 1
+   fi
    ls -la /mnt/cloud_repo
 
-2. Locate your Borg repository:
+   # TIP: In minimal Live USB environments where FUSE daemonization may stall,
+   # you can alternatively run the mount in the background (&) without --daemon,
+   # or open a second terminal tab to run the foreground mount command while
+   # performing Borg extraction in the primary shell:
+   #   rclone mount {{CLOUD_REMOTE}}{{CLOUD_PIKA_DIR}} /mnt/cloud_repo --vfs-cache-mode minimal --read-only &
+
+3. Locate your Borg repository:
    Depending on whether the entire repository was synced or a subfolder:
    REPO_PATH="/mnt/cloud_repo"
    [ -d "/mnt/cloud_repo/backup-{{HOSTNAME_VAL}}-{{USERNAME}}" ] && \
      REPO_PATH="/mnt/cloud_repo/backup-{{HOSTNAME_VAL}}-{{USERNAME}}"
 
-3. List available archives in the Borg repository:
+4. List available archives in the Borg repository:
 
    borg list "$REPO_PATH"
 
-4. Extract files into the target home directory:
+   # Pick the most recent archive name from the list above, then set:
+   #   export ARCHIVE_NAME="2025-01-15-030000-Fri"
+   # (or whichever archive you want to restore)
 
-   cd /mnt/target/home/{{USERNAME}} 2>/dev/null || cd /home/{{USERNAME}}
-   borg extract --progress "$REPO_PATH::<ARCHIVE_NAME>"
+5. Extract files into the new root filesystem (Borg stores paths as 'home/{{USERNAME}}/...'):
 
-5. Restore correct user ownership:
+   # --- pre-check: verify repo integrity ---
+   borg check --verify-data "$REPO_PATH" \
+       || { echo "FATAL: Borg repo failed integrity check. Aborting." >&2; exit 1; }
 
-   chown -R {{USERNAME}}:{{USERNAME}} /mnt/target/home/{{USERNAME}} 2>/dev/null || \
-   chown -R {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}
+   if [[ -z "${ARCHIVE_NAME:-}" ]]; then
+       echo "FATAL: ARCHIVE_NAME is empty. List archives with:" >&2
+       echo "  borg list '$REPO_PATH'" >&2
+       exit 1
+   fi
+   cd /mnt/target
+   borg extract --progress "$REPO_PATH::<ARCHIVE_NAME>" \
+       || { echo "FATAL: borg extract failed (rc=$?). Aborting." >&2; exit 1; }
+   cd /
 
-6. Unmount the cloud repository:
+   # --- post-check: home dir must be non-empty ---
+   if [[ -z "$(ls -A /mnt/target/home/{{USERNAME}} 2>/dev/null)" ]]; then
+       echo "FATAL: /home/{{USERNAME}} is empty after extract. Aborting." >&2
+       exit 1
+   fi
 
-   fusermount -u /mnt/cloud_repo 2>/dev/null || umount /mnt/cloud_repo 2>/dev/null || true
+6. Restore correct user ownership:
+
+   arch-chroot /mnt/target chown -R {{USERNAME}}:{{USERNAME}} /home/{{USERNAME}}
+
+7. Unmount the cloud repository:
+
+   fusermount -u /mnt/cloud_repo 2>/dev/null
+   if mountpoint -q /mnt/cloud_repo 2>/dev/null; then
+       echo "WARNING: rclone mount still active. Forcing unmount." >&2
+       umount -l /mnt/cloud_repo 2>/dev/null || true
+       sleep 2
+   fi
 
 
 --------------------------------------------------------------------------------
-STEP 12: CLEANUP AND REBOOT
+STEP 9: CLEANUP AND REBOOT
 --------------------------------------------------------------------------------
 1. Exit chroot if still inside:
 
      exit
 
-2. Unmount all target partitions:
+2. Ensure you are outside the mount directory:
+
+     cd /
+
+3. Unmount all target partitions:
 
      umount -R /mnt/target
+     RC=$?
+     if [[ $RC -ne 0 ]]; then
+         echo "WARNING: umount -R failed (rc=$RC). Checking for busy mounts:" >&2
+         mount | grep /mnt/target
+         echo "  Kill any remaining processes, then retry: umount -R /mnt/target" >&2
+         exit 1
+     fi
+     echo "All mounts released. Rebooting."
 
-3. Reboot:
+   # Remove the Age private key from the Live environment:
+   rm -f /root/cloud_os.key
+
+4. Reboot:
 
      reboot
 
-4. Remove the Live USB. Your system should boot into your restored Arch Linux environment.
+5. Remove the Live USB. Your system should boot into your restored Arch Linux environment.
 
 ================================================================================
 END OF RUNBOOK

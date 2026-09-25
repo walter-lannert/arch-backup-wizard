@@ -6,7 +6,6 @@ _ARCH_BACKUP_COMMON_LOADED=1
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 readonly CLR_RED='\033[0;31m'
-
 readonly CLR_NC='\033[0m'
 
 # ── Layer ID constants ────────────────────────────────────────────────────────
@@ -17,8 +16,6 @@ readonly LAYER_BTRBK=2
 readonly LAYER_PIKA=3
 readonly LAYER_CLOUD=4
 readonly LAYER_DEEP=5
-
-
 
 # ── Configuration defaults ────────────────────────────────────────────────────
 # All tunable defaults live here. Changing a value in this block is the single
@@ -74,13 +71,15 @@ _log() {
     shift
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"$LOG_FILE"
+    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"$LOG_FILE" 2>/dev/null || \
+    printf '[%s] [%-5s] %s\n' "$timestamp" "$level" "$*" >>"/tmp/arch-backup-wizard.log" 2>/dev/null || true
 }
 
 log_info() { _log "INFO" "$*"; }
 log_warn() { _log "WARN" "$*"; }
 log_error() { _log "ERROR" "$*"; }
 log_success() { _log "OK" "$*"; }
+log_debug() { _log "DEBUG" "$*"; }
 
 # Fatal error — log, print to stderr, and exit immediately.
 #
@@ -100,16 +99,51 @@ die() {
 }
 
 # ── File helpers ──────────────────────────────────────────────────────────────
+MANIFEST_FILE="${MANIFEST_FILE:-/var/lib/arch-backup-wizard/manifest.txt}"
+
+# Record a file created by the wizard for uninstallation
+record_manifest() {
+    local file="$1"
+    mkdir -p "$(dirname "$MANIFEST_FILE")"
+    if ! grep -Fxq "$file" "$MANIFEST_FILE" 2>/dev/null; then
+        echo "$file" >> "$MANIFEST_FILE"
+    fi
+}
+
+ORIG_MANIFEST="${ORIG_MANIFEST:-/var/lib/arch-backup-wizard/unmanaged_orig.txt}"
 
 # Back up a file before modifying it (timestamped .bak copy)
+# Prompts for confirmation if the file already exists but is NOT tracked in the manifest
 backup_file() {
     local file="$1"
     if [[ -f "$file" ]]; then
+        local is_shared=false
+        case "$file" in
+            /etc/fstab|*/.bashrc|*/.zshrc|*/config.fish) is_shared=true ;;
+        esac
+
+        if [[ ! -f "$MANIFEST_FILE" ]] || ! grep -Fxq "$file" "$MANIFEST_FILE" 2>/dev/null; then
+            mkdir -p "$(dirname "$ORIG_MANIFEST")"
+            if ! grep -Fxq "$file" "$ORIG_MANIFEST" 2>/dev/null; then
+                echo "$file" >> "$ORIG_MANIFEST"
+            fi
+
+            if ! ${UNINSTALL:-false} && ! $is_shared; then
+                if ! ui_yesno "Overwrite Existing Configuration?" \
+                    "The file '$file' already exists and was not created by the wizard.
+
+Overwriting it may destroy your custom settings (a backup will be saved).
+Do you want to proceed and overwrite it?"; then
+                    log_warn "User aborted overwrite of unmanaged file: $file"
+                    return 1
+                fi
+            fi
+        fi
+
         local backup
-        backup="${file}.bak.$(date +%s)"
+        backup="${file}.bak.$(date +%s).$$"
         cp -p "$file" "$backup"
         log_info "Backed up $file → $backup"
-        echo "$backup"
     fi
 }
 
@@ -117,18 +151,28 @@ backup_file() {
 # Usage: template_render templates/foo.conf /etc/foo.conf
 template_render() {
     local template="$1"
+    local _patsub_was_set
+    _patsub_was_set=$(shopt -p patsub_replacement 2>/dev/null) || _patsub_was_set=""
+    shopt -u patsub_replacement 2>/dev/null || true
     local output="$2"
     local content
+    if [[ ! -f "$template" ]]; then
+        log_error "Template not found: $template"
+        return 1
+    fi
     content=$(<"$template")
 
     # Extract unique variable names from {{…}} placeholders
     local vars
-    vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" | sort -u) || true
+    if ! vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" | sort -u) 2>/dev/null; then
+        log_error "grep -P unavailable; cannot extract placeholders from $(basename "$template")"
+        return 1
+    fi
 
     while IFS= read -r var; do
         [[ -z "$var" ]] && continue
         local value="${!var:-}"
-        
+
         if [[ "$output" == *.sh ]]; then
             # For shell scripts, escape the value to be safely injected inside double quotes
             # We escape \, $, `, and " so they are treated as literal characters inside "..."
@@ -136,19 +180,29 @@ template_render() {
             value="${value//\$/\\\$}"
             value="${value//\`/\\\`}"
             value="${value//\"/\\\"}"
-        else
-            # For systemd or other files, we just prevent breaking out of double quotes
+        elif [[ "$output" == *.service || "$output" == *.timer || "$output" == *.conf ]]; then
+            # For systemd or configuration files, prevent breaking out of double quotes
             value="${value//\"/\\\"}"
         fi
-        
+
         content="${content//\{\{${var}\}\}/${value}}"
     done <<<"$vars"
 
     local temp_file
-    temp_file=$(mktemp)
+    local out_dir
+    out_dir="$(dirname "$output")"
+    temp_file=$(mktemp "${out_dir}/.template.XXXXXX") || {
+        log_error "Cannot create temp file in $out_dir"
+        return 1
+    }
     printf "%s\n" "$content" >"$temp_file"
+    chmod 644 "$temp_file"
     mv -T "$temp_file" "$output"
     log_info "Rendered template $(basename "$template") → $output"
+
+    if [[ -n "$_patsub_was_set" ]]; then
+        eval "$_patsub_was_set" 2>/dev/null || true
+    fi
 }
 
 # ── User / privilege helpers ──────────────────────────────────────────────────
@@ -169,11 +223,6 @@ get_real_user() {
     echo "${SUDO_USER:-$(logname 2>/dev/null || echo "$USER")}"
 }
 
-# Get the real user's home directory
-get_real_home() {
-    getent passwd "$(effective_user)" | cut -d: -f6
-}
-
 # Canonical user/home resolution for layer modules.
 # Prefers DETECTED_USER / DETECTED_HOME (set by detect.sh after run_detection),
 # falling back to the get_real_* helpers. Use these instead of spelling out the
@@ -182,12 +231,16 @@ effective_user() {
     echo "${DETECTED_USER:-$(get_real_user)}"
 }
 effective_home() {
-    echo "${DETECTED_HOME:-$(get_real_home 2>/dev/null || echo "${HOME:-/root}")}"
+    echo "${DETECTED_HOME:-$(getent passwd "$(effective_user)" | cut -d: -f6 2>/dev/null || echo "${HOME:-/root}")}"
 }
 
 # Run a command as the real (non-root) user
 run_as_user() {
-    sudo -u "$(effective_user)" "$@"
+    if [[ $EUID -eq 0 ]]; then
+        sudo -u "$(effective_user)" "$@"
+    else
+        "$@"
+    fi
 }
 
 # ── Misc helpers ──────────────────────────────────────────────────────────────
@@ -205,4 +258,20 @@ unit_is_active() {
 # Check if a systemd unit is enabled
 unit_is_enabled() {
     systemctl is-enabled --quiet "$1" 2>/dev/null
+}
+
+# Ensure /var/lib/pika-cloud-sync/ exists with the enabled sentinel.
+# Called by layer4_cloud.sh before installing the timer unit.
+ensure_pika_sync_state() {
+    local dir="/var/lib/pika-cloud-sync"
+    mkdir -p "$dir" || {
+        log_error "Failed to create $dir"
+        return 1
+    }
+    touch "$dir/enabled" || {
+        log_error "Failed to create $dir/enabled"
+        return 1
+    }
+    record_manifest "$dir/enabled"
+    log_info "Ensured $dir/enabled exists."
 }

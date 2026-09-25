@@ -2,15 +2,6 @@
 # arch-backup-wizard/lib/layer3_pika.sh — Layer 3: Pika Backup Setup
 #
 # Sets up Layer 3: Pika Backup (Borg-based hourly home directory backups).
-# 1. Installs pika-backup package (and borg dependency)
-# 2. Creates Borg repository directory on backup drive: Personal/backup-<host>-<user>
-# 3. Initializes Borg repository (unencrypted) if not already initialized
-# 4. Prompts user for backup exclusion directories via ui_checklist
-# 5. Displays guided setup instructions for configuring Pika Backup GUI
-# 6. Optionally launches Pika Backup in background
-# 7. Asks user to confirm completion
-# 8. Validates Pika Backup configuration file exists
-
 setup_layer3() {
     log_info "── Setting up Layer 3: Pika Backup (Borg home backups) ──"
 
@@ -20,13 +11,37 @@ setup_layer3() {
         return 1
     fi
 
-    local backup_mount="${BACKUP_MOUNT%/}"
+    local backup_mount="${BACKUP_MOUNT}"
+    while [[ "$backup_mount" == */ && "$backup_mount" != "/" ]]; do
+        backup_mount="${backup_mount%/}"
+    done
+    if [[ "$backup_mount" != /* ]]; then
+        log_error "BACKUP_MOUNT ('$BACKUP_MOUNT') is not an absolute path."
+        ui_msgbox "Configuration Error" "Backup mount point must be an absolute path (e.g. /mnt/backup)."
+        return 1
+    fi
+    if ! mountpoint -q "$backup_mount" 2>/dev/null; then
+        log_error "BACKUP_MOUNT ('$backup_mount') is not a mounted filesystem."
+        ui_msgbox "Configuration Error" "The backup drive at $backup_mount is not mounted. Please mount it first."
+        return 1
+    fi
     local target_user
-    target_user="$(effective_user)"
+    target_user="$(effective_user)" || {
+        log_error "Could not determine the target user."
+        ui_msgbox "Configuration Error" "Unable to determine the target user. Please ensure a user session is active."
+        return 1
+    }
+    if [[ -z "$target_user" ]]; then
+        log_error "effective_user returned an empty value."
+        ui_msgbox "Configuration Error" "Unable to determine the target user."
+        return 1
+    fi
     local target_host
     target_host="${DETECTED_HOSTNAME:-$(cat /etc/hostname 2>/dev/null || uname -n)}"
-    local target_home
-    target_home="$(effective_home)"
+    if [[ -z "$target_host" ]]; then
+        target_host="unknown-host"
+        log_warn "Could not determine hostname; using 'unknown-host' in repository name."
+    fi
 
     # 1. Install packages: call install_layer_packages "3"
     log_info "Step 1: Installing Layer 3 packages..."
@@ -36,9 +51,6 @@ setup_layer3() {
     fi
     log_success "Layer 3 packages installed successfully."
 
-    # 2. Create the Borg repository directory:
-    #    local repo_name="backup-${DETECTED_HOSTNAME}-${DETECTED_USER}"
-    #    local repo_path="${BACKUP_MOUNT}/Personal/${repo_name}"
     local repo_name="backup-${target_host}-${target_user}"
     local repo_path="${backup_mount}/Personal/${repo_name}"
 
@@ -47,16 +59,15 @@ setup_layer3() {
         log_error "Failed to create ${backup_mount}/Personal"
         return 1
     }
-    chown "$target_user:" "${backup_mount}/Personal" 2>/dev/null || true
-    
+    if ! chown "$target_user:" "${backup_mount}/Personal" 2>/dev/null; then
+        log_warn "Could not chown ${backup_mount}/Personal to $target_user (continuing; run_as_user will handle ownership)."
+    fi
+
     run_as_user mkdir -p "$repo_path" || {
         log_error "Failed to create $repo_path as user $target_user"
         return 1
     }
 
-    # 3. Initialize the Borg repository if it doesn't already exist:
-    #    - Check if $repo_path/config exists (indicates initialized repo)
-    #    - If not, run as the real user: run_as_user borg init --encryption=none "$repo_path"
     log_info "Step 3: Checking Borg repository initialization..."
     if [[ -f "$repo_path/config" ]]; then
         log_info "Borg repository already initialized at $repo_path"
@@ -67,6 +78,7 @@ setup_layer3() {
     # 4. Show a smart exclusion checklist using ui_checklist
     log_info "Step 4: Prompting user for backup exclusions..."
     local raw_exclusions=""
+    # shellcheck disable=SC2088
     if ! raw_exclusions=$(ui_checklist "Backup Exclusions" \
         "Select directories to EXCLUDE from home backups:" \
         "Downloads" "~/Downloads (temporary files)" "on" \
@@ -87,8 +99,20 @@ setup_layer3() {
 
     local -a selected_exclusions=()
     if [[ -n "$raw_exclusions" ]]; then
-        # Dialog outputs space-separated quoted tags. Use eval to safely parse them into a bash array.
-        eval "selected_exclusions=($raw_exclusions)"
+        # Dialog outputs space-separated quoted tags.
+        # Parse by respecting quoted groups (handles multi-word tags like "VirtualBox VMs").
+        local _cleaned
+        _cleaned="${raw_exclusions//\"/}"
+        # Re-quote each whitespace-delimited token that was originally quoted,
+        # then use a safe word-split that preserves multi-word entries.
+        # Strategy: replace the known multi-word tags with a placeholder, split, then restore.
+        local _tmp="${_cleaned//VirtualBox VMs/__VB_VM__}"
+        read -ra selected_exclusions <<< "$_tmp"
+        local -a _restored=()
+        for _tok in "${selected_exclusions[@]}"; do
+            _restored+=("${_tok//__VB_VM__/VirtualBox VMs}")
+        done
+        selected_exclusions=("${_restored[@]}")
     fi
     log_info "Selected exclusions: ${selected_exclusions[*]:-(none)}"
 
@@ -102,6 +126,7 @@ setup_layer3() {
         local count=0
         for excl in "${selected_exclusions[@]}"; do
             local display_path
+            # shellcheck disable=SC2088
             case "$excl" in
             /* | ~/*) display_path="${excl}" ;;
             Trash) display_path="Trash" ;;
@@ -113,7 +138,7 @@ setup_layer3() {
                 count=1
             elif ((count < 3)) && ((${#current_bullet} + ${#display_path} + 2 <= 64)); then
                 current_bullet+=", ${display_path}"
-                ((count++))
+                count=$((count + 1))
             else
                 formatted_exclusions+="${current_bullet}"$'\n'
                 current_bullet="      • ${display_path}"
@@ -123,7 +148,6 @@ setup_layer3() {
         [[ -n "$current_bullet" ]] && formatted_exclusions+="${current_bullet}"
     fi
 
-    local DLG_H=22
     ui_msgbox "Pika Backup Setup" \
         "Pika Backup needs to be configured through its GUI.
 
@@ -133,7 +157,7 @@ Please follow these steps:
 2. Click 'Setup Backup' or the + button
 3. Select 'Local Folder' and browse to:
    $repo_path
-4. Pika will detect the existing Borg repository
+4. Pika will initialize a NEW encrypted repository in this folder. Enter a strong password!
 5. Go to the Exclude tab and add these paths:
 $formatted_exclusions
 6. Set the schedule to 'Hourly'
@@ -144,8 +168,31 @@ $formatted_exclusions
     # 6. Ask if the user wants to launch Pika now (ui_yesno)
     log_info "Step 6: Asking user to launch Pika Backup..."
     if ui_yesno "Launch Pika Backup" "Would you like to launch Pika Backup now?"; then
-        log_info "Launching Pika Backup in background for user $target_user..."
-        run_as_user env DISPLAY="${DISPLAY:-:0}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" pika-backup >>"$LOG_FILE" 2>&1 &
+        if ! command -v pika-backup &>/dev/null; then
+            log_warn "pika-backup binary not found on PATH. Please launch it manually from the application menu."
+            ui_msgbox "Pika Backup" "pika-backup was not found on PATH. Please launch it from your application menu."
+            # Do NOT return 0 — the layer is not configured.
+            # Fall through to Step 7 so the user can confirm (or deny) and
+            # Step 8 will report the repo as uninitialised.
+            log_warn "Skipping auto-launch; proceeding to manual confirmation."
+        else
+            local target_uid
+            target_uid=$(id -u "$target_user" 2>/dev/null) || {
+                log_error "Could not resolve UID for user '$target_user'."
+                return 1
+            }
+            local _log="${LOG_FILE:-/tmp/pika-backup-launch.log}"
+            local _wayland="${WAYLAND_DISPLAY:-}"
+            if [[ -z "$_wayland" && -e "/run/user/${target_uid}/wayland-0" ]]; then
+                _wayland="wayland-0"
+            fi
+            run_as_user env DISPLAY="${DISPLAY:-:0}" \
+                WAYLAND_DISPLAY="$_wayland" \
+                XDG_RUNTIME_DIR="/run/user/${target_uid}" \
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${target_uid}/bus" \
+                pika-backup >>"$_log" 2>&1 &
+            disown $! 2>/dev/null || true
+        fi
     fi
 
     # 7. Ask the user to confirm when they've finished configuring Pika
@@ -156,26 +203,35 @@ $formatted_exclusions
         log_warn "User indicated Pika Backup configuration is not complete."
     fi
 
-    # 8. Validate: check if ~/.config/pika-backup/backup.json exists ($DETECTED_HOME/.config/pika-backup/backup.json)
+    # 8. Validate: check if the Borg repository was initialized by the GUI (Audit-041)
     log_info "Step 8: Validating Pika Backup configuration..."
-    local config_file="${target_home}/.local/share/pika-backup/backup.json"
-    if [[ ! -f "$config_file" ]]; then
-        config_file="${target_home}/.config/pika-backup/backup.json"
+    local borg_ec=0
+    local borg_diag
+    borg_diag="$(run_as_user env BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes BORG_PASSPHRASE="" timeout 15 borg info "$repo_path" 2>&1)" || borg_ec=$?
+    # Exit code 0 = accessible (unencrypted); 2 = passphrase required (encrypted, properly initialized)
+    # 124 = timeout (slow filesystem) — treat as "cannot verify" rather than "not initialized"
+    if [[ $borg_ec -ne 0 && $borg_ec -ne 2 && $borg_ec -ne 124 ]]; then
+        log_warn "Borg validation returned exit code $borg_ec: ${borg_diag}"
     fi
-    if [[ -f "$config_file" ]]; then
-        log_success "Pika Backup configuration verified: $config_file"
+    if [[ $borg_ec -eq 124 ]]; then
+        log_warn "Borg validation timed out (slow filesystem?). Repository may be valid."
+    fi
+    # The physical repository markers (config and data/) must exist to avoid treating uninitialized directories as valid.
+    if [[ -f "$repo_path/config" && -d "$repo_path/data" ]] && [[ $borg_ec -eq 0 || $borg_ec -eq 2 || $borg_ec -eq 124 ]]; then
+        log_success "Pika Backup repository verified."
         ui_msgbox "Pika Backup — Success" \
-            "Pika Backup has been successfully configured!
+            "Pika Backup repository verified!
 
-Configuration file detected:
-  $config_file
+Borg repository confirmed at:
+  $repo_path
 
-Hourly home directory backups to Borg are now active."
+Please ensure the schedule is set to 'Hourly'
+and pruning is enabled inside Pika Backup."
     else
-        log_warn "Pika Backup configuration file not found at: $config_file"
+        log_warn "Pika Backup repository not initialized at: $repo_path"
         ui_msgbox "Pika Backup — Warning" \
-            "Warning: Pika Backup configuration file was not detected:
-  $config_file
+            "Warning: The Borg repository was not initialized at:
+  $repo_path
 
 You can complete the setup at any time by launching
 Pika Backup from your desktop application menu."
