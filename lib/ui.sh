@@ -29,7 +29,10 @@ DLG_LIST_H=10 # inner list height for menus/checklists
 # ── Backend guard ─────────────────────────────────────────────────────────────
 
 _ui_ensure_backend() {
-    [[ -z "$DIALOG_CMD" ]] && die "UI backend not initialised. Call detect_dialog() first."
+    if [[ -z "$DIALOG_CMD" ]]; then
+        die "UI backend not initialised. Call detect_dialog() first."
+    fi
+    return 0
 }
 
 # ── Primitive wrappers ────────────────────────────────────────────────────────
