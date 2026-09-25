@@ -79,6 +79,7 @@ Options:
 
 The wizard creates and manages the following configuration files and systemd units:
 
+- `/var/lib/arch-backup-wizard/settings.env` — Centralized state file tracking user preferences, layer selections, and system paths across wizard runs.
 - `/etc/snapper/configs/root` — Snapper configuration for root subvolume
 - `/etc/btrbk/btrbk.conf` — btrbk snapshot retention and send/receive targets
 - `/etc/systemd/system/btrbk.service.d/override.conf` — Low-priority resource scheduling override (`Nice=19`, `IOSchedulingClass=idle`)
@@ -174,7 +175,7 @@ The wizard relies on a strict environment variable contract. The `lib/detect.sh`
 - `DETECTED_ROOT_FS` / `DETECTED_ROOT_DEV` / `DETECTED_EFI_DEV` — Used for runbook generation and mount checks.
 - `DETECTED_TERMINAL_CMD` — The detected native GUI terminal (e.g. `ptyxis`, `gnome-terminal`) used by the Layer 4 nag script.
 
-To override detections, you can export these variables before running the wizard. See the `# ── Global contract` block in `lib/common.sh` for complete details.
+To override detections, you can export these variables before running the wizard. The wizard stores these and all your selections in `/var/lib/arch-backup-wizard/settings.env`, enabling seamless re-validation, uninstallation, and updates without re-prompting for inputs. See the `# ── Global contract` block in `lib/common.sh` for complete details.
 
 ---
 
