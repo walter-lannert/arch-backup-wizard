@@ -9,6 +9,7 @@
 
 run_validation() {
     log_info "══════ Starting Post-Setup Validation Checks ══════"
+    load_settings
 
     # Ensure dialog backend is ready
     if [[ -z "${DIALOG_CMD:-}" ]]; then
@@ -248,17 +249,7 @@ run_validation() {
         log_info "Validating Layer 4 (Cloud Offsite)..."
         local l4_ok=true
 
-        local layer4_encrypt="true"
-        local contract_file="${CONTRACT_FILE:-/var/lib/arch-backup-wizard/contract.env}"
-        if [[ -f "$contract_file" ]]; then
-            # shellcheck source=/dev/null
-            source "$contract_file"
-            layer4_encrypt="${LAYER4_ENCRYPT:-true}"
-        elif [[ -f "${user_home}/.os_cloud_backup.sh" ]]; then
-            if grep -q "^# ARCH_BACKUP_WIZARD_LAYER4_ENCRYPT=false" "${user_home}/.os_cloud_backup.sh" 2>/dev/null; then
-                layer4_encrypt="false"
-            fi
-        fi
+        local layer4_encrypt="${LAYER4_ENCRYPT:-true}"
 
         if ! pkg_is_installed rclone; then
             l4_ok=false
