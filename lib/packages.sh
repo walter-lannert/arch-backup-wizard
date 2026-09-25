@@ -307,7 +307,13 @@ get_layer_packages() {
         ;;
     2) printf '%s\n' "btrbk" ;;
     3) printf '%s\n' "pika-backup" ;;
-    4) printf '%s\n' "rclone pv zstd zenity age fuse3" ;;
+    4)
+        local pkgs="rclone pv zstd zenity fuse3"
+        if [[ "${LAYER4_ENCRYPT:-true}" == "true" ]]; then
+            pkgs+=" age"
+        fi
+        printf '%s\n' "$pkgs"
+        ;;
     5) ;; # No packages needed
     esac
 }

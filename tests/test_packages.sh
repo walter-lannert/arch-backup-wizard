@@ -91,6 +91,11 @@ test_get_layer_packages() {
     assert_match "rclone" "$pkgs_l4" "Layer 4 includes rclone"
     assert_match "age" "$pkgs_l4" "Layer 4 includes age"
     assert_eq "" "$pkgs_l5" "Layer 5 requires no extra packages"
+
+    local pkgs_l4_no_enc
+    pkgs_l4_no_enc=$(LAYER4_ENCRYPT="false" get_layer_packages 4)
+    assert_match "rclone" "$pkgs_l4_no_enc" "Layer 4 unencrypted includes rclone"
+    assert_no_match "age" "$pkgs_l4_no_enc" "Layer 4 unencrypted excludes age"
 }
 
 # Test 4: Layer 1 systemd-boot handling (no snapshot AUR helper required)

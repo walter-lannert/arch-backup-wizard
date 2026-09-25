@@ -129,6 +129,7 @@ die() {
 
 # ── File helpers ──────────────────────────────────────────────────────────────
 MANIFEST_FILE="${MANIFEST_FILE:-/var/lib/arch-backup-wizard/manifest.txt}"
+CONTRACT_FILE="${CONTRACT_FILE:-$(dirname "$MANIFEST_FILE")/contract.env}"
 
 # Record a file created by the wizard for uninstallation
 record_manifest() {

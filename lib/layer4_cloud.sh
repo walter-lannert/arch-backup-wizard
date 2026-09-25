@@ -28,6 +28,19 @@ setup_layer4() {
     target_home="$(effective_home)"
     local wizard_dir="${WIZARD_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
+    local encrypt_os="true"
+    if layer_selected "$LAYER_BTRBK"; then
+        if ! ui_yesno "Cloud OS Backup Encryption" \
+            "Do you want to encrypt your OS clones with Age before uploading to cloud storage?
+
+[RECOMMENDED] Encrypts the raw BTRFS stream before transmission to protect your data offsite.
+
+Choose 'No' if your cloud destination is a trusted local/private server or already self-encrypted."; then
+            encrypt_os="false"
+        fi
+    fi
+    export LAYER4_ENCRYPT="$encrypt_os"
+
     # ── 1. Install packages ───────────────────────────────────────────────────
     log_info "Step 1: Installing Layer 4 packages..."
     ui_infobox "Layer 4 Packages" "Installing rclone, pv, zstd, and zenity...\nPlease wait."
@@ -38,36 +51,39 @@ setup_layer4() {
     log_success "Layer 4 packages installed successfully."
 
     # ── 1.5 Generate Age Encryption Key ─────────────────────────────────────────
+    export CLOUD_ARCHIVE_EXT=".btrfs.zst"
     if layer_selected "$LAYER_BTRBK"; then
-        log_info "Step 1.5: Setting up Age encryption for OS stream..."
-        local age_key_dir="${target_home}/.config/arch-backup-wizard"
-        local age_key_file="${age_key_dir}/cloud_os.key"
+        if [[ "$LAYER4_ENCRYPT" == "true" ]]; then
+            export CLOUD_ARCHIVE_EXT=".btrfs.zst.age"
+            log_info "Step 1.5: Setting up Age encryption for OS stream..."
+            local age_key_dir="${target_home}/.config/arch-backup-wizard"
+            local age_key_file="${age_key_dir}/cloud_os.key"
 
-        run_as_user mkdir -p "$age_key_dir" || return 1
+            run_as_user mkdir -p "$age_key_dir" || return 1
 
-        if [[ ! -f "$age_key_file" ]]; then
-            if ! run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1; then
-                log_error "Failed to generate age encryption key at $age_key_file"
+            if [[ ! -f "$age_key_file" ]]; then
+                if ! run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1; then
+                    log_error "Failed to generate age encryption key at $age_key_file"
+                    return 1
+                fi
+                run_as_user chmod 600 "$age_key_file"
+                log_info "Generated new age key at $age_key_file"
+            else
+                log_info "Using existing age key at $age_key_file"
+            fi
+
+            local age_pubkey
+            age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file" || true)
+            if [[ -z "$age_pubkey" ]]; then
+                log_error "Failed to extract public key from $age_key_file"
                 return 1
             fi
-            run_as_user chmod 600 "$age_key_file"
-            log_info "Generated new age key at $age_key_file"
-        else
-            log_info "Using existing age key at $age_key_file"
-        fi
+            export AGE_PUBKEY="$age_pubkey"
+            export AGE_KEYFILE="$age_key_file"
+            export CLOUD_AGE_KEY="$age_key_file"
 
-        local age_pubkey
-        age_pubkey=$(grep -oP 'public key: \K\w+' "$age_key_file" || true)
-        if [[ -z "$age_pubkey" ]]; then
-            log_error "Failed to extract public key from $age_key_file"
-            return 1
-        fi
-        export AGE_PUBKEY="$age_pubkey"
-        export AGE_KEYFILE="$age_key_file"
-        export CLOUD_AGE_KEY="$age_key_file"
-
-        ui_msgbox "Encryption Key Generated" \
-            "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
+            ui_msgbox "Encryption Key Generated" \
+                "A new Age encryption key has been generated to encrypt your OS clones before they are uploaded to the cloud.
 
 PUBLIC KEY:
 $age_pubkey
@@ -80,16 +96,26 @@ If your computer is destroyed or stolen, you WILL need this private key to decry
 
 You MUST back up this private key to an external USB drive, another computer, or a secure Password Manager RIGHT NOW."
 
-        while true; do
-            if ui_yesno "Confirm Key Backup" \
-                "Have you successfully backed up your Age private key to an external USB drive or password manager?
+            while true; do
+                if ui_yesno "Confirm Key Backup" \
+                    "Have you successfully backed up your Age private key to an external USB drive or password manager?
 
 Without this key, your cloud backups are completely unrecoverable in a bare-metal disaster."; then
-                break
-            else
-                ui_msgbox "Action Required" "Please back up the file:\n$age_key_file\n\nTake your time, then press OK to verify again."
-            fi
-        done
+                    break
+                else
+                    ui_msgbox "Action Required" "Please back up the file:\n$age_key_file\n\nTake your time, then press OK to verify again."
+                fi
+            done
+        else
+            log_info "Step 1.5: Age encryption disabled by user. Backups will be compressed with zstd only."
+            export AGE_PUBKEY=""
+            export AGE_KEYFILE=""
+            export CLOUD_AGE_KEY=""
+        fi
+    else
+        export AGE_PUBKEY=""
+        export AGE_KEYFILE=""
+        export CLOUD_AGE_KEY=""
     fi
 
     # ── 2. Cloud provider selection menu ──────────────────────────────────────
@@ -248,6 +274,18 @@ Would you like to re-run 'rclone config' to retry?
         export CLOUD_REMOTE="$rclone_remote"
         export BACKUP_MOUNT="$backup_mount"
         export CLOUD_OS_DIR="$cloud_os_dir"
+        export DETECTED_HOME="$target_home"
+        export LAYER4_ENCRYPT="${LAYER4_ENCRYPT:-true}"
+        export CLOUD_ARCHIVE_EXT="${CLOUD_ARCHIVE_EXT:-.btrfs.zst.age}"
+        export AGE_PUBKEY="${AGE_PUBKEY:-}"
+
+        mkdir -p "$(dirname "$CONTRACT_FILE")"
+        cat > "$CONTRACT_FILE" <<EOF
+# Arch Backup Wizard Architecture Contract
+LAYER4_ENCRYPT="${LAYER4_ENCRYPT}"
+EOF
+        chmod 644 "$CONTRACT_FILE"
+        record_manifest "$CONTRACT_FILE"
 
         backup_file "$os_backup_script" >/dev/null || return 1
 

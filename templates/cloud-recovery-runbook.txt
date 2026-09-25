@@ -68,7 +68,7 @@ STEP 1: BOOT LIVE USB AND ESTABLISH INTERNET CONNECTION
 
      ping -c 3 archlinux.org
 
-5. Install necessary recovery packages in the Live environment:
+5. Install necessary recovery packages in the Live environment (age is optional if Age encryption was disabled):
 
      pacman -Sy --needed rclone zstd btrfs-progs borg age pv fuse3
 
@@ -150,7 +150,7 @@ STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
      rclone config
      Create a new remote matching: {{CLOUD_REMOTE}} (without trailing colon)
 
-3. Restore your Age private key:
+3. Restore your Age private key (SKIPPED if Age encryption was disabled during setup):
    Retrieve your saved `cloud_os.key` from your password manager and save it:
      nano /root/cloud_os.key
      chmod 600 /root/cloud_os.key
@@ -162,7 +162,7 @@ STEP 3: CONFIGURE RCLONE AND STREAM DOWNLOAD OS IMAGE
 5. Restore all subvolumes from the OS cloud clone archives.
 
 We have generated an automated script that will find the latest cloud archives for each
-of your system subvolumes ({{SUBVOL_LAYOUT}}), securely stream them, decrypt them, and set them up as writable subvolumes.
+of your system subvolumes ({{SUBVOL_LAYOUT}}), securely stream them, decrypt them (if encrypted), and set them up as writable subvolumes.
 
 [CRITICAL: In-flight streaming avoids requiring double disk space on the new drive]
 
@@ -506,7 +506,7 @@ STEP 9: CLEANUP AND REBOOT
      fi
      echo "All mounts released. Rebooting."
 
-   # Remove the Age private key from the Live environment:
+   # Remove the Age private key from the Live environment (if present):
    rm -f /root/cloud_os.key
 
 4. Reboot:
