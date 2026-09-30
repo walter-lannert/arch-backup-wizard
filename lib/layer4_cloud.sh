@@ -263,6 +263,7 @@ Would you like to re-run 'rclone config' to retry?
     fi
 
     log_info "Cloud destination folders: OS='$cloud_os_dir', Pika='$cloud_pika_dir'"
+    declare -F ui_infobox >/dev/null 2>&1 && ui_infobox "Configuring Cloud Pipeline" "Generating cloud backup scripts and systemd timers...\nPlease wait."
 
     local os_backup_script="${target_home}/.os_cloud_backup.sh"
     local os_nag_script="${target_home}/.os_clone_nag.sh"
@@ -275,11 +276,12 @@ Would you like to re-run 'rclone config' to retry?
         export BACKUP_MOUNT="$backup_mount"
         export CLOUD_OS_DIR="$cloud_os_dir"
         export DETECTED_HOME="$target_home"
+        export DETECTED_SUBVOLUMES="${DETECTED_SUBVOLUMES:-@}"
         export LAYER4_ENCRYPT="${LAYER4_ENCRYPT:-true}"
         export CLOUD_ARCHIVE_EXT="${CLOUD_ARCHIVE_EXT:-.btrfs.zst.age}"
         export AGE_PUBKEY="${AGE_PUBKEY:-}"
 
-        backup_file "$os_backup_script" >/dev/null || return 1
+        backup_file "$os_backup_script" || return 1
 
         if ! template_render "$wizard_dir/templates/os-cloud-backup.sh" "$os_backup_script"; then
             log_error "Failed to render OS cloud backup template."
@@ -301,7 +303,7 @@ Would you like to re-run 'rclone config' to retry?
         export DETECTED_HOME="$target_home"
         export DETECTED_TERMINAL_CMD="$term_cmd"
 
-        backup_file "$os_nag_script" >/dev/null || return 1
+        backup_file "$os_nag_script" || return 1
 
         if ! template_render "$wizard_dir/templates/os-clone-nag.sh" "$os_nag_script"; then
             log_error "Failed to render OS clone nag template."
@@ -336,7 +338,7 @@ Would you like to re-run 'rclone config' to retry?
         if [[ -f "$rc_file" ]] && grep -Fq "Arch Backup Wizard OS Clone Nag" "$rc_file"; then
             log_info "Nag script already configured in $rc_file"
         else
-            backup_file "$rc_file" >/dev/null || return 1
+            backup_file "$rc_file" || return 1
             # shellcheck disable=SC2016
             if ! run_as_user bash -c 'cat >> "$1"' -- "$rc_file" <<EOF; then
 
@@ -362,6 +364,7 @@ EOF
         export BACKUP_MOUNT="$backup_mount"
         export SYSTEMD_BACKUP_MOUNT="${backup_mount// /\\x20}"
         export CLOUD_PIKA_DIR="$cloud_pika_dir"
+        export DETECTED_USER="${target_user}"
         local host_name="${DETECTED_HOSTNAME:-$(cat /etc/hostname 2>/dev/null || uname -n)}"
         export PIKA_BORG_REPO_REL="Personal/backup-${host_name}-${target_user}"
 
@@ -374,7 +377,7 @@ EOF
 
         mkdir -p "$systemd_dir"
 
-        backup_file "$service_file" >/dev/null || return 1
+        backup_file "$service_file" || return 1
         if ! template_render "$wizard_dir/templates/pika-cloud-sync.service" "$service_file"; then
             log_error "Failed to render pika-cloud-sync.service template."
             return 1
@@ -382,7 +385,7 @@ EOF
         chmod 644 "$service_file"
         record_manifest "$service_file"
 
-        backup_file "$timer_file" >/dev/null || return 1
+        backup_file "$timer_file" || return 1
         if ! template_render "$wizard_dir/templates/pika-cloud-sync.timer" "$timer_file"; then
             log_error "Failed to render pika-cloud-sync.timer template."
             return 1
@@ -393,7 +396,7 @@ EOF
         local stale_service="${systemd_dir}/pika-cloud-sync-stale-check.service"
         local stale_timer="${systemd_dir}/pika-cloud-sync-stale-check.timer"
 
-        backup_file "$stale_service" >/dev/null || return 1
+        backup_file "$stale_service" || return 1
         if ! template_render "$wizard_dir/templates/pika-cloud-sync-stale-check.service" "$stale_service"; then
             log_error "Failed to render stale-check service template."
             return 1
@@ -401,7 +404,7 @@ EOF
         chmod 644 "$stale_service"
         record_manifest "$stale_service"
 
-        backup_file "$stale_timer" >/dev/null || return 1
+        backup_file "$stale_timer" || return 1
         if ! template_render "$wizard_dir/templates/pika-cloud-sync-stale-check.timer" "$stale_timer"; then
             log_error "Failed to render stale-check timer template."
             return 1

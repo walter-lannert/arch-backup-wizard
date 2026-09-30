@@ -273,7 +273,7 @@ Snapshots will still be taken before and after package changes and can be restor
     # ── 6. Verify ─────────────────────────────────────────────────────────────
     log_info "Step 6: Verifying Snapper setup..."
     local snapper_out
-    if snapper_out=$(snapper list 2>&1); then
+    if snapper_out=$(snapper --columns "number,type,date,description" list 2>/dev/null || snapper list 2>&1); then
         log_success "Snapper verification succeeded."
         log_info "Verification output:\n$snapper_out"
         ui_msgbox "Layer 1 Setup Succeeded" \

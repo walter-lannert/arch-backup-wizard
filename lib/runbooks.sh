@@ -8,6 +8,7 @@
 
 generate_runbooks() {
     log_info "── Generating Personalized Recovery Runbooks ──"
+    declare -F ui_infobox >/dev/null 2>&1 && ui_infobox "Recovery Runbooks" "Generating personalized disaster recovery runbooks...\nPlease wait."
     load_settings
 
     local target_user

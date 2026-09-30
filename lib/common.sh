@@ -144,7 +144,7 @@ record_manifest() {
 save_settings() {
     mkdir -p "$(dirname "$SETTINGS_FILE")"
     printf "# Arch Backup Wizard Global Settings\n# Automatically generated. Do not edit manually unless you know what you're doing.\n" > "$SETTINGS_FILE"
-    for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY; do
+    for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_SUBVOLUMES DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY; do
         if [[ -v "$var" ]]; then
             declare -p "$var" | sed 's/^declare /declare -g /' >> "$SETTINGS_FILE"
         fi
@@ -155,7 +155,7 @@ save_settings() {
 load_settings() {
     if [[ -f "$SETTINGS_FILE" ]]; then
         local var
-        for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY; do
+        for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_SUBVOLUMES DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY; do
             if [[ -v "$var" ]]; then
                 continue
             fi
@@ -186,7 +186,10 @@ backup_file() {
                 echo "$file" >> "$ORIG_MANIFEST"
             fi
 
-            if ! ${UNINSTALL:-false} && ! $is_shared; then
+            # If the file contains an Arch Backup Wizard signature, adopt it without prompting
+            if grep -q -E '(Arch Backup Wizard|arch-backup-wizard)' "$file" 2>/dev/null; then
+                record_manifest "$file"
+            elif ! ${UNINSTALL:-false} && ! $is_shared; then
                 if ! ui_yesno "Overwrite Existing Configuration?" \
                     "The file '$file' already exists and was not created by the wizard.
 

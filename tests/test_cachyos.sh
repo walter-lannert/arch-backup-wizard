@@ -11,6 +11,7 @@ source "$REPO_DIR/lib/runbooks.sh"
 
 ui_msgbox() { return 0; }
 ui_yesno() { return 0; }
+ui_infobox() { return 0; }
 
 
 test_cachyos_limine_bootloader() {
