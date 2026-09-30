@@ -152,6 +152,28 @@ EOF
     assert_eq "1" "$rc" "template_render should fail when a placeholder variable is unset"
 }
 
+# Test 8: Template rendering succeeds when template has no placeholders
+test_template_render_no_placeholders() {
+    source "$REPO_DIR/lib/common.sh"
+
+    local tpl="$TEST_TEMP_DIR/static.timer"
+    local out="$TEST_TEMP_DIR/rendered.timer"
+
+    cat <<'EOF' > "$tpl"
+[Unit]
+Description=Static Timer
+[Timer]
+OnCalendar=daily
+[Install]
+WantedBy=timers.target
+EOF
+
+    local rc=0
+    template_render "$tpl" "$out" || rc=$?
+    assert_eq "0" "$rc" "template_render should succeed on templates without placeholders"
+    assert_file_exists "$out"
+}
+
 echo "=== Running tests for lib/common.sh ==="
 run_test test_layer_selected "Layer selection checks"
 run_test test_logging "Logging to file"
@@ -160,4 +182,5 @@ run_test test_template_render "Template rendering with variable substitution"
 run_test test_template_render_shell_escaping "Template rendering shell escaping safety"
 run_test test_subvolume_to_snapshot_name "Snapshot naming contract and collision avoidance"
 run_test test_template_render_rejects_unset "Template rendering rejects unset variables"
+run_test test_template_render_no_placeholders "Template rendering succeeds with zero placeholders"
 test_summary
