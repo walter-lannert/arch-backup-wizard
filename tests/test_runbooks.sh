@@ -115,7 +115,7 @@ Kernel: {{KERNEL_PKGS}}
 Script: {{SUBVOL_RECOVERY_SCRIPT}}
 TMPL
 
-    mock_cmd pacman 'echo linux-cachyos linux-cachyos-headers ucode_amd'
+    mock_cmd pacman 'echo linux-cachyos linux-cachyos-headers amd-ucode'
 
     generate_runbooks
 
@@ -128,6 +128,7 @@ TMPL
     assert_match "Root UUID: aaaa-bbbb-cccc" "$content" "Root UUID substituted"
     assert_match "Bootloader: limine" "$content" "Bootloader substituted"
     assert_match "linux-cachyos" "$content" "Kernel packages detected"
+    assert_match "amd-ucode" "$content" "Microcode package detected"
     assert_match 'find "/mnt/backup drive/OS_Backup"' "$content" "Backup source directory with spaces is safely quoted in find expression"
 }
 

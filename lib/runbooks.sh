@@ -69,10 +69,10 @@ generate_runbooks() {
 
     # Dynamically detect kernel and microcode for bare-metal EFI restoration
     local kernel_pkgs
-    kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | grep -E '^linux(-cachyos(-[a-z0-9]+)?|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || true)
+    kernel_pkgs=$(pacman -Qsq '^linux' 2>/dev/null | tr ' ' '\n' | grep -E '^linux(-cachyos(-[a-z0-9]+)?|-zen|-lts|-hardened)?(-headers)?$' | tr '\n' ' ' || true)
     [[ -z "${kernel_pkgs// /}" ]] && kernel_pkgs="linux linux-headers"
     local ucode_pkgs
-    ucode_pkgs=$(pacman -Qsq ucode 2>/dev/null | tr '\n' ' ' || true)
+    ucode_pkgs=$(pacman -Qsq ucode 2>/dev/null | tr ' ' '\n' | grep -E '(amd-ucode|intel-ucode)' | tr '\n' ' ' || true)
     export KERNEL_PKGS="${kernel_pkgs} ${ucode_pkgs}"
 
     # Generate dynamic subvolume recovery script block for runbooks
@@ -90,8 +90,11 @@ generate_runbooks() {
         sub_safe="${sub//\//_}"
         sub_safe="${sub_safe//:/_}"
         sub_snap_name=$(subvolume_to_snapshot_name "$sub")
+        local sub_snap_esc sub_safe_esc
+        sub_snap_esc=$(printf '%s' "$sub_snap_name" | sed 's/[*?\[\]]/\\&/g')
+        sub_safe_esc=$(printf '%s' "$sub_safe" | sed 's/[*?\[\]]/\\&/g')
         restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        restore_script+="SNAP=\$(find \"${BACKUP_SRC_DIR}\" -maxdepth 1 -mindepth 1 -type d \( -name \"${sub_snap_name}.*\" -o -name \"${sub_safe}.*\" \) 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
+        restore_script+="SNAP=\$(find \"${BACKUP_SRC_DIR}\" -maxdepth 1 -mindepth 1 -type d \( -name \"${sub_snap_esc}.*\" -o -name \"${sub_safe_esc}.*\" \) 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
         restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
         restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'

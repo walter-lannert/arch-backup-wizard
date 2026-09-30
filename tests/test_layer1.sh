@@ -50,8 +50,8 @@ test_layer1_nested_snapshots_aborted() {
             return 0
         fi
         if [[ "$1" == "subvolume" && "$2" == "list" && "$3" == "-o" && "$4" == "$SNAP_DIR" ]]; then
-            echo "ID 257 gen 10 top level 5 path $SNAP_DIR/1"
-            echo "ID 258 gen 10 top level 5 path $SNAP_DIR/2"
+            echo "ID 257 gen 10 top level 5 path 1"
+            echo "ID 258 gen 10 top level 5 path 2"
             return 0
         fi
         command btrfs "$@" || true
