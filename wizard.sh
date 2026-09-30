@@ -620,11 +620,11 @@ run_dry_run_simulation() {
         actions+="• Layer 1 (Snapper):"$'\n'
         actions+="  - Configure /etc/snapper/configs/root"$'\n'
         actions+="  - Enable snapper-cleanup.timer"$'\n'
-        case "$DETECTED_BOOTLOADER" in
-        grub) actions+="  - Enable grub-btrfsd.service"$'\n' ;;
-        limine) actions+="  - limine-snapper-sync boot integration"$'\n' ;;
-        systemd-boot) actions+="  - Manual snapshot swap rollback"$'\n' ;;
-        esac
+        if [[ "$DETECTED_BOOTLOADER" == "limine" ]]; then
+            actions+="  - limine-snapper-sync boot integration"$'\n'
+        else
+            actions+="  - Boot integration: not configured (unexpected bootloader: ${DETECTED_BOOTLOADER:-unknown})"$'\n'
+        fi
     fi
 
     if layer_selected "$LAYER_BTRBK"; then

@@ -19,14 +19,12 @@ detect_distro() {
         DETECTED_DISTRO_PRETTY="Unknown Linux"
     fi
 
-    case "$DETECTED_DISTRO_ID" in
-    cachyos) DETECTED_DISTRO="CachyOS" ;;
-    endeavouros) DETECTED_DISTRO="EndeavourOS" ;;
-    manjaro) DETECTED_DISTRO="Manjaro" ;;
-    garuda) DETECTED_DISTRO="Garuda" ;;
-    arch) DETECTED_DISTRO="Arch" ;;
-    *) DETECTED_DISTRO="$DETECTED_DISTRO_NAME" ;;
-    esac
+    if [[ "$DETECTED_DISTRO_ID" == "cachyos" ]]; then
+        DETECTED_DISTRO="CachyOS"
+    else
+        DETECTED_DISTRO="$DETECTED_DISTRO_NAME"
+        log_warn "Unsupported distro '$DETECTED_DISTRO_ID' — this wizard is designed for CachyOS. Proceeding anyway."
+    fi
 
     log_info "Detected distro: $DETECTED_DISTRO ($DETECTED_DISTRO_ID)"
 }
@@ -35,12 +33,11 @@ detect_distro() {
 
 detect_aur_helper() {
     DETECTED_AUR_HELPER=""
-    for helper in paru yay; do
-        if cmd_exists "$helper"; then
-            DETECTED_AUR_HELPER="$helper"
-            break
-        fi
-    done
+    if cmd_exists paru; then
+        DETECTED_AUR_HELPER="paru"
+    else
+        log_warn "paru not found — it is the expected AUR helper on CachyOS."
+    fi
     log_info "AUR helper: ${DETECTED_AUR_HELPER:-none}"
 }
 
@@ -51,10 +48,8 @@ detect_bootloader() {
 
     if [[ -f /etc/default/limine || -f /boot/limine.conf || -f /boot/limine/limine.conf || -f /efi/limine.conf || -f /efi/limine/limine.conf ]]; then
         DETECTED_BOOTLOADER="limine"
-    elif bootctl is-installed &>/dev/null 2>&1 || [[ -d /boot/loader/entries || -d /efi/loader/entries || -d /boot/efi/loader/entries ]]; then
-        DETECTED_BOOTLOADER="systemd-boot"
-    elif [[ -f /etc/default/grub ]] || [[ -d /boot/grub ]]; then
-        DETECTED_BOOTLOADER="grub"
+    else
+        log_warn "Limine bootloader not detected — this wizard is designed for CachyOS + Limine. Proceeding anyway."
     fi
 
     log_info "Bootloader: $DETECTED_BOOTLOADER"
@@ -337,26 +332,13 @@ detect_user_info() {
 # ── Default terminal emulator (for nag script) ───────────────────────────────
 
 detect_terminal() {
-    DETECTED_TERMINAL_CMD=""
-
-    local -a candidates=(
-        "ptyxis --"
-        "kgx -e"
-        "konsole -e"
-        "xfce4-terminal -e"
-        "gnome-terminal --"
-        "alacritty -e"
-        "kitty"
-        "xterm -e"
-    )
-
-    for entry in "${candidates[@]}"; do
-        local bin="${entry%% *}"
-        if cmd_exists "$bin"; then
-            DETECTED_TERMINAL_CMD="$entry"
-            break
-        fi
-    done
+    # CachyOS uses Ptyxis (GNOME default terminal) — hardcoded as the target.
+    if cmd_exists ptyxis; then
+        DETECTED_TERMINAL_CMD="ptyxis --"
+    else
+        DETECTED_TERMINAL_CMD=""
+        log_warn "ptyxis not found — nag script terminal launch may not work."
+    fi
 
     log_info "Terminal: ${DETECTED_TERMINAL_CMD:-none}"
 }

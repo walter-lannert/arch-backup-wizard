@@ -295,14 +295,11 @@ get_layer_packages() {
     case "$layer" in
     1)
         local pkgs="snapper snap-pac"
-        case "${DETECTED_BOOTLOADER:-}" in
-        grub)   pkgs+=" AUR:grub-btrfs inotify-tools" ;;
-        limine) pkgs+=" AUR:limine-snapper-sync inotify-tools" ;;
-        systemd-boot) ;;  # no snapshot-integration package available
-        *)
+        if [[ "${DETECTED_BOOTLOADER:-}" == "limine" ]]; then
+            pkgs+=" AUR:limine-snapper-sync inotify-tools"
+        else
             log_info "No snapshot-integration package for bootloader: ${DETECTED_BOOTLOADER:-unknown}"
-            ;;
-        esac
+        fi
         printf '%s\n' "$pkgs"
         ;;
     2) printf '%s\n' "btrbk" ;;
@@ -373,12 +370,6 @@ Expected a value between 1 and 5."
     done
 
     if [[ ${#pacman_pkgs[@]} -eq 0 && ${#aur_pkgs[@]} -eq 0 ]]; then
-        # Layer 1 with systemd-boot legitimately has only base packages;
-        # only error if the layer is expected to produce AUR packages but none were parsed.
-        if [[ "$layer" -eq 1 && "${DETECTED_BOOTLOADER:-}" == "systemd-boot" ]]; then
-            log_info "Layer 1 (systemd-boot): no snapshot-integration package available; base packages only."
-            return 0
-        fi
         log_error "install_layer_packages: layer $layer produced no valid packages; aborting"
         ui_msgbox "Config Error" \
             "Layer $layer resolved to zero installable packages.
@@ -401,9 +392,9 @@ Check the wizard logs for details."
 # ── Ensure dialog itself is present ──────────────────────────────────────────
 
 ensure_dialog() {
-    if ! cmd_exists dialog && ! cmd_exists whiptail; then
+    if ! cmd_exists dialog; then
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo "FATAL: 'dialog' or 'whiptail' is required for the wizard UI. Since --dry-run is active, it will not be installed automatically. Please install it manually: sudo pacman -S dialog" >&2
+            echo "FATAL: 'dialog' is required for the wizard UI. Since --dry-run is active, it will not be installed automatically. Please install it manually: sudo pacman -S dialog" >&2
             return 1
         fi
         echo "Installing 'dialog' (required for the wizard UI)..."
@@ -428,7 +419,7 @@ ensure_dialog() {
             fi
             return 1
         fi
-        if ! cmd_exists dialog && ! cmd_exists whiptail; then
+        if ! cmd_exists dialog; then
             echo "FATAL: 'dialog' was installed but is not found in PATH. Check your PATH." >&2
             return 1
         fi

@@ -249,21 +249,7 @@ EOF
 
     # ── 5. Bootloader-specific setup ──────────────────────────────────────────
     log_info "Step 5: Configuring bootloader integration for '$DETECTED_BOOTLOADER'..."
-    case "$DETECTED_BOOTLOADER" in
-    grub)
-        log_info "Enabling grub-btrfsd service..."
-        systemctl enable --now grub-btrfsd >>"$LOG_FILE" 2>&1 || {
-            log_error "Failed to enable grub-btrfsd service"
-            return 1
-        }
-        log_info "Regenerating GRUB configuration to include snapshot menu..."
-        if ! grub-mkconfig -o /boot/grub/grub.cfg >>"$LOG_FILE" 2>&1; then
-            log_error "Failed to regenerate grub.cfg"
-            return 1
-        fi
-        log_success "grub-btrfsd service enabled and started."
-        ;;
-    limine)
+    if [[ "$DETECTED_BOOTLOADER" == "limine" ]]; then
         log_info "Limine bootloader detected; enabling limine-snapper-sync..."
         systemctl enable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || {
             log_error "Failed to enable limine-snapper-sync service"
@@ -274,24 +260,15 @@ EOF
             "Limine snapshot integration is active.
 
 limine-snapper-sync is installed and the service is enabled. Whenever a snapshot is created by Snapper or pacman, it will automatically appear in your Limine boot menu."
-        ;;
-    systemd-boot)
-        log_info "systemd-boot detected; showing manual rollback notice..."
-        ui_msgbox "systemd-boot Notice" \
-            "Notice for systemd-boot:
-
-systemd-boot does not natively support booting directly into BTRFS snapshots from the boot menu.
-
-However, snapshots are still automatically created on every pacman transaction (via snap-pac) and can be rolled back manually using Snapper or a live USB."
-        ;;
-    *)
-        log_warn "Unknown or unsupported bootloader: $DETECTED_BOOTLOADER"
+    else
+        log_warn "Unexpected bootloader '$DETECTED_BOOTLOADER' — expected Limine on CachyOS. Skipping boot menu integration."
         ui_msgbox "Bootloader Notice" \
-            "Bootloader '$DETECTED_BOOTLOADER' does not have automated boot menu snapshot integration.
+            "Unexpected bootloader '$DETECTED_BOOTLOADER' detected.
+
+This wizard is designed for CachyOS with Limine. Boot menu snapshot integration was skipped.
 
 Snapshots will still be taken before and after package changes and can be restored manually using Snapper."
-        ;;
-    esac
+    fi
 
     # ── 6. Verify ─────────────────────────────────────────────────────────────
     log_info "Step 6: Verifying Snapper setup..."

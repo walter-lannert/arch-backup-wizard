@@ -319,10 +319,6 @@ Would you like to re-run 'rclone config' to retry?
         local nag_line=""
 
         case "$shell_bin" in
-        zsh)
-            rc_file="${target_home}/.zshrc"
-            nag_line='[[ -o interactive ]] && [ -f ~/.os_clone_nag.sh ] && bash ~/.os_clone_nag.sh &'
-            ;;
         fish)
             rc_file="${target_home}/.config/fish/config.fish"
             nag_line='status is-interactive; and test -f ~/.os_clone_nag.sh; and bash ~/.os_clone_nag.sh &'

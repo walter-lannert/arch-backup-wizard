@@ -1,6 +1,6 @@
 # Arch Backup Wizard
 
-Interactive TUI wizard that sets up a 5-layer backup architecture for Arch Linux.
+Interactive TUI wizard that sets up a 5-layer backup architecture for CachyOS Linux with the Limine bootloader.
 
 ---
 
@@ -12,7 +12,7 @@ Interactive TUI wizard that sets up a 5-layer backup architecture for Arch Linux
   3. **Pika Backup** — Hourly home directory backups powered by Borg.
   4. **Cloud Offsite** — Encrypted offsite backups to Google Drive, OneDrive, Dropbox, or Backblaze B2 via `rclone`.
   5. **Deep Storage** — Local-only archive directory for sensitive files that should never sync offsite.
-- **Hardware & Environment Detection:** Auto-detects distribution, bootloader, filesystem layout, drives, and existing configurations.
+- **Hardware & Environment Detection:** Auto-detects filesystem layout, drives, user settings, and existing configurations.
 - **Personalized Recovery Runbooks:** Generates step-by-step restore guides with your system's actual UUIDs, mount paths, and subvolume names.
 - **Idempotent:** Safe to run multiple times without duplicating configurations or corrupting existing backups.
 - **Gaming-Friendly:** All background maintenance and sync services are throttled to `Nice=19` and `IOSchedulingClass=idle` to eliminate stutter and frame drops.
@@ -31,22 +31,18 @@ Finally, I had an itch to experiment with agentic AI code generation, automated 
 
 ---
 
-## Supported Systems
+## Supported System
 
-### Distros
-- CachyOS, EndeavourOS, Manjaro, Garuda Linux, vanilla Arch Linux
-- Any Arch-based distribution using `pacman`
-
-### Bootloaders
-- **GRUB** (with `grub-btrfs` snapshot boot integration)
-- **Limine** (with `limine-snapper-sync`)
-- **systemd-boot**
+- **Distribution:** CachyOS Linux (`ID=cachyos`)
+- **Bootloader:** Limine (with `limine-snapper-sync`)
+- **AUR Helper:** `paru`
+- **Shell & Terminal:** `fish` (or `bash`), `ptyxis`
 
 ### Requirements
 - **BTRFS root filesystem** (required for Layers 1 & 2)
 - **Secondary drive** for backup storage (SATA SSD, HDD, or NVMe). The wizard accepts existing BTRFS partitions or raw unpartitioned drives, offering automated GPT partitioning and BTRFS formatting with double confirmation.
 - **Internet connection** for Layer 4 (cloud offsite sync)
-- **AUR helper** (`paru` or `yay`) for bootloader integration packages
+- **`dialog`** for the interactive TUI (installed automatically via pacman if missing)
 
 ---
 
@@ -79,10 +75,10 @@ Options:
 
 | Layer | Packages |
 |---|---|
-| **1** | `snapper`, `snap-pac`, `grub-btrfs` OR `limine-snapper-sync` (AUR) |
+| **1** | `snapper`, `snap-pac`, `limine-snapper-sync` (AUR), `inotify-tools` |
 | **2** | `btrbk` |
 | **3** | `pika-backup` (includes `borg`) |
-| **4** | `rclone`, `pv`, `zstd`, `zenity`, `age` |
+| **4** | `rclone`, `pv`, `zstd`, `zenity`, `age`, `fuse3` |
 | **5** | *(none)* |
 
 ---
@@ -106,11 +102,11 @@ The wizard creates and manages the following configuration files and systemd uni
 
 Layer 4 sets up an intelligent user-space notifier (`~/.os_clone_nag.sh`) that ensures you never fall behind on offsite OS snapshots:
 
-- **Interactive Shell Trigger:** Sourced automatically upon opening an interactive terminal (`.bashrc`, `.zshrc`, or `config.fish`).
+- **Interactive Shell Trigger:** Sourced automatically upon opening an interactive terminal (`config.fish` or `.bashrc`).
 - **Bi-Weekly Calendar Period:** Checks whether a cloud backup has been completed for the current period (`YYYY-MM-P1` for days 1–14, `P2` for days 15+).
 - **Desktop Environment Guards:** Automatically exits if running outside a graphical session (e.g. SSH logins or virtual TTYs).
 - **Concurrency Lock:** Uses file locking (`flock`) to ensure opening multiple terminal tabs simultaneously never spawns duplicate dialogs.
-- **Visual Progress:** Prompts with a non-intrusive `zenity` dialog. If you choose **Run Now**, it launches your native terminal emulator (`ptyxis`, `gnome-terminal`, `kitty`, `alacritty`, `konsole`, etc.) showing real-time `btrfs send` throughput and `zstd` compression speeds via `pv`.
+- **Visual Progress:** Prompts with a non-intrusive `zenity` dialog. If you choose **Run Now**, it launches your terminal emulator (`ptyxis`) showing real-time `btrfs send` throughput and `zstd` compression speeds via `pv`.
 
 ### Optional: Desktop Session Autostart (GNOME / KDE / XFCE)
 
@@ -175,7 +171,7 @@ To safely clean up wizard-managed configs and undo system changes:
 ```bash
 sudo ./wizard.sh --uninstall
 ```
-> **Note:** The uninstaller removes configuration files, systemd timers, and the `~/.os_clone_nag.sh` interactive shell hook from your `.bashrc`/`.zshrc`/`config.fish` (wrapped in `# Arch Backup Wizard OS Clone Nag BEGIN/END` sentinels). It intentionally preserves your installed packages, backup data, and generated runbooks.
+> **Note:** The uninstaller removes configuration files, systemd timers, and the `~/.os_clone_nag.sh` interactive shell hook from your `config.fish`/`.bashrc` (wrapped in `# Arch Backup Wizard OS Clone Nag BEGIN/END` sentinels). It intentionally preserves your installed packages, backup data, and generated runbooks.
 
 ---
 
@@ -183,9 +179,9 @@ sudo ./wizard.sh --uninstall
 
 The wizard relies on a strict environment variable contract. The `lib/detect.sh` module populates system details into `DETECTED_*` globals, which are then consumed as read-only inputs by the layer scripts:
 
-- `DETECTED_DISTRO` / `DETECTED_BOOTLOADER` — Influences bootloader integration and package manager commands.
+- `DETECTED_DISTRO` / `DETECTED_BOOTLOADER` — System distro (CachyOS) and bootloader (Limine).
 - `DETECTED_ROOT_FS` / `DETECTED_ROOT_DEV` / `DETECTED_EFI_DEV` — Used for runbook generation and mount checks.
-- `DETECTED_TERMINAL_CMD` — The detected native GUI terminal (e.g. `ptyxis`, `gnome-terminal`) used by the Layer 4 nag script.
+- `DETECTED_TERMINAL_CMD` — The detected native GUI terminal (`ptyxis --`) used by the Layer 4 nag script.
 
 To override detections, you can export these variables before running the wizard. The wizard stores these and all your selections in `/var/lib/arch-backup-wizard/settings.env`, enabling seamless re-validation, uninstallation, and updates without re-prompting for inputs. See the `# ── Global contract` block in `lib/common.sh` for complete details.
 
@@ -200,7 +196,7 @@ arch-backup-wizard/
 ├── Makefile               # Build automation (linting & tests)
 ├── lib/
 │   ├── common.sh          # Logging, helpers, template rendering
-│   ├── ui.sh              # dialog/whiptail wrappers
+│   ├── ui.sh              # dialog wrappers
 │   ├── detect.sh          # System detection engine
 │   ├── packages.sh        # Package installation
 │   ├── layer1_snapper.sh  # Snapper setup
@@ -214,10 +210,14 @@ arch-backup-wizard/
 ├── templates/             # Config and runbook templates
 └── tests/                 # Automated hermetic test suite
     ├── test_helper.bash   # Zero-dependency test & mock framework
+    ├── test_cachyos.sh    # End-to-end integration test for CachyOS + Limine
     ├── test_common.sh     # Tests for lib/common.sh
     ├── test_detect.sh     # Tests for lib/detect.sh
+    ├── test_ensure_backup.sh # Tests for backup drive mounting
+    ├── test_layer1.sh     # Tests for Snapper setup & safety guards
     ├── test_packages.sh   # Tests for lib/packages.sh
     ├── test_runbooks.sh   # Tests for lib/runbooks.sh
+    ├── test_uninstall.sh  # Tests for uninstaller & fstab safety
     └── test_validate.sh   # Tests for lib/validate.sh
 ```
 
@@ -233,7 +233,7 @@ The repository includes a comprehensive, hermetic automated unit test suite requ
   ```
 - **Automated Unit Tests:**
   ```bash
-  make test    # Runs all 43 unit tests across lib/ modules
+  make test    # Runs unit and integration tests across lib/ modules
   ```
 - **Linting & Code Quality:**
   ```bash
