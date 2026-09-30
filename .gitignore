@@ -10,6 +10,7 @@ arch-backup-wizard-preview/
 
 # Logs & backups
 *.log
+logs/
 arch-backup-wizard.log
 *.bak.*
 
@@ -17,3 +18,9 @@ arch-backup-wizard.log
 .aider*
 .agents/
 Modelfile
+
+# Editor & OS temporary files
+*.swp
+*.swo
+*~
+.DS_Store

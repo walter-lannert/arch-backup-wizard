@@ -98,7 +98,7 @@ STEP 2: PARTITION AND FORMAT NEW NVME / SSD
    [ $? -ne 0 ] && { echo "FATAL: EFI partition formatting failed."; exit 1; }
 
    # Format Root partition as BTRFS:
-   mkfs.btrfs -f -L ARCH_ROOT /dev/NEW_ROOT_PARTITION
+   mkfs.btrfs -f -L "${ROOT_LABEL:-cachyos}" /dev/NEW_ROOT_PARTITION
    [ $? -ne 0 ] && { echo "FATAL: BTRFS root partition formatting failed."; exit 1; }
 
 3. Record the new partition UUIDs:

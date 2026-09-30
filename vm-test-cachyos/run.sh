@@ -2,7 +2,7 @@
 # ==============================================================================
 # Arch Backup Wizard — In-VM Test Runner
 #
-# Runs the automated comprehensive test suite inside an isolated Arch Linux
+# Runs the automated comprehensive test suite inside an isolated CachyOS
 # QEMU virtual machine with BTRFS root and simulated secondary backup storage.
 # ==============================================================================
 
@@ -142,7 +142,7 @@ if [[ "$INTERACTIVE" == true ]]; then
         -net user \
         -serial mon:stdio
 else
-    echo "=== Booting Arch Linux BTRFS VM for Automated Tests ==="
+    echo "=== Booting CachyOS BTRFS VM for Automated Tests ==="
     nice -n 19 ionice -c 3 qemu-system-x86_64 \
         -enable-kvm \
         -m 4G \

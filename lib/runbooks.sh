@@ -64,7 +64,7 @@ generate_runbooks() {
     export ROOT_MOUNT_OPTIONS="${root_opts:-defaults,noatime,compress=zstd:1}"
     local root_label
     root_label=$(lsblk -no LABEL "$(findmnt -n -o SOURCE / 2>/dev/null)" 2>/dev/null || true)
-    export ROOT_LABEL="${root_label:-ARCH_ROOT}"
+    export ROOT_LABEL="${root_label:-cachyos}"
 
     # Dynamically detect kernel and microcode for bare-metal EFI restoration
     local kernel_pkgs
