@@ -272,17 +272,32 @@ Snapshots will still be taken before and after package changes and can be restor
 
     # ── 6. Verify ─────────────────────────────────────────────────────────────
     log_info "Step 6: Verifying Snapper setup..."
-    local snapper_out
-    if snapper_out=$(snapper list --columns "number,type,date,description" 2>/dev/null || snapper list 2>&1); then
+    if snapper_out=$(snapper list 2>&1); then
         log_success "Snapper verification succeeded."
         log_info "Verification output:\n$snapper_out"
+
+        local snapshot_summary=""
+        local s_num s_type s_date s_desc
+        while IFS=, read -r s_num s_type s_date s_desc _; do
+            [[ -z "$s_num" ]] && continue
+            local entry="• Snapshot #${s_num}: ${s_desc:-current} (${s_type})"
+            [[ -n "$s_date" ]] && entry+=" - ${s_date}"
+            if [[ -z "$snapshot_summary" ]]; then
+                snapshot_summary="  $entry"
+            else
+                snapshot_summary="${snapshot_summary}"$'\n'"  $entry"
+            fi
+        done < <(snapper --csvout --separator ',' --no-headers list --columns "number,type,date,description" 2>/dev/null || true)
+
+        [[ -z "$snapshot_summary" ]] && snapshot_summary="  • Snapshot #0: Current system subvolume (single)"
+
         ui_msgbox "Layer 1 Setup Succeeded" \
             "Layer 1 (Snapper) setup completed successfully!
 
 Snapper is active and configured for pacman hook snapshots.
 
-Current snapshots:
-$snapper_out"
+Configured Snapshots:
+$snapshot_summary"
     else
         local exit_code=$?
         log_error "Snapper verification failed with exit code $exit_code: $snapper_out"
