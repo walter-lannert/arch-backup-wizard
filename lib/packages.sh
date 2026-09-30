@@ -108,21 +108,6 @@ or manually repairing before continuing."
     log_info "Installing via pacman: ${to_install[*]}"
     ui_infobox "Installing Packages" "Installing: ${to_install[*]}..."
 
-    if ! run_as_user sudo -v; then
-        log_error "sudo authentication failed; cannot proceed with pacman install"
-        ui_msgbox "Privilege Error" \
-            "sudo authentication failed.
-Please verify your user has sudo access and try again."
-        return 1
-    fi
-    # Re-assert immediately before the privileged call to minimise the expiry window
-    if ! run_as_user sudo -n true 2>>"$LOG_FILE"; then
-        log_error "sudo token expired before pacman invocation"
-        ui_msgbox "Privilege Error" \
-            "Your sudo session expired before the install could start.
-Please re-authenticate and re-run the wizard."
-        return 1
-    fi
     if ! pacman -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
         local err_detail="Check $LOG_FILE for details."
         if [[ -f /var/lib/pacman/db.lck ]]; then
@@ -240,19 +225,11 @@ or manually repairing before continuing."
         "Installing via $DETECTED_AUR_HELPER: ${to_install[*]}..."
 
     # Ensure the user has an active sudo token to prevent hidden prompts during UI execution
-    if ! run_as_user sudo -v; then
-        log_error "sudo authentication failed; cannot proceed with AUR install"
+    if ! _sudo_prime; then
+        log_error "sudo authentication failed or token expired; cannot proceed with AUR install"
         ui_msgbox "Privilege Error" \
-            "sudo authentication failed.
-Please verify your user has sudo access and try again."
-        return 1
-    fi
-    # Re-assert immediately before the privileged call to minimise the expiry window
-    if ! run_as_user sudo -n true 2>>"$LOG_FILE"; then
-        log_error "sudo token expired before AUR helper invocation"
-        ui_msgbox "Privilege Error" \
-            "Your sudo session expired before the install could start.
-Please re-authenticate and re-run the wizard."
+            "sudo authentication failed or your sudo session expired.
+Please verify your user has sudo access and re-run the wizard."
         return 1
     fi
     if ! run_as_user "$DETECTED_AUR_HELPER" -S --noconfirm --needed "${to_install[@]}" >>"$LOG_FILE" 2>&1; then
@@ -402,10 +379,6 @@ ensure_dialog() {
             echo "FATAL: LOG_FILE is unset, a directory, or not writable. Check the wizard configuration." >&2
             return 1
         fi
-        _sudo_prime || {
-            echo "FATAL: sudo authentication failed or token expired. Verify sudo access and re-run." >&2
-            return 1
-        }
         local _dlg="dialog"
         _validate_pkg_name "$_dlg" || {
             echo "FATAL: internal error: invalid package name '$_dlg'" >&2

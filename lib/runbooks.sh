@@ -91,7 +91,7 @@ generate_runbooks() {
         sub_safe="${sub_safe//:/_}"
         sub_snap_name=$(subvolume_to_snapshot_name "$sub")
         restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        restore_script+="SNAP=\$(find ${BACKUP_SRC_DIR} -maxdepth 1 -mindepth 1 -type d \( -name \"${sub_snap_name}.*\" -o -name \"${sub_safe}.*\" \) 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
+        restore_script+="SNAP=\$(find \"${BACKUP_SRC_DIR}\" -maxdepth 1 -mindepth 1 -type d \( -name \"${sub_snap_name}.*\" -o -name \"${sub_safe}.*\" \) 2>/dev/null | sort -r | head -n 1 || true)"$'\n'
         restore_script+="if [[ -n \"\$SNAP\" ]]; then"$'\n'
         restore_script+="  echo \"  Sending \$SNAP...\""$'\n'
         restore_script+="  btrfs send \"\$SNAP\" | btrfs receive /mnt/new_os/"$'\n'

@@ -104,6 +104,7 @@ test_layer2_runbook_happy_path() {
     _setup_runbook_env
     SELECTED_LAYERS=("2")
 
+    export BACKUP_SRC_DIR="/mnt/backup drive/OS_Backup"
     cat <<'TMPL' > "$WIZARD_DIR/templates/bare-metal-runbook.txt"
 # Bare-Metal Recovery
 Distro: {{DISTRO}}
@@ -111,6 +112,7 @@ Root UUID: {{ROOT_UUID}}
 EFI UUID: {{EFI_UUID}}
 Bootloader: {{BOOTLOADER}}
 Kernel: {{KERNEL_PKGS}}
+Script: {{SUBVOL_RECOVERY_SCRIPT}}
 TMPL
 
     mock_cmd pacman 'echo linux-cachyos linux-cachyos-headers ucode_amd'
@@ -126,6 +128,7 @@ TMPL
     assert_match "Root UUID: aaaa-bbbb-cccc" "$content" "Root UUID substituted"
     assert_match "Bootloader: limine" "$content" "Bootloader substituted"
     assert_match "linux-cachyos" "$content" "Kernel packages detected"
+    assert_match 'find "/mnt/backup drive/OS_Backup"' "$content" "Backup source directory with spaces is safely quoted in find expression"
 }
 
 # ── Test 3: Edge case — Missing template files (graceful degradation) ────────

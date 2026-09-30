@@ -362,7 +362,7 @@ Use this drive?"; then
 
         # Only label a disk unformatted if it has zero children and no filesystem
         local children
-        children=$(lsblk -no NAME "$dev" 2>/dev/null | wc -l)
+        children=$(lsblk -no NAME "$dev" 2>/dev/null | wc -l || echo 0)
         if (( children > 1 )) || [[ -n "$fstype" ]]; then
             continue
         fi
@@ -509,8 +509,8 @@ No partitions or data were modified."
         log_info "Partitioning whole disk: $dev"
         ui_infobox "Partitioning" "Creating GPT partition table on $dev..."
 
-        parted -s "$dev" mklabel gpt >>"$LOG_FILE" 2>&1
-        parted -s "$dev" mkpart primary btrfs 1MiB 100% >>"$LOG_FILE" 2>&1
+        parted -s "$dev" mklabel gpt >>"$LOG_FILE" 2>&1 || die "Failed to create GPT partition table on $dev"
+        parted -s "$dev" mkpart primary btrfs 1MiB 100% >>"$LOG_FILE" 2>&1 || die "Failed to create BTRFS partition on $dev"
 
         # Determine the new partition name
         if [[ "$dev" =~ [0-9]$ ]]; then
@@ -714,6 +714,8 @@ NO SYSTEM FILES, DRIVES, OR PACKAGES WERE MODIFIED."
 
     # Run validation in read-only mode to show current system status
     run_validation || true
+
+    rm -rf "$preview_dir"
 
     log_info "══════ Dry run simulation finished cleanly ══════"
 }
