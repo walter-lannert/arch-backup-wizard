@@ -133,7 +133,6 @@ setup_layer1() {
                 backup_file /etc/fstab || { rm -f "$tmp_fstab"; return 1; }
                 mv -T "$tmp_fstab" /etc/fstab
                 chmod 644 /etc/fstab
-                record_manifest /etc/fstab
                 mount "$SNAP_DIR" >>"$LOG_FILE" 2>&1 || {
                     log_error "Failed to mount $SNAP_DIR"
                     return 1
