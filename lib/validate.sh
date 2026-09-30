@@ -9,17 +9,19 @@
 
 run_validation() {
     log_info "══════ Starting Post-Setup Validation Checks ══════"
-    declare -F ui_infobox >/dev/null 2>&1 && ui_infobox "Validation" "Running post-setup health checks across configured layers...\nPlease wait."
-    load_settings
-
     # Ensure dialog backend is ready
     if [[ -z "${DIALOG_CMD:-}" ]]; then
         if declare -F detect_dialog >/dev/null 2>&1; then
-            detect_dialog
+            detect_dialog 2>/dev/null || true
         elif command -v dialog &>/dev/null; then
             DIALOG_CMD="dialog"
         fi
     fi
+
+    if [[ "${VALIDATE:-false}" != "true" ]] && [[ -n "${DIALOG_CMD:-}" ]] && declare -F ui_infobox >/dev/null 2>&1; then
+        ui_infobox "Validation" "Running post-setup health checks across configured layers...\nPlease wait."
+    fi
+    load_settings
 
     local all_passed=true
     local failure_issues=()

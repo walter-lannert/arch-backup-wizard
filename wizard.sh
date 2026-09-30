@@ -764,6 +764,7 @@ main() {
 
     # Handle --validate mode
     if $VALIDATE; then
+        detect_dialog 2>/dev/null || true
         run_detection
 
         if [[ ${#VALIDATE_LAYERS[@]} -gt 0 ]]; then

@@ -159,9 +159,17 @@ test_validate_cli_mode_skips_dialog() {
 
     VALIDATE=true
     local ui_msgbox_invoked=false
+    local ui_infobox_invoked=false
     # shellcheck disable=SC2329
     ui_msgbox() {
         ui_msgbox_invoked=true
+    }
+    # shellcheck disable=SC2329
+    ui_infobox() {
+        if [[ -z "$DIALOG_CMD" ]]; then
+            die "UI backend not initialised. Call detect_dialog() first."
+        fi
+        ui_infobox_invoked=true
     }
 
     SELECTED_LAYERS=()
@@ -171,6 +179,7 @@ test_validate_cli_mode_skips_dialog() {
     assert_eq "0" "$rc" "run_validation should return 0 in CLI mode when all checks pass"
     assert_match "All checks passed" "$output" "Should print dashboard to stdout"
     assert_eq "false" "$ui_msgbox_invoked" "ui_msgbox must NOT be called in CLI mode"
+    assert_eq "false" "$ui_infobox_invoked" "ui_infobox must NOT be called in CLI mode"
 }
 
 # ── Test 8: Layer 4 encrypted requires age package ───────────────────────────
