@@ -229,8 +229,10 @@ template_render() {
 
     # Extract unique variable names from {{…}} placeholders
     local vars
-    if ! vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" | sort -u) 2>/dev/null; then
-        log_error "grep -P unavailable; cannot extract placeholders from $(basename "$template")"
+    local grep_status=0
+    vars=$(grep -oP '\{\{\K[A-Z_0-9]+(?=\}\})' <<<"$content" 2>/dev/null | sort -u) || grep_status=$?
+    if [[ $grep_status -ne 0 && $grep_status -ne 1 ]]; then
+        log_error "grep -P failed or unavailable; cannot extract placeholders from $(basename "$template")"
         return 1
     fi
 
