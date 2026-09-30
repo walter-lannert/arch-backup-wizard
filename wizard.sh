@@ -737,11 +737,12 @@ main() {
     touch "$LOG_FILE" 2>/dev/null || true
     # Cap log file at 2 MiB to prevent unbounded growth across repeated runs
     if [[ -f "$LOG_FILE" ]] && [[ $(stat -c %s "$LOG_FILE" 2>/dev/null || echo 0) -gt 2097152 ]]; then
-        local _tmp_log="${LOG_FILE}.tmp.$$"
-        if tail -n 2000 "$LOG_FILE" > "$_tmp_log" 2>/dev/null && mv -f "$_tmp_log" "$LOG_FILE" 2>/dev/null; then
+        local _tmp_log
+        _tmp_log=$(mktemp "${LOG_FILE}.tmp.XXXXXX" 2>/dev/null) || true
+        if [[ -n "$_tmp_log" ]] && tail -n 2000 "$LOG_FILE" > "$_tmp_log" 2>/dev/null && mv -f "$_tmp_log" "$LOG_FILE" 2>/dev/null; then
             :
         else
-            rm -f "$_tmp_log" 2>/dev/null || true
+            [[ -n "$_tmp_log" ]] && rm -f "$_tmp_log" 2>/dev/null || true
         fi
     fi
     chown "$(effective_user):" "$LOG_FILE" 2>/dev/null || true

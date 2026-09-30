@@ -76,6 +76,11 @@ This will NOT remove:
     else
         log_info "Reading manifest file: $manifest_file"
         while IFS= read -r file; do
+            # Never allow /etc/fstab to be deleted or overwritten by manifest restoration;
+            # fstab is safely handled via targeted sed blocks above.
+            if [[ "$file" == "/etc/fstab" ]]; then
+                continue
+            fi
             if [[ -e "$file" ]]; then
                 log_info "Removing $file"
                 if btrfs subvolume show "$file" &>/dev/null; then
