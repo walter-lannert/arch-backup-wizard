@@ -5,7 +5,7 @@ set -euxo pipefail
 exec > >(tee -a /dev/ttyS0 /var/log/btrfs-migration.log) 2>&1
 
 echo "============================================================"
-echo "      AUTOMATED ARCH LINUX BTRFS VM SETUP STARTING"
+echo "      AUTOMATED CACHYOS BTRFS VM SETUP STARTING"
 echo "============================================================"
 
 if blkid /dev/vdb2 2>/dev/null | grep -q btrfs; then

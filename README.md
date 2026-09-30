@@ -248,12 +248,11 @@ The repository includes a comprehensive, hermetic automated unit test suite requ
   ```bash
   sudo ./wizard.sh --dry-run
   ```
-- **Headless QEMU / KVM Sandbox:** Developers can launch an isolated virtual machine running the official Arch Linux cloud image with a virtual secondary drive:
+- **Headless QEMU / KVM Sandbox:** Developers can launch an isolated CachyOS virtual machine with Limine and a virtual secondary backup drive (see [`vm-test-cachyos/`](vm-test-cachyos/)):
   ```bash
-  qemu-system-x86_64 -enable-kvm -m 4G -smp 4 -nographic \
-    -drive file=Arch-Linux-x86_64-cloudimg.qcow2,format=qcow2,if=virtio,snapshot=on \
-    -drive file=backup.qcow2,format=qcow2,if=virtio \
-    -net nic,model=virtio -net user -serial mon:stdio
+  cd vm-test-cachyos
+  ./run.sh --sync    # Syncs local code and executes the full automated in-VM test suite
+  ./run.sh -i        # Launches an interactive VM session with serial console attached
   ```
 
 ---
