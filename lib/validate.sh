@@ -9,6 +9,7 @@
 
 run_validation() {
     log_info "══════ Starting Post-Setup Validation Checks ══════"
+    declare -F ui_infobox >/dev/null 2>&1 && ui_infobox "Validation" "Running post-setup health checks across configured layers...\nPlease wait."
     load_settings
 
     # Ensure dialog backend is ready

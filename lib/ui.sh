@@ -24,12 +24,19 @@ DLG_H=20
 DLG_W=72
 DLG_LIST_H=10 # inner list height for menus/checklists
 
-# ── Backend guard ─────────────────────────────────────────────────────────────
+# ── Backend guard & stdin drain ───────────────────────────────────────────────
+
+_ui_drain_stdin() {
+    if [[ -t 0 ]] && read -t 0 2>/dev/null; then
+        while read -r -t 0.02 -n 1000 _; do :; done 2>/dev/null || true
+    fi
+}
 
 _ui_ensure_backend() {
     if [[ -z "$DIALOG_CMD" ]]; then
         die "UI backend not initialised. Call detect_dialog() first."
     fi
+    _ui_drain_stdin
     return 0
 }
 
@@ -40,7 +47,12 @@ ui_msgbox() {
     [[ "${UI_SILENT:-false}" == "true" ]] && return 0
     _ui_ensure_backend
     local title="$1" text="$2"
-    $DIALOG_CMD --title "$title" --msgbox "$text" $DLG_H $DLG_W || true
+    local h="${3:-0}" w="${4:-0}"
+    if ! [[ -t 1 ]] && [[ -w /dev/tty ]]; then
+        $DIALOG_CMD --title "$title" --msgbox "$text" "$h" "$w" >/dev/tty || true
+    else
+        $DIALOG_CMD --title "$title" --msgbox "$text" "$h" "$w" || true
+    fi
 }
 
 # Yes / No dialog.  Returns 0 = Yes, 1 = No.
@@ -48,7 +60,12 @@ ui_yesno() {
     [[ "${UI_SILENT:-false}" == "true" ]] && return 0
     _ui_ensure_backend
     local title="$1" text="$2"
-    $DIALOG_CMD --title "$title" --yesno "$text" $DLG_H $DLG_W
+    local h="${3:-0}" w="${4:-0}"
+    if ! [[ -t 1 ]] && [[ -w /dev/tty ]]; then
+        $DIALOG_CMD --title "$title" --yesno "$text" "$h" "$w" >/dev/tty
+    else
+        $DIALOG_CMD --title "$title" --yesno "$text" "$h" "$w"
+    fi
 }
 
 # Single-selection menu.  Returns selected tag on stdout.

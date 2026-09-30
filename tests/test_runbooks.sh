@@ -24,6 +24,10 @@ ui_yesno() {
     return 0
 }
 
+ui_infobox() {
+    return 0
+}
+
 # ── Helper: set common environment for runbook tests ──────────────────────────
 _setup_runbook_env() {
     export LOG_FILE="$TEST_TEMP_DIR/test.log"
