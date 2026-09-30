@@ -16,8 +16,8 @@ _setup_pkg_env() {
     touch "$LOG_FILE"
     export DETECTED_USER="walter"
     export DETECTED_HOME="$TEST_TEMP_DIR/home"
-    export DETECTED_BOOTLOADER="systemd-boot"
-    export DETECTED_AUR_HELPER="yay"
+    export DETECTED_BOOTLOADER="limine"
+    export DETECTED_AUR_HELPER="paru"
     export WIZARD_DIR="$REPO_DIR"
 
     # Default mocks

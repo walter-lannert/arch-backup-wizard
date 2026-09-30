@@ -24,7 +24,7 @@ This runbook guides you through a full bare-metal recovery after total drive
 failure, hardware replacement, or migration to a new NVMe/SSD drive.
 
 Recovery Flow:
-  1. Boot Arch Linux / {{DISTRO}} Live USB
+  1. Boot CachyOS Live USB
   2. Partition and format replacement NVMe drive (EFI + BTRFS root)
   3. Mount backup drive and new drive; identify latest btrbk clone
   4. Stream clone using btrfs send/receive
@@ -33,8 +33,8 @@ Recovery Flow:
   7. Recreate subvolume layout based on: {{SUBVOL_LAYOUT}}
   8. Set '{{DETECTED_ROOT_SUBVOL_STR}}' as default BTRFS subvolume
   9. Mount all subvolumes for chroot
- 10. Update all UUIDs in /etc/fstab and bootloader configs
- 11. Chroot and rebuild bootloader ({{BOOTLOADER}})
+ 10. Update all UUIDs in /etc/fstab and Limine bootloader configs
+ 11. Chroot and rebuild bootloader (Limine)
  12. Restore home directory data from Pika/Borg repository
  13. Reboot into fully restored system
 ================================================================================
@@ -44,18 +44,18 @@ Recovery Flow:
 STEP 1: BOOT LIVE USB AND IDENTIFY DRIVES
 --------------------------------------------------------------------------------
 1. Connect your backup drive (UUID: {{BACKUP_UUID}}) and boot your machine
-   from an Arch Linux or {{DISTRO}} Live USB.
+   from a CachyOS Live USB.
 2. In the Live environment, open a root terminal (you are root by default).
 3. Establish network connectivity (required in Step 7 to reinstall kernel/microcode):
    - If using Ethernet: DHCP usually connects automatically.
-     Test with: ping -c 3 archlinux.org
+     Test with: ping -c 3 cachyos.org
    - If using Wi-Fi (via iwd / iwctl):
        iwctl
        station wlan0 scan
        station wlan0 get-networks
        station wlan0 connect "<YOUR_WIFI_SSID>"
        exit
-     Verify with: ping -c 3 archlinux.org
+     Verify with: ping -c 3 cachyos.org
 4. Install Borg backup in the Live rescue environment (required in Step 8 to restore user data):
 
      pacman -Sy --needed borg
@@ -224,28 +224,20 @@ into an emergency shell on boot!
 
 2. Update bootloader configurations:
 
-   - For Limine:
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/limine 2>/dev/null || true
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.cfg /mnt/target/boot/limine/*.cfg /mnt/target{{EFI_MOUNT_PATH}}/limine*.cfg /mnt/target{{EFI_MOUNT_PATH}}/limine/*.cfg 2>/dev/null || true
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.conf /mnt/target/boot/limine/*.conf /mnt/target{{EFI_MOUNT_PATH}}/limine*.conf /mnt/target{{EFI_MOUNT_PATH}}/limine/*.conf 2>/dev/null || true
 
-   - For GRUB:
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/grub 2>/dev/null || true
-
-   - For systemd-boot:
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/kernel/cmdline 2>/dev/null || true
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/loader/entries/*.conf /mnt/target{{EFI_MOUNT_PATH}}/loader/entries/*.conf 2>/dev/null || true
-
 
 --------------------------------------------------------------------------------
-STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
+STEP 7: CHROOT AND REBUILD BOOTLOADER (Limine)
 --------------------------------------------------------------------------------
 1. Enter the chroot environment:
 
      arch-chroot /mnt/target
 
 2. Rebuild the EFI partition by reinstalling your kernel and microcode packages:
-   [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz), microcode, and automatically recreates systemd-boot loader entries via pacman hooks]
+   [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz) and microcode]
 
      KERNEL_PKGS="{{KERNEL_PKGS}}"
      if [ -z "$KERNEL_PKGS" ]; then
@@ -267,56 +259,11 @@ STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
 
      sbctl sign-all
 
-5. Rebuild bootloader according to: {{BOOTLOADER}}
+5. Rebuild Limine bootloader:
 
-   - If Limine:
-       mkdir -p {{EFI_MOUNT_PATH}}/EFI/BOOT
-       cp /usr/share/limine/BOOTX64.EFI {{EFI_MOUNT_PATH}}/EFI/BOOT/BOOTX64.EFI
-       limine-mkinitcpio
-
-   - If GRUB:
-       grub-install --target=x86_64-efi --efi-directory={{EFI_MOUNT_PATH}} --bootloader-id=GRUB --recheck
-       grub-mkconfig -o /boot/grub/grub.cfg
-
-   - If systemd-boot:
-       bootctl --path={{EFI_MOUNT_PATH}} install
-       # If ESP is separate (e.g. /efi), ensure kernel & initramfs are present on the ESP:
-       if [ "{{EFI_MOUNT_PATH}}" != "/boot" ]; then
-           for f in /boot/vmlinuz-* /boot/initramfs-*.img /boot/*-ucode.img; do
-               [ -e "$f" ] && cp -a "$f" "{{EFI_MOUNT_PATH}}/"
-           done
-           # Verify at least the kernel was copied
-           ls "{{EFI_MOUNT_PATH}}"/vmlinuz-* &>/dev/null || \
-               echo "WARNING: no kernel image found on ESP. Boot will likely fail."
-       fi
-       # Ensure loader entries and kernel cmdline reflect the restored root UUID after pacman hook regeneration:
-       CURRENT_ROOT_UUID=$(findmnt -n -o UUID /)
-       sed -i "s/{{ROOT_UUID}}/$CURRENT_ROOT_UUID/g" /etc/kernel/cmdline /boot/loader/entries/*.conf {{EFI_MOUNT_PATH}}/loader/entries/*.conf 2>/dev/null || true
-       # Verify loader entries were recreated by the pacman hook above.
-       # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
-       ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (
-           mkdir -p {{EFI_MOUNT_PATH}}/loader/entries
-           # --- UKI detection (takes priority over split kernel/initrd) ---
-           UKI_FILE=$(ls -1 {{EFI_MOUNT_PATH}}/EFI/Linux/*.efi 2>/dev/null | head -n 1)
-           if [ -n "$UKI_FILE" ]; then
-               UKI_NAME=$(basename "$UKI_FILE")
-               echo "title Arch Linux (UKI)" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-               echo "linux /EFI/Linux/${UKI_NAME}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-               echo "options root=UUID=$(findmnt -n -o UUID /) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           else
-               # --- split kernel/initrd fallback ---
-               K_PATH=$(ls -1 {{EFI_MOUNT_PATH}}/vmlinuz-* 2>/dev/null | head -n 1)
-               K_BIN=$(basename "${K_PATH:-vmlinuz-linux}")
-               [[ "$K_BIN" == "." || -z "$K_BIN" ]] && K_BIN="vmlinuz-linux"
-               INITRD_NAME="initramfs-${K_BIN#vmlinuz-}.img"
-               echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-               echo "linux /${K_BIN}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-               [ -f "{{EFI_MOUNT_PATH}}/intel-ucode.img" ] && echo "initrd /intel-ucode.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-               [ -f "{{EFI_MOUNT_PATH}}/amd-ucode.img" ] && echo "initrd /amd-ucode.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-               echo "initrd /${INITRD_NAME}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-               echo "options root=UUID=$(findmnt -n -o UUID /) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           fi
-       )
+     mkdir -p {{EFI_MOUNT_PATH}}/EFI/BOOT
+     cp /usr/share/limine/BOOTX64.EFI {{EFI_MOUNT_PATH}}/EFI/BOOT/BOOTX64.EFI
+     limine-mkinitcpio
 
 6. Exit the chroot (Step 8 requires the host shell):
 

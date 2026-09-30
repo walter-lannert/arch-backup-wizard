@@ -46,7 +46,6 @@ This will NOT remove:
     systemctl disable --now btrbk.timer >>"$LOG_FILE" 2>&1 || true
 
     log_info "Disabling bootloader snapshot integrations if active..."
-    systemctl disable --now grub-btrfsd >>"$LOG_FILE" 2>&1 || true
     systemctl disable --now limine-snapper-sync >>"$LOG_FILE" 2>&1 || true
 
     log_info "Stopping and disabling pika-cloud-sync..."

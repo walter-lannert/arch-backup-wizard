@@ -48,7 +48,7 @@ SECTION 1: CRITICAL ARCHITECTURE NOTICE — WHAT DOES NOT WORK AND WHY
 
 [WARNING: DO NOT USE 'snapper rollback' ON THIS SYSTEM]
 
-Why 'snapper rollback' fails on Arch / CachyOS / Limine / GRUB with subvolumes:
+Why 'snapper rollback' fails on CachyOS with Limine and BTRFS subvolumes:
 --------------------------------------------------------------------------------
 1. The built-in command 'snapper rollback' was originally designed specifically
    for openSUSE. On openSUSE, the root filesystem is mounted using the BTRFS
@@ -57,7 +57,7 @@ Why 'snapper rollback' fails on Arch / CachyOS / Limine / GRUB with subvolumes:
 2. When 'snapper rollback' is executed, it takes a read-write snapshot and runs:
      btrfs subvolume set-default <new-subvolume-id>
    On openSUSE, the kernel obeys this default subvolume upon reboot.
-3. On Arch Linux, CachyOS, Limine installations, and modern BTRFS setups:
+3. On CachyOS with Limine and modern BTRFS subvolume setups:
    - The bootloader configuration passes kernel parameter: rootflags=subvol=/@
      or subvol=/@.
    - /etc/fstab explicitly specifies: subvol=/@ for the / mount point.
@@ -71,13 +71,13 @@ Why 'snapper rollback' fails on Arch / CachyOS / Limine / GRUB with subvolumes:
 
 The Proper Solution:
 --------------------------------------------------------------------------------
-To roll back cleanly and reliably on Arch Linux, you must perform an atomic
+To roll back cleanly and reliably on CachyOS, you must perform an atomic
 subvolume swap:
   1. Mount top-level BTRFS (subvol=/).
   2. Create a writable snapshot of your chosen backup named '@.new'.
   3. Move '@' to '@.old' and '@.new' to '@'.
   4. Migrate nested subvolumes (.snapshots, .snapshots_btrbk) into '@'.
-  5. Rebuild bootloader entries if necessary.
+  5. Rebuild Limine bootloader entries if necessary.
 This ensures the subvolume mounted at '/' is genuinely the rolled-back snapshot.
 
 [NOTE: UNIFIED KERNEL IMAGES (UKI / systemd-stub / ukify)]
@@ -217,23 +217,13 @@ Query the subvolume ID of the new '{{DETECTED_ROOT_SUBVOL_STR}}' and set it as t
   sudo btrfs subvolume set-default "$NEW_SUBVOL_ID" /mnt/btrfs-top
 
 --------------------------------------------------------------------------------
-STEP 7: UPDATE BOOTLOADER CONFIGURATION
+STEP 7: UPDATE BOOTLOADER CONFIGURATION (Limine)
 --------------------------------------------------------------------------------
-Your active bootloader detected during wizard setup: {{BOOTLOADER}}
+Run the command to ensure Limine boot entries and initramfs are synchronized:
 
-Run the command corresponding to your bootloader:
-
-  - If using Limine:
-      sudo mkinitcpio -P
-      sudo limine          # re-install / update Limine bootloader
-      # (or: sudo limine-mkinitcpio, if your distribution provides that wrapper)
-
-  - If using GRUB:
-      sudo mkinitcpio -P
-      sudo grub-mkconfig -o /boot/grub/grub.cfg
-
-  - If using systemd-boot:
-      sudo mkinitcpio -P
+  sudo mkinitcpio -P
+  sudo limine-mkinitcpio     # updates Limine snapshot entries and boot configuration
+  # (fallback if limine-mkinitcpio is not available: sudo limine)
 
   [NOTE] If your system uses a Unified Kernel Image (UKI / systemd-stub / ukify),
   the kernel and initramfs live in the ESP, NOT in the root subvolume.
@@ -277,8 +267,8 @@ SECTION 3: SCENARIO B — ROLLBACK FROM LIVE USB RESCUE ENVIRONMENT
 ================================================================================
 
 Use this scenario if your system will not boot at all (kernel panic, broken
-display manager, missing critical libraries) and you need to restore from an
-Arch Linux or {{DISTRO}} Live USB.
+display manager, missing critical libraries) and you need to restore from a
+CachyOS Live USB.
 
 --------------------------------------------------------------------------------
 STEP 1: BOOT LIVE USB AND OPEN ROOT SHELL
@@ -408,21 +398,13 @@ Enter the chroot environment:
   arch-chroot /mnt/target
 
 --------------------------------------------------------------------------------
-STEP 7: REBUILD BOOTLOADER INSIDE CHROOT
+STEP 7: REBUILD BOOTLOADER INSIDE CHROOT (Limine)
 --------------------------------------------------------------------------------
-Inside the chroot, rebuild the bootloader for: {{BOOTLOADER}}
+Inside the chroot, rebuild the bootloader and initramfs:
 
-  - If Limine:
-      mkinitcpio -P
-      limine          # re-install / update Limine bootloader
-      # (or: limine-mkinitcpio, if your distribution provides that wrapper)
-
-  - If GRUB:
-      mkinitcpio -P
-      grub-mkconfig -o /boot/grub/grub.cfg
-
-  - If systemd-boot:
-      mkinitcpio -P
+  mkinitcpio -P
+  limine-mkinitcpio     # updates Limine snapshot entries and boot configuration
+  # (fallback if limine-mkinitcpio is not available: limine)
 
   [NOTE] If your system uses a Unified Kernel Image (UKI / systemd-stub / ukify),
   the kernel and initramfs live in the ESP, NOT in the root subvolume.

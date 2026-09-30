@@ -32,7 +32,7 @@ Key Features of Cloud Recovery:
     over rclone mount and extracting directly.
 
 Recovery Flow:
-  1. Boot Arch Linux / {{DISTRO}} Live USB and establish internet access
+  1. Boot CachyOS Live USB and establish internet access
   2. Partition and format replacement drive (EFI + BTRFS root)
   3. Configure rclone and stream download OS image into btrfs receive
   4. Snapshot read-only received clone to writable '{{DETECTED_ROOT_SUBVOL_STR}}' subvolume
@@ -40,8 +40,8 @@ Recovery Flow:
   6. Recreate subvolume layout based on: {{SUBVOL_LAYOUT}}
   7. Set '{{DETECTED_ROOT_SUBVOL_STR}}' as default BTRFS subvolume
   8. Mount all subvolumes for chroot
-  9. Update all UUIDs in /etc/fstab and bootloader configurations
- 10. Chroot and rebuild bootloader ({{BOOTLOADER}})
+  9. Update all UUIDs in /etc/fstab and Limine bootloader configurations
+ 10. Chroot and rebuild bootloader (Limine)
  11. Mount cloud Pika repo via rclone and restore home directory
  12. Unmount and reboot into fully restored system
 ================================================================================
@@ -50,12 +50,12 @@ Recovery Flow:
 --------------------------------------------------------------------------------
 STEP 1: BOOT LIVE USB AND ESTABLISH INTERNET CONNECTION
 --------------------------------------------------------------------------------
-1. Boot your machine from an Arch Linux or {{DISTRO}} Live USB.
+1. Boot your machine from a CachyOS Live USB.
 2. In the Live environment, open a root terminal.
 3. Establish internet connectivity:
 
    - If using Ethernet: DHCP usually connects automatically.
-     Test with: ping -c 3 archlinux.org
+     Test with: ping -c 3 cachyos.org
 
    - If using Wi-Fi (via iwd / iwctl):
      iwctl
@@ -66,7 +66,7 @@ STEP 1: BOOT LIVE USB AND ESTABLISH INTERNET CONNECTION
 
 4. Verify network connectivity:
 
-     ping -c 3 archlinux.org
+     ping -c 3 cachyos.org
 
 5. Install necessary recovery packages in the Live environment (age is optional if Age encryption was disabled):
 
@@ -285,30 +285,21 @@ fi
 
 2. Update bootloader configurations:
 
-   - If Limine:
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/limine 2>/dev/null || true
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.cfg /mnt/target/boot/limine/*.cfg /mnt/target{{EFI_MOUNT_PATH}}/limine*.cfg /mnt/target{{EFI_MOUNT_PATH}}/limine/*.cfg 2>/dev/null || true
      sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/limine*.conf /mnt/target/boot/limine/*.conf /mnt/target{{EFI_MOUNT_PATH}}/limine*.conf /mnt/target{{EFI_MOUNT_PATH}}/limine/*.conf 2>/dev/null || true
-
-   - If GRUB:
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/default/grub 2>/dev/null || true
-
-   - If systemd-boot:
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/etc/kernel/cmdline 2>/dev/null || true
-     sed -i "s/{{ROOT_UUID}}/$NEW_ROOT_UUID/g" /mnt/target/boot/loader/entries/*.conf /mnt/target{{EFI_MOUNT_PATH}}/loader/entries/*.conf 2>/dev/null || true
 
    # --- post-sed verification: ensure no stale UUIDs remain ---
    if grep -q "{{ROOT_UUID}}" /mnt/target/etc/fstab 2>/dev/null; then
        echo "WARNING: Original root UUID still present in fstab. sed may have failed." >&2
    fi
-   for f in /mnt/target/etc/default/limine /mnt/target/etc/default/grub /mnt/target/etc/kernel/cmdline; do
-       [[ -f "$f" ]] && grep -q "{{ROOT_UUID}}" "$f" && \
-           echo "WARNING: Stale UUID found in $f" >&2
-   done
+   if [[ -f /mnt/target/etc/default/limine ]] && grep -q "{{ROOT_UUID}}" /mnt/target/etc/default/limine; then
+       echo "WARNING: Stale UUID found in /mnt/target/etc/default/limine" >&2
+   fi
 
 
 --------------------------------------------------------------------------------
-STEP 7: CHROOT AND REBUILD BOOTLOADER ({{BOOTLOADER}})
+STEP 7: CHROOT AND REBUILD BOOTLOADER (Limine)
 --------------------------------------------------------------------------------
 source /tmp/recovery_env.sh
 
@@ -317,20 +308,18 @@ source /tmp/recovery_env.sh
      arch-chroot /mnt/target
 
 2. Rebuild the EFI partition by reinstalling your kernel and microcode packages:
-   [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz), microcode, and automatically recreates systemd-boot loader entries via pacman hooks]
+   [CRITICAL: Because the EFI partition was wiped, this restores your kernel image (vmlinuz) and microcode]
 
    # Determine your kernel packages. If you are unsure, inspect the restored
    # package list (available after Step 3):
    #   grep -E '^\(linux|ucode' /mnt/target/var/log/pacman.log | tail -20
-   # Typical values:
-   #   KERNEL_PKGS="linux linux-headers intel-ucode"
-   #   KERNEL_PKGS="linux linux-headers amd-ucode"
-   #   KERNEL_PKGS="linux-lts linux-lts-headers intel-ucode"
+   # Typical values for CachyOS:
+   #   KERNEL_PKGS="linux-cachyos linux-cachyos-headers"
    export KERNEL_PKGS="${KERNEL_PKGS:-}"
 
      if [[ -z "${KERNEL_PKGS:-}" ]]; then
          echo "FATAL: KERNEL_PKGS is empty. Cannot determine which kernel to reinstall." >&2
-         echo "  Expected packages, e.g.: linux linux-headers intel-ucode" >&2
+         echo "  Expected packages, e.g.: linux-cachyos linux-cachyos-headers" >&2
          exit 1
      fi
      pacman -Sy --noconfirm $KERNEL_PKGS \
@@ -354,48 +343,11 @@ source /tmp/recovery_env.sh
 
      sbctl sign-all
 
-5. Rebuild bootloader according to: {{BOOTLOADER}}
+5. Rebuild Limine bootloader:
 
-   - If Limine:
-       mkdir -p {{EFI_MOUNT_PATH}}/EFI/BOOT
-       cp /usr/share/limine/BOOTX64.EFI {{EFI_MOUNT_PATH}}/EFI/BOOT/BOOTX64.EFI
-       limine-mkinitcpio
-
-   - If GRUB:
-       grub-install --target=x86_64-efi --efi-directory={{EFI_MOUNT_PATH}} --bootloader-id=GRUB --recheck
-       grub-mkconfig -o /boot/grub/grub.cfg
-
-   - If systemd-boot:
-       bootctl --path={{EFI_MOUNT_PATH}} install
-       # If ESP is separate (e.g. /efi), ensure kernel & initramfs are present on the ESP:
-       if [ "{{EFI_MOUNT_PATH}}" != "/boot" ]; then
-           cp -a /boot/vmlinuz-* "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
-           cp -a /boot/initramfs-*.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
-           cp -a /boot/*-ucode.img "{{EFI_MOUNT_PATH}}/" 2>/dev/null || true
-           ls "{{EFI_MOUNT_PATH}}"/vmlinuz-* &>/dev/null \
-               || { echo "FATAL: no kernel image on ESP after copy." >&2; exit 1; }
-       fi
-       # Ensure loader entries and kernel cmdline reflect the restored root UUID after pacman hook regeneration:
-       CURRENT_ROOT_UUID=$(findmnt -n -o UUID /)
-       # Verify no stale original UUID remains after pacman hook regeneration:
-       if grep -rq "{{ROOT_UUID}}" /etc/kernel/cmdline /boot/loader/entries/ {{EFI_MOUNT_PATH}}/loader/entries/ 2>/dev/null; then
-           echo "WARNING: Stale original UUID found in loader entries after pacman hooks." >&2
-       fi
-       # Verify loader entries were recreated by the pacman hook above.
-       # If {{EFI_MOUNT_PATH}}/loader/entries/ has no .conf entries, recreate manually:
-       ls {{EFI_MOUNT_PATH}}/loader/entries/*.conf &>/dev/null || (
-           mkdir -p {{EFI_MOUNT_PATH}}/loader/entries
-           K_PATH=$(ls -1 {{EFI_MOUNT_PATH}}/vmlinuz-* 2>/dev/null | head -n 1)
-           K_BIN=$(basename "${K_PATH:-vmlinuz-linux}")
-           [[ "$K_BIN" == "." || -z "$K_BIN" ]] && K_BIN="vmlinuz-linux"
-           INITRD_NAME="initramfs-${K_BIN#vmlinuz-}.img"
-           echo "title Arch Linux" > {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           echo "linux /${K_BIN}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           [ -f "{{EFI_MOUNT_PATH}}/intel-ucode.img" ] && echo "initrd /intel-ucode.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           [ -f "{{EFI_MOUNT_PATH}}/amd-ucode.img" ] && echo "initrd /amd-ucode.img" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           echo "initrd /${INITRD_NAME}" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-           echo "options root=UUID=$(findmnt -n -o UUID /) rootflags=subvol={{DETECTED_ROOT_SUBVOL_STR}} rw" >> {{EFI_MOUNT_PATH}}/loader/entries/arch.conf
-       )
+     mkdir -p {{EFI_MOUNT_PATH}}/EFI/BOOT
+     cp /usr/share/limine/BOOTX64.EFI {{EFI_MOUNT_PATH}}/EFI/BOOT/BOOTX64.EFI
+     limine-mkinitcpio
 
 
 --------------------------------------------------------------------------------
@@ -513,7 +465,7 @@ STEP 9: CLEANUP AND REBOOT
 
      reboot
 
-5. Remove the Live USB. Your system should boot into your restored Arch Linux environment.
+5. Remove the Live USB. Your system should boot into your restored CachyOS environment.
 
 ================================================================================
 END OF RUNBOOK
