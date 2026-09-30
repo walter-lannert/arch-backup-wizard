@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SYNC_CODE=false
+SYNC_ONLY=false
 INTERACTIVE=false
 SHOW_HELP=false
 
@@ -19,10 +20,12 @@ for arg in "$@"; do
     case "$arg" in
         --sync)
             SYNC_CODE=true
+            SYNC_ONLY=true
             ;;
         --interactive|-i)
             INTERACTIVE=true
             SYNC_CODE=true
+            SYNC_ONLY=false
             ;;
         --help|-h)
             SHOW_HELP=true
@@ -38,7 +41,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "Usage: ./run.sh [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --sync             Sync current repo code into the VM before executing tests"
+    echo "  --sync             Sync current repo code into the VM and exit"
     echo "  --interactive, -i  Sync code, prepare VM for manual interactive use, and connect terminal console"
     echo "  -h, --help         Show this help message"
     echo ""
@@ -78,7 +81,7 @@ if [[ "$SYNC_CODE" == true ]]; then
     NEW_ID="update-$(date +%s)"
     sed -i "s/^instance-id:.*/instance-id: $NEW_ID/" "$SCRIPT_DIR/cidata/meta-data"
 
-    if [[ "$INTERACTIVE" == true ]]; then
+    if [[ "$INTERACTIVE" == true || "$SYNC_ONLY" == true ]]; then
         touch "$SCRIPT_DIR/cidata/manual_mode"
     fi
 
@@ -112,6 +115,9 @@ if [[ "$SYNC_CODE" == true ]]; then
 
     rm -rf "$SCRIPT_DIR/cidata/wizard-code" "$SCRIPT_DIR/cidata.iso" "$SCRIPT_DIR/update.log" "$SCRIPT_DIR/cidata/manual_mode"
     echo "=== Sync completed successfully ==="
+    if [[ "$SYNC_ONLY" == true ]]; then
+        exit 0
+    fi
 fi
 
 if [[ "$INTERACTIVE" == true ]]; then
