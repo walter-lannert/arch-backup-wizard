@@ -30,19 +30,9 @@ if blkid /dev/vdb2 2>/dev/null | grep -q btrfs; then
         umount -l /mnt/target-home || true
     fi
 
-    if [[ -f /mnt/cidata/manual_mode ]]; then
-        echo "=== Preparing disk for MANUAL INTERACTIVE WIZARD execution ==="
-        rm -f /mnt/target-update/arch-backup-wizard/run_vm_tests.sh
-        rm -f /mnt/target-home/arch/arch-backup-wizard/run_vm_tests.sh 2>/dev/null || true
-        mkdir -p /mnt/target-root
-        mount -o subvol=@ /dev/vdb2 /mnt/target-root
-        rm -f /mnt/target-root/usr/local/bin/dialog
-        rm -f /mnt/target-root/etc/systemd/system/multi-user.target.wants/run-vm-tests.service
-        umount -l /mnt/target-root || true
-    else
-        cp /mnt/cidata/run_vm_tests.sh /mnt/target-update/arch-backup-wizard/
-        chmod +x /mnt/target-update/arch-backup-wizard/run_vm_tests.sh
-    fi
+    # Always install automated test runner
+    cp /mnt/cidata/run_vm_tests.sh /mnt/target-update/arch-backup-wizard/
+    chmod +x /mnt/target-update/arch-backup-wizard/run_vm_tests.sh
     chmod +x /mnt/target-update/arch-backup-wizard/wizard.sh
     sync
     umount /mnt/target-update
@@ -77,6 +67,29 @@ EOF
     mkdir -p /mnt/target-root/boot/limine /mnt/target-root/etc/default
     touch /mnt/target-root/boot/limine/limine.conf /mnt/target-root/etc/default/limine
     rm -rf /mnt/target-root/etc/default/grub /mnt/target-root/boot/grub
+
+    # Clean up any legacy /usr/local/bin/dialog so real dialog is always available
+    rm -f /mnt/target-root/usr/local/bin/dialog
+
+    # Install trigger-based run-vm-tests.service
+    cat <<'UNIT' > /mnt/target-root/etc/systemd/system/run-vm-tests.service
+[Unit]
+Description=Run Arch Backup Wizard VM Tests
+After=multi-user.target
+ConditionPathExists=/dev/disk/by-label/TEST_AUTOMATED
+
+[Service]
+Type=oneshot
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/bin/bash /root/arch-backup-wizard/run_vm_tests.sh
+ExecStopPost=/usr/bin/poweroff
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    mkdir -p /mnt/target-root/etc/systemd/system/multi-user.target.wants
+    ln -sf /etc/systemd/system/run-vm-tests.service /mnt/target-root/etc/systemd/system/multi-user.target.wants/run-vm-tests.service
 
     umount -l /mnt/target-root || true
     echo "=== WIZARD CODE AND OS UPDATED! POWERING OFF ==="
@@ -196,7 +209,7 @@ cat <<UNIT > /mnt/target/etc/systemd/system/run-vm-tests.service
 [Unit]
 Description=Run Arch Backup Wizard VM Tests
 After=multi-user.target
-ConditionPathExists=/root/arch-backup-wizard/run_vm_tests.sh
+ConditionPathExists=/dev/disk/by-label/TEST_AUTOMATED
 
 [Service]
 Type=oneshot

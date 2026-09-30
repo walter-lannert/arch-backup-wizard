@@ -42,9 +42,9 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 
-# Setup headless dialog helper for CLI testing of interactive wizard flows
-mkdir -p /usr/local/bin
-cat <<'EOF' > /usr/local/bin/dialog
+# Setup headless dialog helper for CLI testing of interactive wizard flows (isolated to this test run)
+mkdir -p /tmp/mock-bin
+cat <<'EOF' > /tmp/mock-bin/dialog
 #!/usr/bin/env bash
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -63,9 +63,10 @@ while [[ $# -gt 0 ]]; do
 done
 exit 0
 EOF
-chmod +x /usr/local/bin/dialog
+chmod +x /tmp/mock-bin/dialog
+export PATH="/tmp/mock-bin:$PATH"
 
-cd /home/arch/arch-backup-wizard
+cd /home/arch/arch-backup-wizard || exit 1
 
 TEST_NUM=0
 PASS_COUNT=0
