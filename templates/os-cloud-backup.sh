@@ -84,7 +84,7 @@ while IFS= read -r sub; do
     sub_prefix="${sub_safe}_${sub_hash}"
     sub_escaped="${sub_prefix//[*?[]]/\\&}"
 
-    RETENTION_COUNT=4
+    RETENTION_COUNT="{{CLOUD_RETENTION_COUNT}}"
     mapfile -t old_archives < <(echo "$remote_files" | grep -E "^(${sub_escaped}|${sub_safe//[*?[]]/\\&})\..*\.btrfs\.zst(\.age)?$" | sort -r | tail -n +$((RETENTION_COUNT + 1)) || true)
     for old_arch in "${old_archives[@]}"; do
         [[ -z "$old_arch" ]] && continue

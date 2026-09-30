@@ -664,6 +664,7 @@ run_dry_run_simulation() {
     export CLOUD_OS_DIR="${CLOUD_OS_DIR:-arch-bare-metal-clones}"
     export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-arch-pika-backup}"
     export AGE_PUBKEY="${AGE_PUBKEY:-age1previewdummykey000000000000000000000000000000000000000000000}"
+    export CLOUD_RETENTION_COUNT="${CLOUD_RETENTION_COUNT:-4}"
 
     # 3. Generate preview runbooks into preview sandbox
     local orig_mount="$BACKUP_MOUNT"

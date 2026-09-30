@@ -174,6 +174,32 @@ EOF
     assert_file_exists "$out"
 }
 
+# Test 9: Retention settings are saved and reloaded accurately
+test_retention_settings_save_and_load() {
+    source "$REPO_DIR/lib/common.sh"
+
+    export MANIFEST_FILE="$TEST_TEMP_DIR/manifest.txt"
+    export SETTINGS_FILE="$TEST_TEMP_DIR/settings.conf"
+    export BTRBK_TARGET="30d"
+    export BTRBK_TARGET_MIN="latest"
+    export BTRBK_SNAP="21d"
+    export BTRBK_SNAP_MIN="7d"
+    export CLOUD_RETENTION_COUNT="6"
+
+    save_settings
+    assert_file_exists "$SETTINGS_FILE"
+
+    # Reset variables in subshell environment
+    unset BTRBK_TARGET BTRBK_TARGET_MIN BTRBK_SNAP BTRBK_SNAP_MIN CLOUD_RETENTION_COUNT
+
+    load_settings
+    assert_eq "30d" "$BTRBK_TARGET" "BTRBK_TARGET reloaded correctly"
+    assert_eq "latest" "$BTRBK_TARGET_MIN" "BTRBK_TARGET_MIN reloaded correctly"
+    assert_eq "21d" "$BTRBK_SNAP" "BTRBK_SNAP reloaded correctly"
+    assert_eq "7d" "$BTRBK_SNAP_MIN" "BTRBK_SNAP_MIN reloaded correctly"
+    assert_eq "6" "$CLOUD_RETENTION_COUNT" "CLOUD_RETENTION_COUNT reloaded correctly"
+}
+
 echo "=== Running tests for lib/common.sh ==="
 run_test test_layer_selected "Layer selection checks"
 run_test test_logging "Logging to file"
@@ -183,4 +209,5 @@ run_test test_template_render_shell_escaping "Template rendering shell escaping 
 run_test test_subvolume_to_snapshot_name "Snapshot naming contract and collision avoidance"
 run_test test_template_render_rejects_unset "Template rendering rejects unset variables"
 run_test test_template_render_no_placeholders "Template rendering succeeds with zero placeholders"
+run_test test_retention_settings_save_and_load "Retention settings save and load persistence"
 test_summary
