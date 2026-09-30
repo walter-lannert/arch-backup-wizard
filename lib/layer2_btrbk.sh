@@ -110,6 +110,55 @@ Please use a separate disk."
 The initial OS clone may fail. Continue anyway?"
     fi
 
+    # ── 2.5 Prompt for backup retention policy ─────────────────────────────────
+    if [[ "${UI_SILENT:-false}" != "true" ]]; then
+        log_info "Prompting user for Layer 2 retention policy..."
+        local default_target_days="${BTRBK_TARGET%d}"
+        default_target_days="${default_target_days:-14}"
+
+        local retention_choice
+        if retention_choice=$(ui_menu "Layer 2 Retention Policy" \
+            "Select how many daily OS backups to keep on the backup drive:\n(Local system snapshots will be preserved proportionally)" \
+            "14" "14 days (2 weeks) — Recommended" \
+            "7"  "7 days (1 week)" \
+            "30" "30 days (1 month)" \
+            "custom" "Custom number of days..."); then
+            retention_choice="${retention_choice//\"/}"
+        else
+            log_info "Retention menu cancelled; using default ($default_target_days days)."
+            retention_choice="$default_target_days"
+        fi
+
+        local selected_days="$retention_choice"
+        if [[ "$retention_choice" == "custom" ]]; then
+            local custom_input
+            if custom_input=$(ui_inputbox "Custom Retention" \
+                "Enter the number of daily OS backups to keep on the backup drive (1-365):" \
+                "$default_target_days"); then
+                custom_input="${custom_input//[^0-9]/}"
+                if [[ -n "$custom_input" && "$custom_input" -ge 1 && "$custom_input" -le 365 ]]; then
+                    selected_days="$custom_input"
+                else
+                    ui_msgbox "Invalid Retention" "Invalid number entered. Falling back to default ($default_target_days days)."
+                    selected_days="$default_target_days"
+                fi
+            else
+                selected_days="$default_target_days"
+            fi
+        fi
+
+        export BTRBK_TARGET="${selected_days}d"
+        export BTRBK_TARGET_MIN="latest"
+        local snap_days=7
+        if [[ "$selected_days" -lt 7 ]]; then
+            snap_days="$selected_days"
+        fi
+        export BTRBK_SNAP="${selected_days}d"
+        export BTRBK_SNAP_MIN="${snap_days}d"
+        save_settings
+    fi
+    log_info "Layer 2 retention policy: target=${BTRBK_TARGET} (min: ${BTRBK_TARGET_MIN}), snap=${BTRBK_SNAP} (min: ${BTRBK_SNAP_MIN})"
+
     log_info "Step 3: Writing $BTRBK_CONF..."
     mkdir -p "$(dirname "$BTRBK_CONF")" || {
         log_error "Failed to create $(dirname "$BTRBK_CONF")"

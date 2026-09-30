@@ -21,11 +21,14 @@ readonly LAYER_DEEP=5
 # All tunable defaults live here. Changing a value in this block is the single
 # place required to alter wizard behaviour — no need to hunt for literals.
 
-# btrbk (Layer 2) retention policy
-readonly BTRBK_SNAP_MIN="7d"       # minimum local snapshot age to keep
-readonly BTRBK_SNAP="14d"          # local snapshot retention window
-readonly BTRBK_TARGET_MIN="latest" # minimum target (backup drive) retention
-readonly BTRBK_TARGET="14d"        # target retention window
+# btrbk (Layer 2) retention policy defaults
+BTRBK_SNAP_MIN="${BTRBK_SNAP_MIN:-7d}"       # minimum local snapshot age to keep
+BTRBK_SNAP="${BTRBK_SNAP:-14d}"             # local snapshot retention window
+BTRBK_TARGET_MIN="${BTRBK_TARGET_MIN:-latest}" # minimum target (backup drive) retention
+BTRBK_TARGET="${BTRBK_TARGET:-14d}"         # target retention window
+
+# Cloud (Layer 4) retention policy defaults
+CLOUD_RETENTION_COUNT="${CLOUD_RETENTION_COUNT:-4}" # number of bare-metal OS clones in cloud storage
 
 # Snapshot directory paths
 readonly SNAPPER_ROOT_CONF="${ABW_TEST_SNAPPER_ROOT_CONF:-/etc/snapper/configs/root}"
@@ -144,7 +147,7 @@ record_manifest() {
 save_settings() {
     mkdir -p "$(dirname "$SETTINGS_FILE")"
     printf "# Arch Backup Wizard Global Settings\n# Automatically generated. Do not edit manually unless you know what you're doing.\n" > "$SETTINGS_FILE"
-    for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_SUBVOLUMES DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY; do
+    for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_SUBVOLUMES DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY BTRBK_TARGET BTRBK_TARGET_MIN BTRBK_SNAP BTRBK_SNAP_MIN CLOUD_RETENTION_COUNT; do
         if [[ -v "$var" ]]; then
             declare -p "$var" | sed 's/^declare /declare -g /' >> "$SETTINGS_FILE"
         fi
@@ -155,7 +158,7 @@ save_settings() {
 load_settings() {
     if [[ -f "$SETTINGS_FILE" ]]; then
         local var
-        for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_SUBVOLUMES DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY; do
+        for var in BACKUP_MOUNT BACKUP_DEV BACKUP_UUID CLOUD_REMOTE CLOUD_OS_DIR CLOUD_PIKA_DIR LAYER4_ENCRYPT SELECTED_LAYERS DETECTED_HOME DETECTED_USER DETECTED_ROOT_SUBVOL DETECTED_SUBVOLUMES DETECTED_EFI_MOUNT DETECTED_HOSTNAME DETECTED_BOOTLOADER DETECTED_DISTRO DETECTED_ROOT_UUID DETECTED_EFI_UUID DETECTED_SUBVOL_LAYOUT AGE_PUBKEY AGE_KEYFILE CLOUD_ARCHIVE_EXT CLOUD_AGE_KEY BTRBK_TARGET BTRBK_TARGET_MIN BTRBK_SNAP BTRBK_SNAP_MIN CLOUD_RETENTION_COUNT; do
             if [[ -v "$var" ]]; then
                 continue
             fi

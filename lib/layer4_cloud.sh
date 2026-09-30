@@ -262,6 +262,47 @@ Would you like to re-run 'rclone config' to retry?
         [[ -z "$cloud_pika_dir" ]] && cloud_pika_dir="$default_pika_dir"
     fi
 
+    local default_cloud_retention="${CLOUD_RETENTION_COUNT:-4}"
+    if layer_configured "$LAYER_BTRBK"; then
+        if [[ "${UI_SILENT:-false}" != "true" ]]; then
+            log_info "Prompting user for Cloud OS Clones retention policy..."
+            local cloud_ret_choice
+            if cloud_ret_choice=$(ui_menu "Cloud OS Clones Retention" \
+                "Select how many bare-metal OS clones to retain in cloud storage:\n(Older cloud archives beyond this count will be automatically pruned)" \
+                "4" "4 copies (~2 months of bi-weekly backups) — Recommended" \
+                "2" "2 copies (~1 month)" \
+                "6" "6 copies (~3 months)" \
+                "custom" "Custom number of copies..."); then
+                cloud_ret_choice="${cloud_ret_choice//\"/}"
+            else
+                log_info "Cloud retention menu cancelled; using default ($default_cloud_retention copies)."
+                cloud_ret_choice="$default_cloud_retention"
+            fi
+
+            if [[ "$cloud_ret_choice" == "custom" ]]; then
+                local custom_cloud_ret
+                if custom_cloud_ret=$(ui_inputbox "Custom Cloud Retention" \
+                    "Enter number of cloud OS backups to retain (1-50):" \
+                    "$default_cloud_retention"); then
+                    custom_cloud_ret="${custom_cloud_ret//[^0-9]/}"
+                    if [[ -n "$custom_cloud_ret" && "$custom_cloud_ret" -ge 1 && "$custom_cloud_ret" -le 50 ]]; then
+                        cloud_ret_choice="$custom_cloud_ret"
+                    else
+                        ui_msgbox "Invalid Retention" "Invalid number entered. Falling back to default ($default_cloud_retention copies)."
+                        cloud_ret_choice="$default_cloud_retention"
+                    fi
+                else
+                    cloud_ret_choice="$default_cloud_retention"
+                fi
+            fi
+            export CLOUD_RETENTION_COUNT="$cloud_ret_choice"
+            save_settings
+        else
+            export CLOUD_RETENTION_COUNT="${CLOUD_RETENTION_COUNT:-4}"
+        fi
+        log_info "Cloud OS retention configured: ${CLOUD_RETENTION_COUNT} copies"
+    fi
+
     log_info "Cloud destination folders: OS='$cloud_os_dir', Pika='$cloud_pika_dir'"
     declare -F ui_infobox >/dev/null 2>&1 && ui_infobox "Configuring Cloud Pipeline" "Generating cloud backup scripts and systemd timers...\nPlease wait."
 
@@ -280,6 +321,7 @@ Would you like to re-run 'rclone config' to retry?
         export LAYER4_ENCRYPT="${LAYER4_ENCRYPT:-true}"
         export CLOUD_ARCHIVE_EXT="${CLOUD_ARCHIVE_EXT:-.btrfs.zst.age}"
         export AGE_PUBKEY="${AGE_PUBKEY:-}"
+        export CLOUD_RETENTION_COUNT="${CLOUD_RETENTION_COUNT:-4}"
 
         backup_file "$os_backup_script" || return 1
 
@@ -435,6 +477,7 @@ EOF
 
     if layer_configured "$LAYER_BTRBK"; then
         summary_folders+="• OS Clones Folder:   ${rclone_remote}${cloud_os_dir}"$'\n'
+        summary_folders+="• Cloud OS Retention:  ${CLOUD_RETENTION_COUNT:-4} copies preserved"$'\n'
         summary_components+="• OS Cloud Backup:"$'\n'
         summary_components+="  ${os_backup_script}"$'\n'
         summary_components+="• Bi-weekly Nag Script:"$'\n'
