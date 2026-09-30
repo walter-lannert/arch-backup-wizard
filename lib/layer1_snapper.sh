@@ -43,7 +43,7 @@ setup_layer1() {
         # If /.snapshots exists (as directory mountpoint or pre-created subvolume), remove it first.
         if [[ -e "$SNAP_DIR" ]]; then
             if btrfs subvolume show "$SNAP_DIR" &>/dev/null; then
-                if btrfs subvolume list -o "$SNAP_DIR" 2>/dev/null | grep -q "$SNAP_DIR/"; then
+                if btrfs subvolume list -o "$SNAP_DIR" 2>/dev/null | grep -q .; then
                     log_warn "Nested snapshots detected inside $SNAP_DIR!"
                     if ! ui_confirm_destructive "Nested snapshots detected"; then
                         log_error "User aborted. Cannot proceed with Snapper setup."

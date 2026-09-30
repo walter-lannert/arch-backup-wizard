@@ -412,10 +412,7 @@ EOF
 
         # Ensure the runtime state directory and enabled sentinel exist so that
         # pika-cloud-sync.timer's ConditionPathExists guards are satisfied.
-        local pika_state_dir="/var/lib/pika-cloud-sync"
-        mkdir -p "$pika_state_dir"
-        touch "$pika_state_dir/enabled"
-        record_manifest "$pika_state_dir/enabled"
+        ensure_pika_sync_state || return 1
 
         mkdir -p "$systemd_dir"
 
