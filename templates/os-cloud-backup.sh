@@ -32,10 +32,11 @@ while IFS= read -r sub; do
     sub_safe="${sub_safe//:/_}"
     sub_hash=$(printf '%s' "$sub" | md5sum | cut -c1-8)
     sub_prefix="${sub_safe}_${sub_hash}"
-    sub_escaped="${sub_prefix//[\*\?\[\]]/\\&}"
+    sub_escaped=$(printf '%s' "$sub_prefix" | sed 's/[*?\[\]]/\\&/g')
+    sub_safe_escaped=$(printf '%s' "$sub_safe" | sed 's/[*?\[\]]/\\&/g')
     # Automatically find the name of the newest snapshot for this subvolume (relying on btrbk's deterministic timestamp naming)
     # Checks both hashed btrbk prefix and fallback unhashed prefix for backwards compatibility
-    LATEST_SNAP_PATH=$(sudo find "{{BACKUP_MOUNT}}/OS_Backup" -maxdepth 1 -mindepth 1 -type d \( -name "${sub_escaped}.20*" -o -name "${sub_safe//[\*\?\[\]]/\\&}.20*" \) 2>/dev/null | sort -r | head -n 1 || true)
+    LATEST_SNAP_PATH=$(sudo find "{{BACKUP_MOUNT}}/OS_Backup" -maxdepth 1 -mindepth 1 -type d \( -name "${sub_escaped}.20*" -o -name "${sub_safe_escaped}.20*" \) 2>/dev/null | sort -r | head -n 1 || true)
     if [[ -z "$LATEST_SNAP_PATH" ]]; then
         echo "Warning: No snapshots found for $sub (tried $sub_prefix and $sub_safe) in {{BACKUP_MOUNT}}/OS_Backup"
         continue
@@ -82,10 +83,13 @@ while IFS= read -r sub; do
     sub_safe="${sub_safe//:/_}"
     sub_hash=$(printf '%s' "$sub" | md5sum | cut -c1-8)
     sub_prefix="${sub_safe}_${sub_hash}"
-    sub_escaped="${sub_prefix//[*?[]]/\\&}"
+    # shellcheck disable=SC2016
+    sub_regex=$(printf '%s' "$sub_prefix" | sed 's/[.[\*^$()+?{|]/\\&/g')
+    # shellcheck disable=SC2016
+    sub_safe_regex=$(printf '%s' "$sub_safe" | sed 's/[.[\*^$()+?{|]/\\&/g')
 
     RETENTION_COUNT="{{CLOUD_RETENTION_COUNT}}"
-    mapfile -t old_archives < <(echo "$remote_files" | grep -E "^(${sub_escaped}|${sub_safe//[*?[]]/\\&})\..*\.btrfs\.zst(\.age)?$" | sort -r | tail -n +$((RETENTION_COUNT + 1)) || true)
+    mapfile -t old_archives < <(echo "$remote_files" | grep -E "^(${sub_regex}|${sub_safe_regex})\..*\.btrfs\.zst(\.age)?$" | sort -r | tail -n +$((RETENTION_COUNT + 1)) || true)
     for old_arch in "${old_archives[@]}"; do
         [[ -z "$old_arch" ]] && continue
         echo "Pruning expired remote archive: $old_arch"

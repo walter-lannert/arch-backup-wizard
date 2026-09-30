@@ -62,7 +62,7 @@ Choose 'No' if your cloud destination is a trusted local/private server or alrea
             run_as_user mkdir -p "$age_key_dir" || return 1
 
             if [[ ! -f "$age_key_file" ]]; then
-                if ! run_as_user age-keygen -o "$age_key_file" >/dev/null 2>&1; then
+                if ! run_as_user bash -c "umask 077 && age-keygen -o \"$age_key_file\"" >/dev/null 2>&1; then
                     log_error "Failed to generate age encryption key at $age_key_file"
                     return 1
                 fi
