@@ -70,6 +70,11 @@ exit 0
 EOF
     chmod +x /mnt/target-root/usr/local/bin/paru
 
+    # Configure Limine markers for bootloader detection
+    mkdir -p /mnt/target-root/boot/limine /mnt/target-root/etc/default
+    touch /mnt/target-root/boot/limine/limine.conf /mnt/target-root/etc/default/limine
+    rm -rf /mnt/target-root/etc/default/grub /mnt/target-root/boot/grub
+
     umount -l /mnt/target-root || true
     echo "=== WIZARD CODE AND OS UPDATED! POWERING OFF ==="
     poweroff

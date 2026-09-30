@@ -29,10 +29,10 @@ SHELLCHECKRC
 fi
 chown -R arch:arch /home/arch/arch-backup-wizard
 
-# Setup mock grub-btrfsd service so Snapper bootloader integration succeeds headlessly
-cat <<'EOF' > /etc/systemd/system/grub-btrfsd.service
+# Setup mock limine-snapper-sync service so Snapper bootloader integration succeeds headlessly
+cat <<'EOF' > /etc/systemd/system/limine-snapper-sync.service
 [Unit]
-Description=Mock grub-btrfsd
+Description=Mock limine-snapper-sync
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/true
@@ -133,8 +133,8 @@ report_test "Detected BTRFS root filesystem" $? "DETECTED_ROOT_FS=${DETECTED_ROO
 [[ "${DETECTED_AUR_HELPER:-}" == "paru" ]]
 report_test "Detected paru AUR helper" $? "DETECTED_AUR_HELPER=${DETECTED_AUR_HELPER:-unknown}"
 
-[[ "${DETECTED_BOOTLOADER:-}" == "grub" ]]
-report_test "Detected GRUB bootloader" $? "DETECTED_BOOTLOADER=${DETECTED_BOOTLOADER:-unknown}"
+[[ "${DETECTED_BOOTLOADER:-}" == "limine" ]]
+report_test "Detected Limine bootloader" $? "DETECTED_BOOTLOADER=${DETECTED_BOOTLOADER:-unknown}"
 
 [[ "${DETECTED_ROOT_SUBVOL:-}" =~ ^/?@$ ]]
 report_test "Detected root subvolume @" $? "DETECTED_ROOT_SUBVOL=${DETECTED_ROOT_SUBVOL:-unknown}"

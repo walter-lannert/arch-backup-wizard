@@ -17,8 +17,6 @@ run_validation() {
             detect_dialog
         elif command -v dialog &>/dev/null; then
             DIALOG_CMD="dialog"
-        elif command -v whiptail &>/dev/null; then
-            DIALOG_CMD="whiptail"
         fi
     fi
 
@@ -83,28 +81,17 @@ run_validation() {
             failure_issues+=("Layer 1: snapper-cleanup.timer not active")
         fi
 
-        case "${DETECTED_BOOTLOADER:-}" in
-        grub)
-            if ! unit_is_enabled grub-btrfsd; then
-                l1_ok=false
-                log_warn "Layer 1 check failed: grub-btrfsd is not enabled"
-                failure_issues+=("Layer 1: grub-btrfsd not enabled")
-            fi
-            ;;
-        limine)
+        if [[ "${DETECTED_BOOTLOADER:-}" == "limine" ]]; then
             if ! unit_is_enabled limine-snapper-sync; then
                 l1_ok=false
                 log_warn "Layer 1 check failed: limine-snapper-sync is not enabled"
                 failure_issues+=("Layer 1: limine-snapper-sync not enabled")
             fi
-            ;;
-        "")
+        elif [[ -z "${DETECTED_BOOTLOADER:-}" ]]; then
             log_warn "Layer 1 note: no bootloader detected; skipping bootloader sync check"
-            ;;
-        *)
-            log_warn "Layer 1 note: unrecognised bootloader '${DETECTED_BOOTLOADER}'; skipping bootloader sync check"
-            ;;
-        esac
+        else
+            log_warn "Layer 1 note: unexpected bootloader '${DETECTED_BOOTLOADER}'; skipping bootloader sync check"
+        fi
 
         if $l1_ok; then
             layer1_status="✓ OK"
@@ -306,7 +293,6 @@ run_validation() {
             shell_bin=$(basename "${DETECTED_SHELL:-bash}")
             local rc_file=""
             case "$shell_bin" in
-            zsh) rc_file="${user_home}/.zshrc" ;;
             fish) rc_file="${user_home}/.config/fish/config.fish" ;;
             bash | *) rc_file="${user_home}/.bashrc" ;;
             esac

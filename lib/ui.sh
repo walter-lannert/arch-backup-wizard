@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# arch-backup-wizard/lib/ui.sh — dialog/whiptail wrapper functions
+# arch-backup-wizard/lib/ui.sh — dialog wrapper functions
 #
 # All UI functions use a consistent interface so the rest of the wizard
-# never calls dialog/whiptail directly.
+# never calls dialog directly.
 
 # ── Backend detection ─────────────────────────────────────────────────────────
 
@@ -11,10 +11,8 @@ DIALOG_CMD=""
 detect_dialog() {
     if cmd_exists dialog; then
         DIALOG_CMD="dialog"
-    elif cmd_exists whiptail; then
-        DIALOG_CMD="whiptail"
     else
-        die $'Neither dialog nor whiptail found. Install one first:\n  sudo pacman -S dialog'
+        die $'dialog not found. Install it first:\n  sudo pacman -S dialog'
     fi
     log_info "Using dialog backend: $DIALOG_CMD"
 }

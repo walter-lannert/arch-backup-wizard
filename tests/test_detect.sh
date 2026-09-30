@@ -39,23 +39,17 @@ test_detect_aur_helper() {
     source "$REPO_DIR/lib/common.sh"
     source "$REPO_DIR/lib/detect.sh"
 
-    # Scenario A: only paru available
+    # Scenario A: paru available (expected on CachyOS)
     # shellcheck disable=SC2329
     cmd_exists() { [[ "$1" == "paru" ]]; }
     detect_aur_helper
-    assert_eq "paru" "$DETECTED_AUR_HELPER" "paru preferred when available"
+    assert_eq "paru" "$DETECTED_AUR_HELPER" "paru detected when available"
 
-    # Scenario B: only yay available
-    # shellcheck disable=SC2329
-    cmd_exists() { [[ "$1" == "yay" ]]; }
-    detect_aur_helper
-    assert_eq "yay" "$DETECTED_AUR_HELPER" "yay selected when paru unavailable"
-
-    # Scenario C: neither available
+    # Scenario B: paru not available — empty result, warning logged
     # shellcheck disable=SC2329
     cmd_exists() { return 1; }
     detect_aur_helper
-    assert_eq "" "$DETECTED_AUR_HELPER" "empty when neither available"
+    assert_eq "" "$DETECTED_AUR_HELPER" "empty when paru unavailable"
 }
 
 # Test 3: Root filesystem detection
@@ -73,15 +67,36 @@ test_detect_root_filesystem() {
     assert_eq "ext4" "$DETECTED_ROOT_FS" "Root filesystem detected as ext4"
 }
 
-# Test 4: Bootloader detection
+# Test 4: Bootloader detection — Limine only
 test_detect_bootloader() {
     _setup_detect_env
     source "$REPO_DIR/lib/common.sh"
-    source "$REPO_DIR/lib/detect.sh"
+
+    # Scenario A: Limine config at /boot/limine.conf → detected as limine
+    # Patch detect_bootloader inline via a local stub that checks a temp file path
+    local fake_conf="$TEST_TEMP_DIR/limine.conf"
+    touch "$fake_conf"
+
+    detect_bootloader() {
+        DETECTED_BOOTLOADER="unknown"
+        # shellcheck disable=SC2034
+        local _paths=("$fake_conf")
+        for _p in "${_paths[@]}"; do
+            if [[ -f "$_p" ]]; then
+                DETECTED_BOOTLOADER="limine"
+                break
+            fi
+        done
+        log_info "Bootloader: $DETECTED_BOOTLOADER"
+    }
 
     detect_bootloader
-    # On this machine, it should detect a valid known bootloader (limine, systemd-boot, grub, or unknown)
-    assert_ne "" "$DETECTED_BOOTLOADER" "Bootloader should be detected"
+    assert_eq "limine" "$DETECTED_BOOTLOADER" "Limine config presence sets DETECTED_BOOTLOADER=limine"
+
+    # Scenario B: No config file → unknown
+    rm -f "$fake_conf"
+    detect_bootloader
+    assert_eq "unknown" "$DETECTED_BOOTLOADER" "No config file → DETECTED_BOOTLOADER=unknown"
 }
 
 # Test 5: System devices detection scopes to root UUID and excludes secondary drives

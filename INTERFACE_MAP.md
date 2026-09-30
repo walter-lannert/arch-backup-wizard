@@ -3,6 +3,9 @@
 This manifest documents the cross-module contracts, shared state, exported variables,
 and system resource footprints across the `arch-backup-wizard` codebase.
 
+> **Scope:** This wizard targets **CachyOS Linux with the Limine bootloader** only.
+> All detection, package selection, and bootloader integration is narrowed to that configuration.
+
 ---
 
 ## 1. Global State & Shared Variables
@@ -20,9 +23,9 @@ and system resource footprints across the `arch-backup-wizard` codebase.
 | `SYSTEMD_BACKUP_MOUNT`| `wizard.sh`, `lib/layer4_cloud.sh` | Templates / systemd escaping | Space-escaped path for systemd unit dependencies (`\x20`). |
 | `DETECTED_USER` | `lib/detect.sh` | All layers, `lib/common.sh`, `wizard.sh` | Target non-root user (e.g. `walter`). |
 | `DETECTED_HOME` | `lib/detect.sh` | `lib/layer3_pika.sh`, `lib/layer4_cloud.sh`, `lib/layer5_deep_storage.sh` | Target user home directory (e.g. `/home/walter`). |
-| `DETECTED_DISTRO` | `lib/detect.sh` | `lib/detect.sh`, `lib/layer4_cloud.sh`, `lib/runbooks.sh` | Distro name (e.g. `cachyos`, `arch`). |
-| `DETECTED_AUR_HELPER` | `lib/detect.sh` | `lib/packages.sh` | Detected AUR package manager (`paru`, `yay`, or empty). |
-| `DETECTED_BOOTLOADER` | `lib/detect.sh` | `lib/layer1_snapper.sh`, `lib/packages.sh`, `lib/runbooks.sh`, `lib/validate.sh` | Bootloader (`systemd-boot`, `grub`, `limine`, `refind`, `none`). |
+| `DETECTED_DISTRO` | `lib/detect.sh` | `lib/detect.sh`, `lib/layer4_cloud.sh`, `lib/runbooks.sh` | Distro name (`CachyOS`). Soft warning logged if a different distro is detected. |
+| `DETECTED_AUR_HELPER` | `lib/detect.sh` | `lib/packages.sh` | Detected AUR package manager (`paru`, or empty). Soft warning logged if missing. |
+| `DETECTED_BOOTLOADER` | `lib/detect.sh` | `lib/layer1_snapper.sh`, `lib/packages.sh`, `lib/runbooks.sh`, `lib/validate.sh` | Bootloader (`limine` or `unknown`). Soft warning logged if Limine is not detected. |
 | `DETECTED_ROOT_DEV` | `lib/detect.sh` | `lib/layer1_snapper.sh`, `lib/layer2_btrbk.sh`, `lib/runbooks.sh`, `lib/validate.sh` | Root block device (e.g. `/dev/nvme2n1p2`). |
 | `DETECTED_ROOT_FS` | `lib/detect.sh` | `wizard.sh`, `lib/validate.sh` | Filesystem type of root (`btrfs`, `ext4`, etc.). |
 | `DETECTED_ROOT_SUBVOL`| `lib/detect.sh` | `lib/layer1_snapper.sh`, `lib/layer2_btrbk.sh`, `lib/runbooks.sh`, `lib/validate.sh` | Top-level subvolume mounted at `/` (typically `@`). |

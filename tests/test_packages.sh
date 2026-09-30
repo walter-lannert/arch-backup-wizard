@@ -98,22 +98,23 @@ test_get_layer_packages() {
     assert_no_match "age" "$pkgs_l4_no_enc" "Layer 4 unencrypted excludes age"
 }
 
-# Test 4: Layer 1 systemd-boot handling (no snapshot AUR helper required)
-test_layer1_systemd_boot() {
+# Test 4: Layer 1 Limine package mapping includes limine-snapper-sync
+test_layer1_limine_packages() {
     _setup_pkg_env
-    export DETECTED_BOOTLOADER="systemd-boot"
+    export DETECTED_BOOTLOADER="limine"
     source "$REPO_DIR/lib/common.sh"
     source "$REPO_DIR/lib/ui.sh"
     source "$REPO_DIR/lib/packages.sh"
 
-    mock_cmd pacman 'exit 0'
-
-    assert_success "install_layer_packages 1" "Layer 1 under systemd-boot should succeed with base packages"
+    local pkgs
+    pkgs=$(get_layer_packages 1)
+    assert_match "limine-snapper-sync" "$pkgs" "Layer 1 Limine includes limine-snapper-sync"
+    assert_match "inotify-tools" "$pkgs" "Layer 1 Limine includes inotify-tools"
 }
 
 echo "=== Running tests for lib/packages.sh ==="
 run_test test_validate_pkg_name "Package name validation"
 run_test test_pkg_is_installed "Package installation check"
 run_test test_get_layer_packages "Layer package mapping"
-run_test test_layer1_systemd_boot "Layer 1 systemd-boot base package handling"
+run_test test_layer1_limine_packages "Layer 1 Limine package mapping"
 test_summary
