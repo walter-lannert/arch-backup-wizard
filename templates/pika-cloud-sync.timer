@@ -18,7 +18,6 @@ OnCalendar=Mon 00:00 UTC
 # pinned; do not rely on systemd's compiled-in default
 AccuracySec=60
 RandomizedDelaySec=14400
-WakeSystem=yes
 # Persistent=true fires ONE catch-up after boot, even if N windows were missed.
 # The service MUST check its own last-success marker and run additional passes
 # if the gap exceeds 7 days. Do not assume one trigger == one week of coverage.

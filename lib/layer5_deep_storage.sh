@@ -110,22 +110,22 @@ setup_layer5() {
     # redirection exits the shell before any || / if-! guard can fire.
     # The touch() call above already validated that the file exists and
     # is writable, so this redirection is safe.
-    exec 9<>"$_lockfile"
+    exec 8<>"$_lockfile"
     if ! command -v flock &>/dev/null; then
         log_warn "flock(1) not found; falling back to mkdir-based lock."
         local _lockdir="${BACKUP_MOUNT%/}/.deep_storage_setup.lock.d"
         if ! mkdir "$_lockdir" 2>/dev/null; then
             log_error "Another instance of Layer 5 setup is already running."
             ui_msgbox "Busy" "Another setup is in progress. Please wait."
-            exec 9>&-
+            exec 8>&-
             return 1
         fi
         # Clean up the lock directory on exit.
         trap 'rmdir "$_lockdir" 2>/dev/null' RETURN
-    elif ! flock -n 9; then
+    elif ! flock -n 8; then
         log_error "Another instance of Layer 5 setup is already running."
         ui_msgbox "Busy" "Another setup is in progress. Please wait."
-        exec 9>&-
+        exec 8>&-
         return 1
     fi
 
