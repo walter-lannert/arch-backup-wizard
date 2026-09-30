@@ -57,6 +57,13 @@ echo ""
 echo "=== In-VM Test Results Summary ==="
 if [[ -f "test_run.log" ]]; then
     grep -E "\[TEST|IN-VM TEST SUMMARY|SUCCESS|FAILURE" test_run.log || true
+    if grep -q "FAILURE:" test_run.log; then
+        echo "Error: VM test suite reported failures."
+        exit 1
+    elif ! grep -q "SUCCESS: ALL IN-VM TESTS PASSED AS INTENDED!" test_run.log; then
+        echo "Error: VM test suite did not complete successfully (crashed or hung)."
+        exit 1
+    fi
 else
     echo "Error: test_run.log was not generated."
     exit 1
