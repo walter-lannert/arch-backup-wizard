@@ -130,8 +130,15 @@ generate_runbooks() {
         sub_safe="${sub//\//_}"
         sub_safe="${sub_safe//:/_}"
         sub_snap_name=$(subvolume_to_snapshot_name "$sub")
+
+        local sub_regex sub_safe_regex
+        # shellcheck disable=SC2016
+        sub_regex=$(printf '%s' "$sub_snap_name" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        # shellcheck disable=SC2016
+        sub_safe_regex=$(printf '%s' "$sub_safe" | sed 's/[.[\*^$()+?{|]/\\&/g')
+
         cloud_restore_script+="echo \"Restoring subvolume: $sub\""$'\n'
-        cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep -E \"^(${sub_snap_name}|${sub_safe})\\.\" | sort -r | head -n 1 || true)"$'\n'
+        cloud_restore_script+="ARCHIVE=\$(echo \"\$archives\" | grep -E \"^(${sub_regex}|${sub_safe_regex})\\.\" | sort -r | head -n 1 || true)"$'\n'
         cloud_restore_script+="if [[ -n \"\$ARCHIVE\" ]]; then"$'\n'
         cloud_restore_script+="  echo \"  Streaming \$ARCHIVE...\""$'\n'
         cloud_restore_script+="  if [[ \"\$ARCHIVE\" == *\\.age ]]; then"$'\n'

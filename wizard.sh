@@ -604,6 +604,7 @@ run_dry_run_simulation() {
 
     local preview_dir
     preview_dir=$(mktemp -d /tmp/arch-backup-wizard-preview.XXXXXX)
+    trap 'rm -rf "$preview_dir" 2>/dev/null' EXIT INT TERM HUP
     mkdir -p "$preview_dir/runbooks" "$preview_dir/scripts" "$preview_dir/systemd"
 
     # 1. Collect packages
@@ -716,6 +717,7 @@ NO SYSTEM FILES, DRIVES, OR PACKAGES WERE MODIFIED."
     run_validation || true
 
     rm -rf "$preview_dir"
+    trap - EXIT INT TERM HUP
 
     log_info "══════ Dry run simulation finished cleanly ══════"
 }
