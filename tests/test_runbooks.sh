@@ -36,11 +36,11 @@ _setup_runbook_env() {
     export DETECTED_HOME="$TEST_TEMP_DIR/home"
     export DETECTED_ROOT_UUID="aaaa-bbbb-cccc"
     export DETECTED_EFI_UUID="dddd-eeee-ffff"
-    export DETECTED_BOOTLOADER="GRUB"
+    export DETECTED_BOOTLOADER="limine"
     export DETECTED_HOSTNAME="testhost"
     export DETECTED_ROOT_SUBVOL="@"
     export DETECTED_SUBVOL_LAYOUT="standard"
-    export DETECTED_DISTRO="Arch Linux"
+    export DETECTED_DISTRO="CachyOS"
     export DETECTED_SUBVOLUMES="@
 @home
 @snapshots"
@@ -91,7 +91,7 @@ TMPL
     assert_match "User: testuser" "$content" "Username substituted"
     assert_match "Root UUID: aaaa-bbbb-cccc" "$content" "Root UUID substituted"
     assert_match "EFI UUID: dddd-eeee-ffff" "$content" "EFI UUID substituted"
-    assert_match "Bootloader: GRUB" "$content" "Bootloader substituted"
+    assert_match "Bootloader: limine" "$content" "Bootloader substituted"
 }
 
 # ── Test 2: Happy path — Layer 2 (BTRBK) bare-metal runbook ──────────────────
@@ -118,9 +118,9 @@ TMPL
 
     local content
     content=$(<"$out")
-    assert_match "Distro: Arch Linux" "$content" "Distro substituted"
+    assert_match "Distro: CachyOS" "$content" "Distro substituted"
     assert_match "Root UUID: aaaa-bbbb-cccc" "$content" "Root UUID substituted"
-    assert_match "Bootloader: GRUB" "$content" "Bootloader substituted"
+    assert_match "Bootloader: limine" "$content" "Bootloader substituted"
     assert_match "linux-cachyos" "$content" "Kernel packages detected"
 }
 

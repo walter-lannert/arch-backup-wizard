@@ -23,7 +23,7 @@ setup_layer1() {
     if [[ "${DETECTED_SNAPPER_CONFIG_EXISTS:-false}" == "true" ]] || [[ -f "$SNAPPER_ROOT_CONF" ]]; then
         log_info "Snapper root configuration already exists. Skipping subvolume creation."
     else
-        # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS/EndeavourOS)
+        # Check if /.snapshots exists as a BTRFS subvolume already (common on CachyOS)
         if [[ -z "${SNAP_DIR:-}" ]]; then
             log_error "SNAP_DIR is not set. Layer 1 requires SNAP_DIR to be configured."
             return 1

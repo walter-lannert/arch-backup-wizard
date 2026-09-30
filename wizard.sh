@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════════════════╗
-# ║  Arch Backup Wizard — Interactive 5-Layer Backup Setup for Arch Linux  ║
+# ║  Arch Backup Wizard — 5-Layer Backup Architecture for CachyOS (Limine) ║
 # ║                                                                        ║
 # ║  Usage:  sudo ./wizard.sh [--uninstall] [--verbose] [--help]           ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
@@ -73,7 +73,7 @@ parse_args() {
             cat <<EOF
 Arch Backup Wizard v${WIZARD_VERSION}
 
-Sets up a production-grade 5-layer backup architecture for Arch Linux.
+Sets up a production-grade 5-layer backup architecture for CachyOS Linux with Limine.
 
 Usage:  sudo $0 [OPTIONS]
 
@@ -90,7 +90,7 @@ Layers:
   4  Cloud Offsite Encrypted offsite via rclone
   5  Deep Storage  Local archive (not synced to cloud)
 
-Requires:  BTRFS root filesystem, Arch-based distro (pacman)
+Requires:  BTRFS root filesystem, CachyOS (Limine bootloader)
 EOF
             exit 0
             ;;

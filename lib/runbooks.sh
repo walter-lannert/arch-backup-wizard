@@ -52,7 +52,7 @@ generate_runbooks() {
     export BACKUP_UUID="${BACKUP_UUID:-}"
     export ROOT_SUBVOL="${DETECTED_ROOT_SUBVOL:-}"
     export SUBVOL_LAYOUT="${DETECTED_SUBVOL_LAYOUT:-}"
-    export DISTRO="${DETECTED_DISTRO:-Arch Linux}"
+    export DISTRO="${DETECTED_DISTRO:-CachyOS}"
     export CLOUD_REMOTE="${CLOUD_REMOTE:-}"
     export CLOUD_OS_DIR="${CLOUD_OS_DIR:-}"
     export CLOUD_PIKA_DIR="${CLOUD_PIKA_DIR:-}"
