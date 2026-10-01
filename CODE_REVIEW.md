@@ -1,236 +1,435 @@
-# Code Review — Arch Backup Wizard
+# Repository Code Review
 
-**Review date:** 2026-09-25
+Reviewed: 2026-10-01
 
-**Reviewed range:** `00fedecac68d87e001f946e8c1f78358e1ddce24^..a44e95f5422072dda6e90c182bd17e4f4dce5b28` (the requested commit, inclusive, through current `HEAD`)
+Branch: `bgra_review`
 
-**Scope:** the complete repository, with detailed review of the 15 non-merge commits (27 commits including merges) in the requested range and adjacent producer/consumer code needed to verify their contracts.
+Revision: `7a311e5c8a37ccfb1d7f145f0ac25d33f60815e0`
 
-**Priority order:** correctness, performance, code quality.
+Scope: application scripts, libraries, templates, tests, CI, VM tooling, and repository documentation. Recent changes were also compared with `29689a2` to distinguish regressions from existing debt.
 
-**Method:** Boy Scout Rule — follow each changed path through setup, scheduled execution, validation, recovery, and uninstall, and recommend the smallest changes that leave those workflows safer and easier to verify.
+## Executive assessment
 
-## Executive summary
+**The repository is not yet demonstrably high-quality or safe enough to entrust with unattended backup and disaster recovery.** Its modular layout, defensive checks, naming helper, logging, and ShellCheck gate are good foundations. However, destructive operations do not consistently prove ownership or emptiness; recovery instructions contain independent execution blockers; and several checks confuse configuration presence with successful, recoverable backups.
 
-The reviewed commits fix several serious defects from the previous audit: snapshot naming is now shared, missing template variables are rejected, rclone destinations are propagated, cloud jobs have bounded timeouts and retention, and CI runs lint plus tests. Those improvements are worth keeping.
+The most important Boyscout Rule violation is that recent fixes sometimes replace a defect with a partial safeguard without testing the underlying contract. Examples include checking for nested subvolumes instead of checking for user data, interpreting any Borg fatal error as an encryption prompt, and adopting whole shared files based on a comment signature. These are correctness problems, not cosmetic preferences.
 
-The current revision is still not ready to be described as a production-safe backup and recovery tool. The uninstaller can replace `/etc/fstab` with an old pre-install copy, discarding unrelated changes made after installation; if the expected backup file is absent, it can leave `/etc/fstab` deleted. Other high-impact gaps affect validation, dependency handling, recovery across encryption-mode changes, missing subvolume data, monitoring of failed Pika cloud syncs, and destructive handling of an existing Snapper subvolume.
+Do not treat the current successful lint result, an enabled timer, or a generated runbook as evidence that a restore will succeed. Address the destructive paths first, then exercise recovery on disposable CachyOS/Limine systems before claiming production readiness.
 
-**Release recommendation:** block release until CR-001 through CR-005 and CR-012 through CR-014 are fixed and exercised in a disposable Arch VM. CR-001 and CR-013 deserve destructive-path regression tests before anyone runs uninstall or Layer 1 setup on a real system.
+Only this review document was written. No application code, configuration, tests, or Git history were changed during the review.
 
-## Finding index
+## Verification and limitations
 
-| ID | Severity | Priority | Area | Finding |
-|---|---|---|---|---|
-| CR-001 | **Critical** | Correctness | Uninstall | Uninstall can overwrite or delete `/etc/fstab` |
-| CR-002 | **High** | Correctness | Validation | Persisted settings override an explicit `--validate` layer subset and current detection |
-| CR-003 | **High** | Correctness | Layer dependencies | Layer 4 is configured after failed Layer 2/3 setup, and an uninitialized Pika repository is reported as configured |
-| CR-004 | **High** | Correctness | Cloud recovery | Recovery chooses decryption from current settings instead of the selected archive's format |
-| CR-005 | **High** | Correctness | Health monitoring | Validation can report Pika cloud sync healthy when every scheduled service run is failing |
-| CR-006 | **Medium** | Correctness | Generated runbook | The Layer 2 + Layer 4 runbook always includes a Pika restore workflow, even when Layer 3 was not configured |
-| CR-007 | **Medium** | Correctness | Paths/systemd | Accepted backup paths containing spaces render broken systemd mount dependencies |
-| CR-008 | **Medium** | Performance | Pika sync | The weekly timer performs two full sync scans because its documented idempotency guard does not exist |
-| CR-009 | **Low** | Performance | OS cloud backup | The same remote directory is listed once per subvolume during retention pruning |
-| CR-010 | **Medium** | Code quality | Tests/CI | Critical setup, rendered-unit, migration, and uninstall contracts have no automated coverage |
-| CR-011 | **Low** | Code quality | Repository hygiene | The reviewed range fails `git diff --check` and documentation is already out of sync |
-| CR-012 | **High** | Correctness | Disaster recovery | Recovery silently creates empty subvolumes for any missing non-root snapshot |
-| CR-013 | **Critical** | Correctness | Layer 1 setup | Setup recursively deletes an existing `/.snapshots` Btrfs subvolume without proving it is disposable wizard state |
-| CR-014 | **High** | Correctness | Backup-drive setup | Reusing a backup drive can report success after unchecked filesystem and `/etc/fstab` mutations fail |
+| Check | Result | Interpretation |
+| --- | --- | --- |
+| `make check` | Passed | ShellCheck 0.11.0 accepted the files included by the Makefile; the working-tree whitespace check passed. |
+| `make test` | Blocked before test execution | Host Bash 3.2.57 cannot parse `[[ -v ... ]]` in `lib/common.sh:151`. This is a host/runtime mismatch, not proof of a syntax error on supported CachyOS. |
+| Supplemental ShellCheck over `vm-test-cachyos/*.sh` and `vm-test-cachyos/cidata/*.sh` | Failed | VM tooling is outside the normal lint gate; findings include SC2319 status-capture warnings and SC2012. These warnings alone do not establish a runtime failure. |
+| Safe function-level probes | Confirmed selected defects | Original functions were loaded unchanged, with system tools replaced by harmless mocks and temporary fixtures outside the repository. No real subvolume was deleted. |
+| Linux integration, rendered systemd execution, and boot recovery | Not performed | This host is macOS, and the Docker daemon was unavailable. No VM, packages, services, mounts, disks, or cloud objects were modified. |
+
+The probes confirmed: deletion attempted for a nonempty subvolume without nested subvolumes; the destructive-dialog arity crash; execution continuing after TERM; a shared `.bashrc` entering the deletion manifest; empty configured-layer state accepting an unconfigured prerequisite; retention of `subvolid=256` in generated rollback mount options; and prefix sorting selecting an older hashed snapshot over a newer legacy snapshot.
+
+There are 41 declared test functions in the current unit-test files. This review does **not** claim that they passed. No target-runtime syntax error was established by the lint gate; the confirmed runtime and generated-command defects below are more significant than superficial syntax cleanup.
+
+Evidence labels used below:
+
+- **Confirmed:** directly evident in production code, supported by a safe probe or an explicit upstream command contract where relevant.
+- **Inferred risk:** an architectural failure mode deduced from the implementation, not an observed production incident.
+- **Open point:** a missing guarantee or test that must be resolved before making the associated quality claim.
+
+## Prioritized open points and improvements
+
+Priority definitions: **P0** = destructive-path release blocker; **P1** = recovery, integrity, security, or false-success defect to fix before production reliance; **P2** = operational reliability or coverage improvement; **P3** = maintainability and documentation cleanup. Ordering within a priority reflects expected harm and breadth, not implementation convenience.
+
+| Rank / ID | Priority | Actionable finding |
+| --- | --- | --- |
+| 01 / R01 | P0 | Prevent uninstall from deleting nonempty Btrfs subvolumes. |
+| 02 / R02 | P0 | Preserve preexisting Snapper data and repair the destructive confirmation call. |
+| 03 / R03 | P1 | Replace signature-based whole-file adoption with explicit resource ownership. |
+| 04 / R04 | P1 | Restrict archive cleanup to tracked temporary files. |
+| 05 / R05 | P1 | Remove or remap stale subvolume IDs throughout recovery. |
+| 06 / R06 | P1 | Preserve snapshot-layout metadata and reconstruct required subvolumes. |
+| 07 / R07 | P1 | Run the cloud recovery filesystem check on an unmounted target. |
+| 08 / R08 | P1 | Fix cloud recovery kernel metadata and archive selection. |
+| 09 / R09 | P1 | Make Borg recovery compatible with read-only storage. |
+| 10 / R10 | P1 | Escape systemd date specifiers in both cloud units. |
+| 11 / R11 | P1 | Model selected, attempted, failed, and configured layers separately. |
+| 12 / R12 | P1 | Reject incomplete or stale OS uploads instead of stamping success. |
+| 13 / R13 | P1 | Stop interpreting every Borg exit code 2 as a valid encrypted repository. |
+| 14 / R14 | P1 | Validate completed backups and missing/corrupt freshness state. |
+| 15 / R15 | P1 | Actually reload persisted retention settings before applying defaults. |
+| 16 / R16 | P1 | Propagate template and configuration write failures explicitly. |
+| 17 / R17 | P1 | Check physical disk ancestry, not only filesystem device IDs. |
+| 18 / R18 | P1 | Make fstab changes a single validated transaction. |
+| 19 / R19 | P1 | Make uninstall ownership-aware, complete, and retryable. |
+| 20 / R20 | P1 | Preserve a known-good cloud Borg generation during synchronization. |
+| 21 / R21 | P1 | Render values according to their actual shell/systemd/config context. |
+| 22 / R22 | P1 | Replace misleading integration coverage with executed production contracts. |
+| 23 / R23 | P2 | Select and retain snapshots by timestamp and generation, not full-name order. |
+| 24 / R24 | P2 | Terminate the uploader after signals and clean up child processes. |
+| 25 / R25 | P2 | Make CLI validation genuinely independent of dialog. |
+| 26 / R26 | P2 | Generate recovery instructions for Pika-only cloud configurations. |
+| 27 / R27 | P2 | Enforce supported platform/shell boundaries instead of silently falling back. |
+| 28 / R28 | P2 | Make persisted settings atomic, validated, and schema-driven. |
+| 29 / R29 | P3 | Correct stale interface and operational documentation. |
+| 30 / R30 | P3 | Reduce duplicated recovery logic, global coupling, and lifecycle hacks. |
+| 31 / R31 | P3 | Expand the lint/CI contract and document the development runtime. |
 
 ## Detailed findings
 
-### CR-001 — Uninstall can overwrite or delete `/etc/fstab` (**Critical**)
+### R01 — P0: Uninstall's emptiness safeguard can delete user data
 
-**Locations:** `lib/layer1_snapper.sh:115-130`, `lib/uninstall.sh:63-68`, `lib/uninstall.sh:77-118`
+**Evidence:** `lib/uninstall.sh:86–105`. **Confirmed.**
 
-When Layer 1 adds the managed `/.snapshots` entry, it records the whole `/etc/fstab` path in the generic manifest. Uninstall first removes the wizard's tagged blocks surgically, which is appropriate. It then reads the manifest and treats `/etc/fstab` like an ordinary generated file:
+The condition uses `btrfs subvolume list -o "$file" | grep -q .` to decide whether deletion is safe. That lists nested subvolumes, not ordinary files. A subvolume containing documents but no child subvolume passes the test and is deleted. A listing failure is also indistinguishable from an empty result. The comment claiming that only empty subvolumes are removed is incorrect. The harmless uninstall probe reproduced the deletion attempt against a fixture containing a payload file. Btrfs deletion is an operation on the subvolume and its contents, not an `rmdir`-style empty-directory safeguard. See the [Btrfs subvolume command documentation](https://btrfs.readthedocs.io/en/latest/btrfs-subvolume.html).
 
-1. `rm -f "$file"` removes the current `/etc/fstab`.
-2. The oldest `${file}.bak.*` is moved into place when available.
-3. If no matching backup remains, no restoration branch runs and the file stays absent.
+**Improve:** require recorded ownership, inspect ordinary contents and nested subvolumes separately, and refuse deletion when inventory fails. Preserve nonempty resources by default; deleting backup data needs a separate, explicit request. Inspect before invoking related destructive Snapper cleanup too.
 
-Even in the normal case, restoring the oldest pre-wizard copy discards any legitimate mounts or edits added after the wizard was installed. That contradicts the documented safe/idempotent uninstall behavior and can make the next boot fail or mount the wrong filesystems.
+**Acceptance:** exercise the actual uninstall function with empty, ordinary-file, nested-subvolume, unowned, and unreadable targets. Only a proven empty, wizard-owned target is automatically deleted.
 
-**Required fix:** never put shared files such as `/etc/fstab` in the deletion manifest. Track only the owned BEGIN/END block and remove that block atomically from the current file. Add an explicit denylist in the generic removal loop for shared system/user files so a future caller cannot repeat the mistake. Before replacement, validate with `findmnt --verify`, preserve mode/owner, and leave the current file untouched on failure.
+### R02 — P0: Snapper setup destroys preexisting resources and its confirmation can crash
 
-**Required test:** create a fixture containing pre-wizard lines, both managed blocks, and a post-install user line. Uninstall must remove only the managed blocks and preserve every other byte. A second test should run without any `.bak` files and prove `/etc/fstab` is never removed.
+**Evidence:** `lib/layer1_snapper.sh:31–56`; `lib/ui.sh:163–167`. **Confirmed.**
 
-### CR-002 — Persisted settings override an explicit `--validate` layer subset and current detection (**High**)
+Setup unmounts an existing snapshot mount, then recursively deletes a preexisting snapshot subvolume. The confirmation is conditional on nested subvolumes, so ordinary contents receive no equivalent protection. A failed nested-subvolume listing can fall through to deletion. In the nested case, `ui_confirm_destructive "Nested snapshots detected"` omits the mandatory second argument; under `set -u`, the UI function exits with `$2: unbound variable`. The safe probe reproduced this exit. Disabling `errexit` in the layer runner does not disable `nounset`.
 
-**Locations:** `wizard.sh:755-767`, `lib/validate.sh:10-13`, `lib/common.sh:154-159`
+**Improve:** adopt or migrate existing Snapper layouts without deleting their contents. Establish ownership and obtain a fully described confirmation before any unmount or destructive action. Treat failed inventory as an error; do not use lazy unmount as a routine migration shortcut. Pass both UI arguments and validate wrapper arity.
 
-The CLI correctly assigns `SELECTED_LAYERS` from `--validate 1,3,4` and assigns the currently detected backup mount immediately before calling `run_validation`. The first action inside `run_validation`, however, is `load_settings`, which sources assignments for `SELECTED_LAYERS`, `BACKUP_MOUNT`, `BACKUP_UUID`, and other values from the previous setup.
+**Acceptance:** preserve ordinary files and existing snapshots in supported preconfigured CachyOS layouts; cancellation and detection failures leave the original mount/configuration intact; a populated layout opens a valid confirmation instead of terminating the wizard.
 
-Consequences:
+### R03 — P1: A signature comment is wrongly treated as ownership of an entire file
 
-- `./wizard.sh --validate 5` can validate the previously selected layers instead of Layer 5.
-- a stale saved backup mount can replace the mount found by the current detection pass;
-- the dashboard and exit status no longer correspond to the command the operator ran.
+**Evidence:** `lib/common.sh:178–205`; `lib/uninstall.sh:109–138,168–176`; `lib/runbooks.sh:222–225,244–247,270–273`. **Confirmed; adoption is newly introduced in the reviewed change range.**
 
-The existing validation tests do not expose this because their settings files normally omit `SELECTED_LAYERS` and `BACKUP_MOUNT`.
+Although `backup_file` identifies shared files, its signature branch records the whole file in the deletion manifest before considering that distinction. Any `.bashrc` containing the wizard hook is adopted. On uninstall, generic restoration can replace the entire current file with an older backup, discarding subsequent user edits. Moreover, shell-hook cleanup calls `backup_file` after deleting the manifest, recreating ownership records during uninstall and making a later uninstall hazardous.
 
-**Required fix:** load persisted settings before applying CLI/detection overrides, not inside the validation function. Alternatively, make `load_settings` populate only unset variables and pass the requested layer set explicitly to `run_validation`. Add a regression test whose settings file selects `1,2,3` while the caller requests only `5`.
+The same adoption mechanism records regenerated recovery runbooks. Uninstall can then delete or revert those documents despite promising to preserve them. A signature is also not reliable provenance: an unrelated file mentioning the project name qualifies.
 
-### CR-003 — Layer 4 is configured after failed Layer 2/3 setup (**High**)
+**Improve:** use typed ownership records: generated file, managed block in shared file, preserved recovery document, directory, subvolume, and unit. Never adopt shared files or runbooks into a whole-file deletion list. Make backup creation independent of ownership registration, especially during uninstall. Record ownership only after the authorized mutation succeeds.
 
-**Locations:** `wizard.sh:813-840`, `lib/layer3_pika.sh:198-241`, `lib/layer4_cloud.sh:31-55`, `lib/layer4_cloud.sh:229-271`, `lib/layer4_cloud.sh:362-407`
+**Acceptance:** repeated setup/uninstall preserves unrelated shell edits and current runbooks, does not recreate a deletion manifest, and does not acquire ownership from a mere project-name comment.
 
-The new `CONFIGURED_LAYERS` tracking is used for runbook generation, but Layer 4 still decides what to install from `layer_selected`. Therefore:
+### R04 — P1: Broad archive cleanup contradicts the backup-preservation promise
 
-- if Layer 2 fails, Layer 4 can still generate an OS upload script for snapshots that are not being produced;
-- if Layer 3 fails, Layer 4 can still install and enable a Pika cloud service for a repository that is absent;
-- Layer 3 itself returns success after detecting that the Borg repository is uninitialized, so it is added to `CONFIGURED_LAYERS` despite the warning and despite comments saying it is not configured.
+**Evidence:** `templates/os-cloud-backup.sh:25–26`; `lib/uninstall.sh:151–154,195–199`. **Confirmed.**
 
-The post-setup validator may later flag some symptoms, but by then the wizard has already written and enabled dependent jobs and displayed Layer 4's success message.
+The uploader deletes all `*.btrfs.zst*` files in the shared OS backup directory before starting. Uninstall also deletes all matching compressed/encrypted streams there. Neither distinguishes a temporary interrupted upload from an intentionally retained recovery artifact. The glob alone cannot prove that data is disposable.
 
-**Required fix:** make Layer 3 return non-zero until the repository markers and acceptable Borg result are present. Before each Layer 4 branch, require the corresponding prerequisite with `layer_configured`, not `layer_selected`; Layer 4 may proceed with the other independently configured source. Add fault-injection tests for failed Layer 2, uninitialized Layer 3, and one-good/one-bad mixed selection.
+**Improve:** use a private, per-run spool directory with an explicit temporary-file ledger. Clean only files created by that run or verified abandoned spools. Keep backup artifacts outside generic configuration uninstall.
 
-### CR-004 — Cloud recovery uses current encryption state instead of archive format (**High**)
+**Acceptance:** unrelated streams, manually retained archives, and active-run artifacts survive setup/uninstall; only owned abandoned temporary artifacts are cleaned.
 
-**Locations:** `lib/runbooks.sh:118-142`, `templates/os-cloud-backup.sh:76-83`
+### R05 — P1: Recovery reuses subvolume IDs that no longer identify the restored root
 
-The uploader intentionally retains both `.btrfs.zst` and `.btrfs.zst.age` names, which allows a user to change the optional Age setting on a later wizard run. The generated recovery script also lists both formats, but it builds one fixed pipeline from the current `LAYER4_ENCRYPT` value:
+**Evidence:** `lib/runbooks.sh:63–65`; `templates/rollback-runbook.txt:384`; `templates/bare-metal-runbook.txt:215–223`; `templates/cloud-recovery-runbook.txt:279–284`. **Confirmed; failure depends on the source mount/fstab containing IDs.**
 
-- current setting `true`: every selected archive is passed through `age -d`;
-- current setting `false`: every selected archive goes directly to `zstdcat`.
+The mount-options sanitizer removes `subvol=` but retains `subvolid=`. The generator probe produced `rw,subvolid=256`; rollback then adds `subvol=@` for a newly created snapshot with a different ID. Btrfs requires both options to identify the same subvolume. Separately, bare-metal/cloud recovery replaces filesystem UUIDs in the copied fstab but leaves old subvolume IDs unchanged. The result can fail mounting or booting after an otherwise successful restore. See the [Btrfs mount-option contract](https://btrfs.readthedocs.io/en/latest/btrfs-man5.html).
 
-Immediately after changing the setting—and until a new backup of every subvolume completes—the newest available archive may use the opposite format. A disaster during that interval yields a runbook that cannot restore the backups that actually exist. Partial uploads make the mismatch possible per subvolume as well.
+**Improve:** strip both source identity options from reusable mount options. Rewrite all restored Btrfs fstab entries to verified destination paths or newly discovered IDs, including rollback. Audit boot entries for the same assumption.
 
-**Required fix:** select the pipeline from each `$ARCHIVE` suffix at recovery time: decrypt only `*.age`, and reject unknown extensions. Keep the private-key step conditional on whether any selected archive is encrypted. Add mixed-history tests covering encrypted-only, unencrypted-only, and a mix across subvolumes.
+**Acceptance:** restore and boot a source using both `subvol` and `subvolid`, with deliberately different destination IDs; every mounted path resolves to the intended destination subvolume.
 
-### CR-005 — Validation can report Pika cloud sync healthy while scheduled runs fail (**High**)
+### R06 — P1: Snapshot layout detection consumes metadata that detection deliberately removes
 
-**Locations:** `lib/validate.sh:328-345`, `lib/layer4_cloud.sh:358-407`, `templates/pika-cloud-sync.service:15-34`, `templates/pika-cloud-sync-stale-check.service:1-12`, `templates/pika-cloud-sync-stale-check.timer:1-11`
+**Evidence:** `lib/detect.sh:110–118`; `lib/runbooks.sh:202–209`; snapshot placeholder sections in both bare-metal/cloud runbooks. **Confirmed.**
 
-For the Pika branch, Layer 4 validation checks only that the main service/timer files exist and that the timer is enabled and active. A systemd timer remains active when its triggered service fails, so bad credentials, a missing remote directory, snapshot failures, and repeated `rclone` failures can all still produce `Layer 4 ... OK`.
+Detection excludes `@snapshots` and `.snapshots` from the backed-up subvolume list. Runbook generation later searches that same list for `@snapshots`/`@.snapshots`, so those branches cannot represent the normal detected layout. It falls back to a nested root path. Recovery creates directories rather than reconstructing a separate top-level snapshot subvolume, while the restored fstab can still require that missing top-level subvolume.
 
-The repository contains stale-check service/timer templates, but setup never renders, installs, enables, validates, or uninstalls them. As a result, `/var/lib/pika-cloud-sync/state` can remain old indefinitely with no health failure or alert. This is especially serious for a Pika-only Layer 4 setup because no OS backup script exists to provide the separate rclone connectivity check.
+**Improve:** maintain separate inventories for backup-eligible data and complete mount/layout metadata. Persist the actual Snapper layout, recreate required empty subvolumes, and reconcile restored fstab entries. Do not make recovery topology depend on whether a resource's contents are backed up.
 
-**Required fix:** validate the last `pika-cloud-sync.service` result and a bounded-age success marker, and test the configured Pika destination as the target user. Either fully manage the stale-check units or remove the dead templates and replace them with an explicit check in validation. Add tests for a timer that is active while the service's last result is failed.
+**Acceptance:** recover and boot nested, `@snapshots`, and `@.snapshots` layouts using real detection output, not hand-built lists that include otherwise filtered entries.
 
-### CR-006 — The Layer 2 + Layer 4 runbook always includes a Pika restore workflow (**Medium**)
+### R07 — P1: Cloud recovery checks the filesystem while it is still mounted
 
-**Locations:** `lib/runbooks.sh:250-283`, `templates/cloud-recovery-runbook.txt:401-483`, `lib/layer4_cloud.sh:246-263`
+**Evidence:** `templates/cloud-recovery-runbook.txt:141,203–206,235`. **Confirmed.**
 
-A cloud recovery runbook is generated when Layer 2 and Layer 4 are configured; Layer 3 is not part of the condition. The template nevertheless always instructs the operator to mount and restore a cloud Borg repository. On a valid OS-only selection (`2,4`), `CLOUD_PIKA_DIR` can be empty, a default that was never configured, or a stale value loaded from an older run.
+The target is mounted for receiving data; `btrfs check --readonly` runs before the later unmount. Without `--force`, the checker refuses a mounted filesystem, causing this runbook's fatal branch on a normal restore. `--readonly` is not permission to check a mounted filesystem. See the [Btrfs checker documentation](https://btrfs.readthedocs.io/en/latest/btrfs-check.html).
 
-In a disaster this sends the operator into a failing or unrelated recovery step and undermines confidence in the rest of the runbook.
+**Improve:** finish writes, sync, unmount all target mounts, run the read-only check, then remount for the next phase. Do not simply add `--force` to a live writable target.
 
-**Required fix:** render the Pika section only when Layers 3 and 4 are configured and `CLOUD_PIKA_DIR` is non-empty. For home-only cloud setups, provide a focused Pika recovery runbook rather than requiring Layer 2.
+**Acceptance:** execute this sequence against a disposable Btrfs filesystem and reach the subsequent recovery step without bypassing the integrity gate.
 
-### CR-007 — Accepted backup paths containing spaces break systemd dependencies (**Medium**)
+### R08 — P1: Cloud recovery drops detected kernel metadata and ignores the selected archive
 
-**Locations:** `wizard.sh:431-483`, `wizard.sh:489`, `lib/layer2_btrbk.sh:242-251`, `lib/layer4_cloud.sh:365-368`, `templates/pika-cloud-sync.service:1-6`
+**Evidence:** `lib/runbooks.sh:70–76`; `templates/bare-metal-runbook.txt:242`; `templates/cloud-recovery-runbook.txt:313–325,398–415`. **Confirmed.**
 
-Mount-point validation permits spaces and the wizard computes `SYSTEMD_BACKUP_MOUNT` with `\x20` escaping. Neither generated unit uses that escaped value:
+The generator discovers and exports the kernel/microcode package list, and the local runbook renders it. The cloud runbook instead exports `${KERNEL_PKGS:-}` and exits when empty. On fresh recovery media, following the executable commands requires a manual metadata repair rather than using information already available when the document was generated. The suggested pacman-log grep is also not a dependable installed-package inventory.
 
-- the btrbk override emits `RequiresMountsFor=$backup_mount`;
-- the Pika unit emits `RequiresMountsFor={{BACKUP_MOUNT}}`.
+More decisively, the runbook requires `ARCHIVE_NAME` to be set but invokes Borg with the literal `"$REPO_PATH::<ARCHIVE_NAME>"`. Setting the instructed variable does not select the archive for extraction.
 
-systemd parses whitespace-separated paths in `RequiresMountsFor`, so a mount such as `/mnt/Backup Drive` becomes multiple invalid/wrong dependencies. Interactive setup accepts this path, fstab correctly escapes it, and later scheduled jobs can fail or start without the intended mount ordering.
+**Improve:** render the detected package list into the cloud recovery environment, with an explicit supported-kernel inventory and recovery override. Replace the quoted archive placeholder with the validated selection variable. Check all generated instructions for placeholders that disagree with surrounding variable checks.
 
-**Required fix:** use one systemd-escaped mount variable consistently in every unit, or reject whitespace at input. Validate rendered units with `systemd-analyze verify` in Linux CI and add a mount-with-spaces fixture.
+**Acceptance:** a fresh recovery shell receives a nonempty correct package list; selecting an existing archive reaches extraction without editing command literals. Test custom supported kernel variants and microcode.
 
-### CR-008 — The Pika timer performs two weekly full sync scans (**Medium**, performance)
+### R09 — P1: Borg cannot acquire its normal lock on the prescribed read-only cloud mount
 
-**Locations:** `templates/pika-cloud-sync.timer:17-31`, `templates/pika-cloud-sync.service:21-27`
+**Evidence:** `templates/cloud-recovery-runbook.txt:365,396,405,414`. **Confirmed.**
 
-The timer fires Monday at both 00:00 and 06:00 UTC. Its comment says the second run is an idempotent safety retry because the service checks its last-success marker. The service contains no such guard; it always snapshots the backup volume and runs `rclone sync --checksum`.
+Rclone mounts the repository read-only, but Borg list/check/extract use normal repository locking. Borg requires lock bypass for genuinely read-only repository storage. Adding bypass blindly is unsafe because the repository is also a mutable synchronization destination. The [Borg common-options documentation](https://borgbackup.readthedocs.io/en/stable/usage/general.html) explicitly requires excluding concurrent writers when bypassing locks.
 
-After a successful first run, the second schedule repeats a complete local/remote checksum scan a few hours later. Large Borg repositories can contain many chunk files, so the redundant pass consumes disk I/O, cloud API calls, CPU, and network metadata operations even when no data changed.
+**Improve:** preferably restore a completed generation to writable local storage and use ordinary locks. If read-only recovery is retained, pin an immutable generation and use the appropriate read-only/Borg options for the supported version; exclude writers for the entire recovery.
 
-**Required fix:** add a start guard that exits successfully when the state timestamp is already from the current weekly window, or use one calendar trigger and let systemd retry failures explicitly. Ensure the success marker is written only after a verified sync.
+**Acceptance:** list, verify, and extract from the documented mount with an encrypted test repository; concurrent publication cannot change the selected generation.
 
-### CR-009 — Retention lists the same remote directory once per subvolume (**Low**, performance)
+### R10 — P1: Systemd expands `date +%s` as a unit specifier
 
-**Locations:** `templates/os-cloud-backup.sh:28-84`, especially `templates/os-cloud-backup.sh:78`
+**Evidence:** `templates/pika-cloud-sync.service:29`; `templates/pika-cloud-sync-stale-check.service:9`. **Confirmed by upstream syntax; not executed under systemd on this host.**
 
-Each subvolume upload calls `rclone lsf` for the same cloud directory, then filters the complete result for that subvolume. A typical multi-subvolume layout therefore performs the same remote listing six or seven times per backup. Cloud remotes can make directory listing latency and API quotas significant.
+Both Exec commands contain an unescaped `%s`. Systemd interprets it as the service manager user's shell, even inside the quoted shell command. The success timestamp therefore is not the intended epoch; the stale check's arithmetic also receives an invalid value. ShellCheck of standalone scripts cannot detect this template-language defect. See [systemd's specifier definition](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.unit.xml).
 
-**Suggested fix:** fetch the listing once before the loop, update the in-memory list after a successful upload/delete, and filter it per prefix. Keep pruning after verified upload so performance work does not weaken retention safety.
+**Improve:** use `%%s` in unit command text, or move the logic into a separately linted executable where `date +%s` has normal shell meaning. Make invalid timestamp output a failure, not healthy state.
 
-### CR-010 — Critical contracts have no automated coverage (**Medium**, code quality)
+**Acceptance:** run both rendered units under systemd; the success state contains a numeric epoch, and an expired epoch causes a retry/alert. Include a rendered-unit verification gate.
 
-**Locations:** `tests/`, `.github/workflows/lint.yml`, `Makefile`
+### R11 — P1: Empty configured state means both “nothing succeeded” and “use selected layers”
 
-CI now correctly runs `make all`, and ShellCheck covers executable templates. However, the 37 tests still do not execute the most failure-prone workflows:
+**Evidence:** `lib/common.sh:71–83`; `wizard.sh:824–859`; `lib/validate.sh:112–114`. **Confirmed.**
 
-- no test calls `setup_layer2`, `setup_layer3`, `setup_layer4`, or `run_uninstall`;
-- no test renders and semantically verifies the Pika systemd units;
-- no test covers configured-vs-selected dependency failures;
-- no test covers settings precedence for `--validate`;
-- no test covers encryption-mode migration or mixed archive suffixes;
-- the new distro-specific tests hard-code detected distro/bootloader values and only assert runbook text, so they do not test distro detection or installation integration.
+`layer_configured` falls back to selected layers when the configured array is empty. That is also the valid runtime state after all earlier setup attempts failed. A downstream layer can therefore accept a failed prerequisite. The probe showed Layer 2 accepted with selected layers `(2 4)` and no successes, but rejected when unrelated Layer 1 had succeeded. Dependency truth must not depend on an unrelated success.
 
-This is why the functional defects above coexist with a green Linux CI design.
+Conversely, post-setup Layer 2 validation is gated on configured rather than selected/attempted state, so a failed selected Layer 2 can be skipped when another layer succeeded. Setup errors are logged but not accumulated into a durable outcome model.
 
-**Required fix:** add contract-level tests around generated artifacts and state transitions, then run destructive-path integration tests only in a disposable Arch VM/container with synthetic mounts. Test names should distinguish runbook rendering fixtures from true distro integration tests.
+**Improve:** represent requested, attempted, configured, and failed states separately; distinguish standalone validation explicitly rather than through array emptiness. Block downstream setup on real prerequisite outcomes, validate every requested layer, and return failure if any required setup failed.
 
-### CR-011 — Repository hygiene and documentation drift (**Low**, code quality)
+**Acceptance:** cover every prerequisite failure combination, including zero successes and an unrelated success; failed selected layers remain visible and make the overall outcome unsuccessful.
 
-**Locations:** `README.md:24-28`, `README.md:228-237`, `INTERFACE_MAP.md:39-82`, new distro test files
+### R12 — P1: A partial OS upload is reported as a complete, fresh recovery copy
 
-`git diff --check` reports trailing whitespace in the README and new CachyOS/EndeavourOS tests. The README still says there are 27 tests although there are 37. `INTERFACE_MAP.md` documents nonexistent helpers such as `track_file` and `substitute_template`, an outdated manifest name, and stale-check units that are not installed.
+**Evidence:** `templates/os-cloud-backup.sh:28–43,75–105,115–117`. **Confirmed.**
 
-**Suggested fix:** make `git diff --check` a CI step, update generated/manual counts, and either maintain `INTERFACE_MAP.md` as part of interface-changing commits or replace duplicated details with links to the authoritative code.
+Missing snapshots are warnings and skipped. Success only requires `uploaded_count > 0`, so home alone can upload while the root snapshot is absent, followed by “Your OS clone is safe” and the nag-suppression stamp. Snapshot age and a complete generation are not checked. Pruning even runs before the zero-upload failure check.
 
-### CR-012 — Recovery silently creates empty subvolumes for any missing non-root snapshot (**High**)
+**Improve:** verify the expected mounted backup UUID, require root plus every declared required subvolume, enforce freshness, and publish a completed generation manifest only after all objects pass verification. Stamp success and prune only after that complete generation is recoverable. Distinguish optional omissions from failure explicitly.
 
-**Locations:** `lib/runbooks.sh:102-110`, `lib/runbooks.sh:149-156`
+**Acceptance:** missing root, one missing required subvolume, stale input, wrong/unmounted backup target, and a failed transfer all return failure and do not update freshness or retire the last complete generation.
 
-The generated bare-metal and cloud restore scripts fail when the root archive is missing, but for every other detected subvolume they print a warning and create an empty subvolume. The detector includes mounted data-bearing subvolumes such as `@home`, `@var`, and `@srv`; none are marked optional. If one archive is missing, mistitled, or fails to match while the root archive exists, the operator receives a successful script completion with that subvolume's data absent. The post-restore checks focus on root contents and do not detect an empty restored `@home`.
+### R13 — P1: Generic Borg failures are mislabeled as repository verification
 
-**Required fix:** preserve an explicit required/optional classification, default data-bearing detected subvolumes to required, and stop recovery on a missing required archive. Only create empty subvolumes when the operator explicitly marks them optional. Add a test with a valid root archive and missing `@home` archive that must fail before printing success.
+**Evidence:** `lib/layer3_pika.sh:210–221`; `lib/validate.sh:206–220`. **Confirmed.**
 
-### CR-013 — Layer 1 recursively deletes an existing Snapper subvolume without ownership proof (**Critical**)
+The code assumes Borg exit code 2 means “passphrase required.” In legacy exit-code mode it means generic fatal error, including permission, locking, corruption, or other exceptions. Directory markers plus any exit 2 are accepted as verified. Setup additionally accepts timeout 124 and prints “repository verified,” whereas validation rejects that timeout. See [Borg return codes](https://borgbackup.readthedocs.io/en/stable/usage/general.html).
 
-**Locations:** `lib/layer1_snapper.sh:31-61`, especially `lib/layer1_snapper.sh:45-50`
+**Improve:** identify authentication-required outcomes specifically for the supported Borg version, retain diagnostics, and report locked/unverified repositories as unknown or blocked rather than verified. Do not claim schedule or archive success from GUI confirmation and directory markers.
 
-When no `/etc/snapper/configs/root` exists, setup unmounts `/.snapshots` and then treats any Btrfs subvolume at that path as disposable: `btrfs subvolume delete -R "$SNAP_DIR"`. The recursive form removes nested subvolumes as well. There is no manifest/ownership check, snapshot inventory, backup, confirmation explaining that existing snapshots will be destroyed, or recovery path.
+**Acceptance:** authentication needed, incorrect credentials, permission denied, repository corruption, lock contention, timeout, and success produce distinct truthful results. Only an actual successful verification is labeled verified.
 
-`/.snapshots` can be an administrator-created snapshot store, an orphaned configuration after a prior Snapper cleanup, or a mount layout that does not use the later-detected top-level `@snapshots`/`@.snapshots` convention. The absence of one Snapper config file does not establish ownership of its data. In that case, selecting Layer 1 can permanently destroy existing rollback snapshots before the new configuration has even been created.
+### R14 — P1: Health checks can be green without any completed backup
 
-**Required fix:** never recursively delete a pre-existing subvolume automatically. First identify a compatible existing Snapper layout and adopt it without deletion; otherwise stop and require an explicit, separately worded destructive confirmation after showing the subvolume and nested-snapshot inventory. Prefer moving only wizard-created state tracked in a manifest. Add a regression fixture with an unowned `/.snapshots` subvolume containing nested snapshots and assert setup leaves it intact.
+**Evidence:** `lib/validate.sh:129–138,317–354`; `templates/pika-cloud-sync-stale-check.service:5`. **Confirmed omissions.**
 
-### CR-014 — Reused backup drives can mask failed setup mutations (**High**)
+Layer 4 ignores a missing, malformed, empty, or future-dated success timestamp. It only recognizes a literal `ActiveState=failed`, which is insufficient for a retrying service. It checks the main timer but not whether the stale-check service exists or its timer is enabled/active. The stale-check unit's condition excludes missing state entirely, so a configuration that never succeeded is not covered by that guard.
 
-**Locations:** `wizard.sh:245-263`, `wizard.sh:539-595`, `lib/common.sh:165-196`
+Layer 2 largely checks configuration/timer presence and dry-run validity, not the last successful backup or freshness/completeness of received targets. Layer 5 validation likewise needs to prove the expected mounted filesystem rather than just a directory's existence.
 
-The existing-drive path invokes `_ensure_backup_mounted || return 1`. In Bash, commands inside a function called as part of an `||` list are exempt from `set -e`; the function must therefore check every fallible operation itself. It does not check `mkdir`, `awk` while creating the cleaned `/etc/fstab`, `cp /etc/fstab`, either `mv -T` replacement, `chmod`, or the standard backup-directory `mkdir` calls. It ends with `log_info`, which returns zero, so a failed unchecked command can be followed by a successful return and “Backup mount ready” log.
+**Improve:** define freshness and completion invariants per layer. Validate systemd Result/last execution plus a trustworthy success record, required target data, expected UUID, first-run grace period, and auxiliary timer health. Unknown or invalid state must not silently pass.
 
-This is especially dangerous around `/etc/fstab`: `backup_file` itself does not propagate a failed `cp -p`, and a failed copy/replace can leave the current configuration unmodified, incomplete, or unbacked while the wizard continues to enable jobs that assume the mount and directory tree are ready.
+**Acceptance:** timers enabled but never successful, auto-restarting failures, missing/corrupt/future state, stale received snapshots, and missing auxiliary units all produce actionable non-green results.
 
-**Required fix:** make `_ensure_backup_mounted` explicitly check and propagate every mutation, using a temporary file plus `findmnt --verify` before a checked atomic replacement. Make `backup_file` fail when its copy fails. Avoid calling a complex mutating function in an `&&`/`||` context, or retain its strict error semantics deliberately. Add fault-injection tests for unwritable mount paths, failed backup copies, failed temporary-file creation, and failed `/etc/fstab` replacement; each must return non-zero without reporting the drive configured.
+### R15 — P1: Persisted retention is shadowed by startup defaults
 
-## Recommended remediation order
+**Evidence:** `lib/common.sh:25–31,158–168`; `wizard.sh:14–27`; `tests/test_common.sh:183–200`. **Confirmed; newly introduced retention/persistence integration defect.**
 
-1. Make `/etc/fstab` uninstall block-only and add a destructive-path regression test (CR-001).
-2. Establish state precedence: saved defaults, then current detection, then explicit CLI overrides (CR-002).
-3. Make layer success truthful and gate Layer 4 branches on successfully configured prerequisites (CR-003).
-4. Make cloud recovery select decryption by archive suffix and test mixed histories (CR-004).
-5. Make Pika cloud health observable from last service result, destination access, and success age (CR-005).
-6. Correct conditional runbook content and systemd path escaping (CR-006, CR-007).
-7. Remove redundant cloud scans and put all cross-module contracts into CI (CR-008 through CR-011).
-8. Fail closed when a data-bearing non-root subvolume is missing during recovery (CR-012).
-9. Protect existing Snapper state and make backup-drive setup fail closed on every mutation (CR-013, CR-014).
+Common-library initialization assigns every retention variable before `load_settings`. The loader skips any variable already set, so saved custom retention never overrides those defaults in a fresh ordinary process. The test explicitly unsets the variables before loading, bypassing the actual startup sequence. A saved longer policy can consequently be replaced with shorter defaults and subsequently persisted again.
 
-## Positive observations worth preserving
+**Improve:** load saved settings before applying fallback defaults; distinguish explicit environment/CLI overrides from internally assigned defaults. Validate retention values and make precedence an explicit documented contract.
 
-- `subvolume_to_snapshot_name` now gives btrbk, upload, and recovery code one naming contract, with backward-compatible lookup.
-- Recovery fails closed when the required root snapshot/archive is missing.
-- Template rendering rejects unset placeholders rather than silently producing empty critical commands.
-- Optional Age encryption is recorded in persistent settings, and the key-escrow warning is appropriately prominent.
-- Cloud upload now verifies remote size before local cleanup and applies bounded retention.
-- The Pika service has finite systemd/rclone timeouts and cleanup hooks for both success and failure.
-- Layer setup continues after an isolated failure while recording configured layers for later runbook decisions; CR-003 is about completing that design, not discarding it.
-- CI now runs both ShellCheck and the shell test suite.
+**Acceptance:** launch a fresh process with no retention environment variables and saved nondefault values; generated local/cloud policies match those saved values. Test explicit overrides and invalid/zero/negative cloud retention separately.
 
-## Verification performed
+### R16 — P1: Template installation can report success after a failed write
 
-- `make check` — passed with the locally installed ShellCheck.
-- `make all` — lint passed; tests stopped at `tests/test_cachyos.sh` because the development host provides Bash 3.2, which cannot parse the Bash 4.2+ `[[ -v ... ]]` used by `lib/common.sh`. The project documents Arch Linux as its runtime target, so this is recorded as an environment limitation rather than a production defect.
-- `git diff --check 00fedec^..HEAD` — failed on trailing whitespace in `README.md`, `tests/test_cachyos.sh`, and `tests/test_endeavouros.sh`.
-- Static producer/consumer tracing of settings precedence, configured-layer state, btrbk snapshot names, archive suffixes, rclone destinations, Pika repository paths, systemd schedules/state, recovery runbooks, manifests, and uninstall restoration.
-- Read-only inspection only: no partitions, mounts, packages, system services, cloud remotes, or backup data were modified.
+**Evidence:** `lib/common.sh:220–280`; `wizard.sh:829–832`; `lib/runbooks.sh:225–229,247–255,273–280`. **Confirmed.**
 
-`systemd-analyze verify` and end-to-end backup/restore testing were not available on this non-systemd macOS host. Final release validation still requires a disposable Arch VM with source/backup BTRFS filesystems and a test rclone remote.
+`template_render` does not explicitly check the final printf, chmod, or rename. It then logs success and can return success through its later commands. Layers run with `set +e`, and commands inside conditional function calls cannot safely rely on `errexit` either. The resulting configuration may be missing, stale, or partially rendered while subsequent setup continues. Runbook callers also announce generation without consistently checking renderer success.
+
+Early renderer returns do not restore the changed shell option; failed temporary files are not consistently cleaned. The backup helper records original/adopted ownership before the backup operation and authorization have fully succeeded.
+
+**Improve:** check every critical operation, propagate the original failure, restore process state on every exit, and clean only owned temporary files. Validate the rendered artifact before replacement; register ownership and announce success only after installation succeeds.
+
+**Acceptance:** inject full-disk, write, chmod, rename, missing-variable, and invalid-output failures. The old output remains usable, the function returns nonzero, no success is logged, and shell options/ownership state are unchanged.
+
+### R17 — P1: Different filesystem device IDs do not prove independent physical disks
+
+**Evidence:** `lib/layer2_btrbk.sh:62–80`; `lib/detect.sh:297–305`; candidate ancestry checks in `wizard.sh:283–305,336–358`. **Confirmed logical gap.**
+
+Layer 2 claims to enforce different physical devices using `stat -c %d`. Different partitions/filesystems on the same disk have different filesystem device IDs, yet share the failure domain. Existing backup discovery compares exact device nodes against system devices rather than consistently applying the parent/leaf ancestry check used by the new-drive selection paths. A preexisting sibling partition can therefore evade the physical-separation promise.
+
+**Improve:** resolve all physical backing devices for source and target, including multi-device Btrfs, LVM, dm-crypt, and aliases; reject intersecting leaf-device sets. Use one shared guard for both discovered and newly selected backup targets. Treat unresolved topology as unknown, not proven safe.
+
+**Acceptance:** sibling partitions are rejected; separate disks accepted; stacked and multi-device layouts are evaluated accurately; missing topology never produces a physical-independence claim.
+
+### R18 — P1: Fstab replacement is not one validated transaction
+
+**Evidence:** `wizard.sh:551–579`; `lib/uninstall.sh:64–69`. **Confirmed.**
+
+Replacing a stale backup entry first commits a cleaned fstab, then constructs and verifies the final replacement. A later failure leaves the original entry removed. Uninstall proceeds with in-place edits even after backup creation fails and suppresses edit failures while logging removal. Individual atomic renames do not make a multi-stage operation transactional.
+
+**Improve:** construct the complete intended fstab once, validate it, create a verified backup, and perform one checked replacement. On cancellation or failure, leave the original untouched. Do not rewrite shared system configuration after a failed required backup.
+
+**Acceptance:** fault-inject each stage of stale-entry replacement and uninstall; every failed operation preserves the original fstab byte-for-byte, including unrelated entries and managed-block boundaries.
+
+### R19 — P1: Uninstall disables unowned services, misses auxiliary timers, and discards retry state
+
+**Evidence:** `lib/uninstall.sh:40–53,102–140,157–158,194–203`. **Confirmed.**
+
+Snapper/btrbk/Limine services are disabled unconditionally, even if they predated the wizard or the manifest is absent. Restoring an original configuration does not restore its previous enabled/active state. The cloud stale-check timer is not disabled before its files are removed. Many cleanup failures are suppressed, the ownership manifests are deleted anyway, and the function always reports success, making a partial uninstall difficult to resume safely.
+
+**Improve:** record prior unit states and manage only owned changes. Stop all owned main and auxiliary units before deleting files; restore prior states when restoring configuration. Retain failed-resource records, aggregate errors, and report partial completion honestly.
+
+**Acceptance:** uninstall with no manifest leaves unrelated services alone; preexisting enabled services retain their prior state; all owned timers stop; failed removals/restorations leave a retryable ledger and a nonzero result.
+
+### R20 — P1: The only cloud Borg copy is updated in place without a recovery publication boundary
+
+**Evidence:** `templates/pika-cloud-sync.service:20–34`. **Inferred architectural risk; no repository corruption was induced.**
+
+A read-only local snapshot stabilizes the source, but `rclone sync` mutates a single destination tree. An interrupted transfer can leave files from different repository generations without a marker identifying a verified recoverable generation. Local snapshot cleanup also runs on failure. The delete limit is not a transaction or a backup-history policy. Rclone documents destination updates and deletion behavior, not atomic publication of a whole repository; it also avoids deletion after errors, which does not undo files already updated. See the [rclone sync contract](https://rclone.org/commands/rclone_sync/).
+
+**Improve:** retain a previous verified generation using versioned destinations or suitable provider versioning, upload into a staging generation, verify repository recoverability, and publish a completion marker/pointer last. Define recovery behavior during an interrupted update and coordinate readers with publication.
+
+**Acceptance:** interrupt synchronization at multiple transfer stages; the documented recovery process still finds and extracts from the previous complete generation. Test provider-specific versioning and cleanup guarantees explicitly.
+
+### R21 — P1: Filename-based template escaping does not cover actual command contexts
+
+**Evidence:** `lib/common.sh:250–260`; `templates/pika-cloud-sync.service:19,23,27`; `lib/runbooks.sh:190–192`; `wizard.sh:450`. **Confirmed escaping gap; command execution is an inferred consequence for hostile values.**
+
+Shell-script outputs escape shell metacharacters, but service/config outputs only escape double quotes and text runbooks receive raw values. A mount path containing a dollar expansion or backticks can pass the mount-input filter and then be embedded inside `sh -c` in a privileged unit. Outer unit quoting does not protect it from the invoked shell. Generated recovery command blocks likewise interpolate path/subvolume values into executable double-quoted shell text without context-aware escaping. Configuration formats, unit arguments, and shell fragments do not share a quoting language.
+
+**Improve:** move privileged command sequences into separately tested scripts taking literal arguments; use explicit rendering functions for each remaining syntax context. Validate discovered as well as entered values. Do not use the output filename extension as the security model.
+
+**Acceptance:** render and execute harmless fixtures containing spaces, dollar signs, quotes, backticks, glob characters, and permitted punctuation. Paths remain literal; no substitution occurs. Test through systemd's parser, not only a direct shell.
+
+### R22 — P1: Tests and VM tooling do not establish the claimed recovery contracts
+
+**Evidence:** `tests/test_uninstall.sh:39–96`; `tests/test_common.sh:183–200`; `vm-test-cachyos/cidata/run_vm_tests.sh:240–284`; `Makefile`; `.github/workflows/lint.yml`. **Confirmed coverage defects; target suite execution remains unverified here.**
+
+Uninstall tests duplicate fragments of the algorithm rather than calling the production uninstall function, so they cannot catch its ordinary-file deletion or lifecycle bugs. The retention test avoids the real startup sequence. The VM Layer 4 path manually renders templates instead of running `setup_layer4`; required service variables such as `PIKA_BORG_REPO_REL` are established by that omitted setup. On rendering failure, the runner copies raw templates into unit files. Timer activation failure is ignored, and the final Layer 4 “rendered” result captures the later chown status rather than the aggregate contract.
+
+The VM harness exercises selected components, but does not prove an offsite upload followed by a documented fresh-disk restore and boot. Fixture identities and mocked setup must not be represented as proof of real supported-distribution integration.
+
+**Improve:** test production entry points with injectable paths/tools. Make every render/activation failure fail the harness; never install raw-placeholder fallback units. Add Linux integration tests executing rendered units and both encrypted/plain recovery paths, followed by a disposable CachyOS/Limine boot test. Keep mocked component tests clearly separate from end-to-end claims.
+
+**Acceptance:** each R01–R21 failure case gets a regression test; CI fails on missing template variables, failed units, incomplete uploads, and failed restore boot. Publish test logs and state exactly which real components ran.
+
+### R23 — P2: Lexical prefix sorting can choose older snapshots and retain the wrong archives
+
+**Evidence:** `templates/os-cloud-backup.sh:39,92`; lookup blocks in `lib/runbooks.sh:84–172`. **Confirmed by a safe ordering probe.**
+
+Hashed and legacy prefixes are intentionally accepted together, then full names are sorted in reverse. Prefix differences sort before dates: `@home_12345678.20260901T0000` wins over the newer `@home.20261001T0000`. Recovery and upload can select stale input; pruning can retain older hashed archives instead of newer legacy ones. Plain/encrypted variants of the same snapshot can also consume separate retention slots even when the policy is expressed as a number of OS clones.
+
+**Improve:** parse and validate timestamps, normalize the source identity, and select by date/generation with a deterministic tie-breaker. Define whether retention counts files, snapshots, or complete recoverable generations; validate the count before deleting anything.
+
+**Acceptance:** mixed legacy/hashed names, mixed encryption formats, duplicates, malformed dates, and equal timestamps select the newest valid generation and retain the intended number of recovery points.
+
+### R24 — P2: Signal traps clean up but allow upload execution to resume
+
+**Evidence:** `templates/os-cloud-backup.sh:17–18,22–23`. **Confirmed by a safe TERM probe.**
+
+The same cleanup-only handler is installed for EXIT, INT, TERM, and HUP. A trapped signal does not automatically terminate a shell; the probe printed a subsequent command after TERM. Real continuation depends on the interrupted command, but cleanup can occur while later pruning/stamping logic remains reachable. Killing the keepalive shell also does not explicitly account for all pipeline workers.
+
+**Improve:** keep idempotent cleanup on EXIT; have signal handlers terminate with the conventional nonzero status, stop/wait for owned children, and prevent publication/pruning after cancellation. Avoid interactive ERR prompts in any automated path.
+
+**Acceptance:** send INT/TERM/HUP during compression, transfer, and idle phases; no child survives, no success state is written, and no last-known-good generation is removed. Temporary artifacts are cleaned safely.
+
+### R25 — P2: CLI validation still fatally requires dialog
+
+**Evidence:** `wizard.sh:765–768`; `lib/ui.sh:11–16`; `lib/validate.sh` backend initialization. **Confirmed.**
+
+`detect_dialog ... || true` does not suppress `die`, because `die` exits the shell rather than returning a failed function status. On a headless or minimally provisioned system without dialog, CLI validation terminates before producing its health report. The later guard around displaying the dashboard does not solve startup dependency handling.
+
+**Improve:** keep noninteractive validation independent of UI initialization. Make backend discovery return a status; reserve fatal dependency checks for interactive workflows. Preserve meaningful validation exit status and machine-consumable output.
+
+**Acceptance:** real CLI invocation with no dialog, no TTY, missing configuration, and healthy/unhealthy fixtures prints results and returns the appropriate health status without opening a UI.
+
+### R26 — P2: Pika-only cloud setup has no corresponding generated recovery guide
+
+**Evidence:** `lib/runbooks.sh:263–265`; Layer 4's support for a configured Pika prerequisite. **Confirmed missing workflow.**
+
+Layers 3+4 can configure home-data cloud sync without Layer 2, but cloud recovery runbook generation requires Layer 2. The user gets an offsite backup path without the corresponding personalized archive discovery, credentials, read-only handling, and restore instructions. Validation does not require a dedicated guide for this combination.
+
+**Improve:** generate a focused Pika cloud recovery guide independently of OS cloning, including repository/generation location, Borg version, encryption key/passphrase prerequisites, and ownership restoration. Validate its existence for every applicable selection.
+
+**Acceptance:** selecting 3+4 without 2 generates and verifies a usable home-data restore guide; recovery works from a fresh environment with only the documented prerequisites.
+
+### R27 — P2: Supported scope and shell behavior are inconsistent
+
+**Evidence:** distro/bootloader warning paths in `lib/detect.sh`; `lib/layer4_cloud.sh:365–373`; Limine-only recovery templates. **Confirmed; zsh handling was removed in the reviewed change range.**
+
+The project now targets CachyOS with Limine, but unknown distro/bootloader detection still allows proceeding into Limine-specific recovery instructions. Separately, `bash | *` writes `.bashrc` for zsh and other shells. Removing a zsh branch as part of distro scope reduction is not equivalent to proving that all supported users run bash/fish; the nag hook can exist and validate while never being sourced by the user's actual shell.
+
+**Improve:** enforce prerequisites for the features that require them, or clearly label unsupported/limited mode and omit misleading recovery instructions. Handle the actual supported shell set explicitly; for unsupported shells use documented desktop integration or fail that hook step without claiming success.
+
+**Acceptance:** unsupported bootloaders never receive a purported verified Limine recovery guide; bash, fish, zsh, and unknown-shell cases either install an effective supported hook or report the limitation.
+
+### R28 — P2: Settings persistence has no atomicity or centralized schema
+
+**Evidence:** `lib/common.sh:147–170`. **Confirmed design debt.**
+
+`save_settings` truncates the live file and appends variable declarations incrementally. Interruption or disk failure can destroy the previous valid state. Save/load duplicate a long variable list, with no schema version or shared validation. `eval` makes ownership and permissions of this root-consumed executable configuration especially important, but the loader does not enforce that trust boundary itself.
+
+**Improve:** write a validated versioned settings snapshot to a same-directory temporary file and atomically replace it only on success. Centralize the variable schema and precedence rules; prefer a non-executable serialization or verify ownership/permissions and accepted types before evaluation. Separate detected runtime facts from user preferences.
+
+**Acceptance:** interrupted/failed persistence leaves the last valid settings intact; invalid types/values and untrusted files are rejected; adding a field updates one schema and round-trip tests cover fresh-process loading.
+
+### R29 — P3: Interface documentation contradicts production contracts
+
+**Evidence:** `INTERFACE_MAP.md:35,46–51,58,79–85`; current libraries/templates/Makefile. **Confirmed.**
+
+Examples include documenting `DETECTED_SUBVOL_MOUNTS` as a space-delimited subvolume string instead of an array of mount/subvolume pairs; listing a nonexistent `run_cmd`; describing template rendering as awk/sed; giving the wrong manifest filename; calling Deep Storage a subvolume although setup creates a directory; describing Pika sync as nightly and the stale guard as weekly although the templates specify weekly sync and daily checking; and listing scrub timers that the wizard does not install. Such errors encourage incorrect tests and maintenance changes.
+
+**Improve:** synchronize the interface map with code, document exact return/status and ownership contracts, distinguish installed features from future plans, and qualify README claims about independent layers, backup preservation, and verified recovery until their guarantees are tested.
+
+**Acceptance:** every documented global, helper, installed unit, schedule, resource type, and state path has a corresponding current implementation or is clearly marked as planned.
+
+### R30 — P3: Global coupling, duplication, and long procedural blocks amplify defect risk
+
+**Evidence:** `wizard.sh` (866 lines), `lib/layer4_cloud.sh` (503 lines), `lib/validate.sh` (504 lines), `lib/runbooks.sh` (334 lines); duplicated recovery and snapshot-name logic in templates. **Confirmed clean-code debt.**
+
+The module split is useful, but major procedures still combine detection, UI, authorization, rendering, privileged mutation, validation, and reporting. Dynamically scoped globals carry context implicitly; configured state has multiple meanings; filename extensions select escaping rules; copied recovery blocks and duplicated hashing rules drift despite an advertised authoritative naming helper. Broad `|| true` suppressions and historical audit comments often substitute for an explicit failure policy.
+
+**Improve:** after the safety fixes, extract small functions around observable contracts: detect plan, authorize plan, apply resource transaction, validate completion, publish outcome. Pass explicit context/arguments, centralize snapshot metadata and resource ownership, and share tested recovery fragments without creating a large generic framework. Give temporary mounts, locks, workers, and traps a clear lifecycle.
+
+**Acceptance:** tests exercise the extracted production functions; each mutation declares rollback/cleanup and failure behavior; one naming implementation drives producers and consumers; routine cleanup failures are distinguishable from critical failures.
+
+### R31 — P3: The normal quality gate omits VM scripts and runtime prerequisites
+
+**Evidence:** `Makefile:6–14`; `.github/workflows/lint.yml`; supplemental lint result. **Confirmed.**
+
+The ShellCheck target omits VM shell scripts, allowing that tooling to accumulate lint debt independently. `git diff --check` on a clean CI checkout does not inspect whitespace already committed in a PR. The test target invokes whichever `bash` is on PATH without a minimum-version check, so macOS contributors see an opaque parser failure before tests. The code also relies on GNU/Linux tools and flags, not a portable zero-dependency environment.
+
+**Improve:** include VM scripts in lint, address warnings with narrowly justified suppressions only where appropriate, check the relevant committed diff in CI, and document/check the supported Bash/GNU-tool runtime. Supply a reproducible Linux development/test command without requiring changes to the user's host.
+
+**Acceptance:** VM scripts are in the standard gate; a committed whitespace regression fails the PR check; unsupported local runtime produces a clear prerequisite message; documented Linux test instructions reproduce CI.
+
+## Newly introduced or expanded technical debt
+
+The local comparison with `29689a2` establishes the following changes; other findings should not automatically be blamed on the latest merge.
+
+| Change | Introduced/expanded concern | Required cleanup |
+| --- | --- | --- |
+| Selectable persisted retention (`56bda9b`) | Retention fields were added to save/load but initialization defeats ordinary reload; auto-pruning increases the consequence of a wrong policy. | R15, R23, R28: test fresh-process precedence and generation-based retention before deleting remote history. |
+| Signature-based adoption in `backup_file` | Shared files and preserved runbooks become whole-file deletion/restoration targets. | R03: typed ownership, separate backup and adoption operations, repeat-install/uninstall tests. |
+| CachyOS/Limine scope reduction (`61f7494`, `03f7ea0`) | zsh hook support was removed although distro scope does not establish user shell; remaining soft platform checks disagree with hardcoded guides. | R27: explicit supported feature/shell boundaries and matching recovery output. |
+| Repeated audit/VM fixes | CLI UI display guards and runner exit propagation improve individual symptoms, but do not prove headless startup or real Layer 4 execution. | R22, R25, R31: execute real entry points and rendered artifacts, not substitute algorithms or fallback templates. |
+
+Positive recent changes should be retained: generic manifest processing now explicitly skips `/etc/fstab`; dry-run simulation has terminating signal handlers; layer dependency checks and safer naming were introduced; and the VM runner has better failure propagation. The report does not reassert removed GRUB/Ubuntu support as missing functionality or require widening the stated platform scope.
+
+## Recommended remediation sequence
+
+1. **Contain destructive behavior:** R01–R04. Disable automatic unowned/nonempty resource deletion and whole shared-file adoption. Add production-path regression tests before refactoring these operations.
+2. **Repair executable recovery contracts:** R05–R10 and R21. Test on disposable disks, including preserved layout, different IDs, fresh shells, encryption, and actual systemd parsing.
+3. **Make outcomes truthful:** R11–R19. Introduce explicit failure/completion state, correct retention precedence, checked atomic writes, physical-separation checks, and retryable uninstall.
+4. **Prove offsite recoverability:** R20 and R22. Preserve verified generations and demonstrate interrupted-sync survival plus fresh-disk restore and boot.
+5. **Finish operational workflows and clean the campsite:** R23–R31. Fix ordering/signals/headless behavior, fill recovery-guide gaps, then simplify repeated logic and synchronize docs/CI.
+
+### Release-quality acceptance checklist
+
+- No destructive operation acts on unowned or unexpectedly populated resources without separate informed authorization.
+- Cancellation or failed writes preserve the original fstab, settings, user shell content, and prior configuration.
+- Required setup failures cannot disappear as skipped checks or successful downstream setup.
+- Backup freshness means a complete, verified generation, not merely a timer/configuration or one uploaded subvolume.
+- An interrupted cloud update still leaves a documented known-good recovery point.
+- Generated recovery instructions execute on fresh supported media and boot the restored CachyOS/Limine installation.
+- Repeated setup and uninstall preserve user edits, retained backups, runbooks, and preexisting service states.
+- CI exercises the production paths and rendered artifacts that implement these guarantees.
+
+Until these conditions are demonstrated, the appropriate quality label is **promising implementation with significant safety and recoverability gaps**, not verified production-grade backup software.
